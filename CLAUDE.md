@@ -44,7 +44,7 @@ effect[DB, Log] function save_user(name: String) -> Int64 {
 }
 ```
 
-Known effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`
+Known effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`
 
 ### Control flow — match only
 Clarity has NO if/else, NO loops. Use `match` for all branching:
@@ -116,7 +116,37 @@ npx tsx src/index.ts compile file.clarity --emit-ast
 
 # Run tests
 npm test
+
+# Run Clarity test functions (self-healing test runner)
+npx tsx src/index.ts test file.clarity
+npx tsx src/index.ts test file.clarity --json      # machine-readable output
+npx tsx src/index.ts test file.clarity --fail-fast  # stop on first failure
 ```
+
+### Self-healing test system
+Write tests inline with code using `effect[Test]` functions. Test functions must:
+- Start with `test_` prefix
+- Declare `effect[Test]`
+- Take zero parameters
+- Return `Unit`
+
+```clarity
+function add(a: Int64, b: Int64) -> Int64 { a + b }
+
+effect[Test] function test_add() -> Unit {
+  assert_eq(add(2, 3), 5);
+  assert_eq(add(0, 0), 0)
+}
+```
+
+Available assertions (all require `Test` effect):
+- `assert_eq(actual: Int64, expected: Int64) -> Unit`
+- `assert_eq_float(actual: Float64, expected: Float64) -> Unit` (epsilon 1e-9)
+- `assert_eq_string(actual: String, expected: String) -> Unit`
+- `assert_true(condition: Bool) -> Unit`
+- `assert_false(condition: Bool) -> Unit`
+
+Failures produce structured output with `actual`, `expected`, `function`, `location`, and `fix_hint` fields — designed for an LLM to parse, fix the code, and re-run (self-healing loop). Use `--json` for machine consumption.
 
 ## Known gaps / missing features
 
@@ -137,9 +167,21 @@ The spec presents `Option<T>` with `Some`/`None` as built-in, but users must man
 ### Record field access codegen is stubbed
 `record.field` (MemberExpr) returns `i32.const 0` in the codegen — records cannot be used at runtime.
 
+### Mutable binding reassignment not implemented
+`let mut` declarations parse and type-check, but there is no assignment operator in the parser or codegen. `let mut x = 1; x = x + 1;` will fail to parse — reassignment syntax does not exist yet.
+
+### No module system (import/export)
+The compiler processes a single file at a time. There are no import/export keywords, no file dependency resolution, and no module linking. Programs cannot span multiple `.clarity` files.
+
+### Named arguments are not semantically checked
+The parser accepts named arguments (`foo(name: value)`), but the checker ignores the name entirely and matches arguments by position only. Passing arguments in the wrong order with names will silently use positional semantics.
+
+### Float64 modulo not implemented
+The `%` operator works for `Int64` but the codegen has no case for `Float64` modulo — it will produce incorrect output or error at runtime.
+
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
 - `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
 - `examples/` — Example Clarity programs
-- `tests/` — Test suite (75 tests)
+- `tests/` — Test suite (79 tests)
 - `docs/grammar.peg` — Formal grammar

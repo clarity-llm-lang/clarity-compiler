@@ -433,7 +433,13 @@ export class CodeGenerator {
         for (const stmt of expr.statements) {
           const generated = this.generateExpr(stmt);
           if (stmt.kind !== "LetExpr") {
-            stmts.push(this.mod.drop(generated));
+            // Only drop if the expression produces a value (not void/none)
+            const stmtType = this.inferExprType(stmt);
+            if (stmtType.kind === "Unit") {
+              stmts.push(generated);
+            } else {
+              stmts.push(this.mod.drop(generated));
+            }
           } else {
             stmts.push(generated);
           }
@@ -1164,6 +1170,9 @@ export class CodeGenerator {
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
+      // Test assertions
+      assert_eq: UNIT, assert_eq_float: UNIT, assert_eq_string: UNIT,
+      assert_true: UNIT, assert_false: UNIT,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

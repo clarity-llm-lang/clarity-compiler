@@ -171,7 +171,7 @@ effect[DB] function good() -> String {
 }
 ```
 
-Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`
+Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`
 
 ---
 
@@ -202,6 +202,46 @@ These messages are concise, actionable, and optimized for LLM self-correction.
 
 ---
 
+## Self-Healing Test System
+
+Clarity includes a built-in test framework designed for LLM self-correction. Write tests inline with your code using `effect[Test]` functions:
+
+```
+module Math
+
+function add(a: Int64, b: Int64) -> Int64 { a + b }
+
+effect[Test] function test_add() -> Unit {
+  assert_eq(add(2, 3), 5);
+  assert_eq(add(0, 0), 0);
+  assert_eq(add(-1, 1), 0)
+}
+```
+
+```bash
+$ clarityc test math.clarity
+[PASS] test_add (3 assertions)
+
+1 tests, 1 passed, 0 failed
+```
+
+When tests fail, the output is structured for LLM consumption:
+
+```
+[FAIL] test_broken
+  assertion_failed: assert_eq
+  actual: -1
+  expected: 5
+  function: test_broken
+  fix_hint: "Expected Int64 value 5 but got -1. Check arithmetic logic and edge cases."
+```
+
+The `--json` flag outputs machine-parseable JSON, enabling a **compile → test → fix** self-healing loop where the LLM reads structured failures, modifies the code, and re-runs until all tests pass.
+
+Available assertions: `assert_eq` (Int64), `assert_eq_float` (Float64), `assert_eq_string` (String), `assert_true` (Bool), `assert_false` (Bool). All require `effect[Test]`.
+
+---
+
 ## Installation
 
 ```bash
@@ -220,6 +260,13 @@ npx tsx src/index.ts compile myfile.clarity
 npx tsx src/index.ts run myfile.clarity -f function_name -a arg1 arg2
 ```
 
+### Run inline tests (self-healing test runner)
+```bash
+npx tsx src/index.ts test myfile.clarity            # run test functions
+npx tsx src/index.ts test myfile.clarity --json      # machine-readable output
+npx tsx src/index.ts test myfile.clarity --fail-fast  # stop on first failure
+```
+
 ### Other commands
 ```bash
 npx tsx src/index.ts compile myfile.clarity --check-only   # type-check only
@@ -227,9 +274,9 @@ npx tsx src/index.ts compile myfile.clarity --emit-wat      # show WASM text for
 npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 ```
 
-### Run tests
+### Run compiler tests
 ```bash
-npm test    # 66 tests across lexer, parser, type checker, and end-to-end
+npm test    # 79 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -280,14 +327,14 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 66 tests
+└── tests/                  # 79 tests
 ```
 
 ---
 
 ## Current Status
 
-**Working (Milestones 0–3):**
+**Working:**
 - Int64 and Float64 arithmetic
 - Boolean logic and comparisons
 - Pattern matching on booleans and union types
@@ -297,14 +344,19 @@ clarity/
 - Recursive function calls
 - Effect system with compile-time enforcement
 - Record and union type declarations
-- String literals, concatenation, and equality in WASM linear memory
+- Union constructor and pattern matching codegen
+- String literals, concatenation, equality, length, substring, char_at
+- Type conversions (int_to_float, float_to_int, int_to_string, etc.)
+- Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
+- Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
 
 **Planned:**
-- Record/union values in linear memory
-- Standard library (Option, Result, List operations)
+- Record field access codegen
+- List operations codegen
+- Mutable binding reassignment
 - Module imports
 - Higher-order functions
 

@@ -9,6 +9,7 @@ export const KNOWN_EFFECTS = new Set([
   "Random",
   "Log",
   "FileSystem",
+  "Test",
 ]);
 
 export function validateEffectNames(effects: string[], span: Span): Diagnostic[] {
