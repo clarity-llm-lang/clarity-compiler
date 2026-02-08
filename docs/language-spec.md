@@ -1,6 +1,6 @@
 # Clarity Language Specification
 
-**Version:** 0.1.0
+**Version:** 0.2.1
 **Status:** Draft — LLM-optimized programming language
 
 ---
@@ -306,7 +306,8 @@ The effect system tracks **side effects** at the type level. A function that rea
 | `Time` | Getting current time, sleeping |
 | `Random` | Random number generation |
 | `Log` | Logging output |
-| `FileSystem` | File reads and writes |
+| `FileSystem` | File reads and writes, stdin, command-line arguments, process control |
+| `Test` | Test assertions (used by the self-healing test system) |
 
 ### 6.3 Rules
 
@@ -447,6 +448,141 @@ error: Clarity does not have 'if' expressions
 
 ---
 
+## 11. Built-in Functions
+
+### 11.1 I/O and Logging (require `Log` effect)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `print_string(s)` | `String -> Unit` | Print a string to stdout |
+| `print_int(n)` | `Int64 -> Unit` | Print an integer to stdout |
+| `print_float(n)` | `Float64 -> Unit` | Print a float to stdout |
+| `log_info(s)` | `String -> Unit` | Log at info level |
+| `log_warn(s)` | `String -> Unit` | Log at warning level |
+
+### 11.2 I/O Primitives (require `FileSystem` effect)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `read_line()` | `-> String` | Read one line from stdin |
+| `read_all_stdin()` | `-> String` | Read all of stdin to a string |
+| `read_file(path)` | `String -> String` | Read entire file as string |
+| `write_file(path, content)` | `String, String -> Unit` | Write string to file |
+| `get_args()` | `-> List<String>` | Get command-line arguments |
+| `exit(code)` | `Int64 -> Unit` | Exit process with status code |
+
+Example:
+```
+effect[FileSystem, Log] function main() -> Unit {
+  let input = read_all_stdin();
+  let args = get_args();
+  let content = read_file("config.txt");
+  write_file("output.txt", content);
+  print_string("Done: " ++ int_to_string(string_length(input)) ++ " bytes read")
+}
+```
+
+### 11.3 String Operations
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `string_concat(a, b)` | `String, String -> String` | Concatenate (also `++` operator) |
+| `string_eq(a, b)` | `String, String -> Bool` | String equality |
+| `string_length(s)` | `String -> Int64` | Length in characters |
+| `substring(s, start, len)` | `String, Int64, Int64 -> String` | Extract substring |
+| `char_at(s, i)` | `String, Int64 -> String` | Character at index |
+
+### 11.4 Type Conversions
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `int_to_float(n)` | `Int64 -> Float64` | Integer to float |
+| `float_to_int(n)` | `Float64 -> Int64` | Float to integer (truncates) |
+| `int_to_string(n)` | `Int64 -> String` | Integer to string |
+| `float_to_string(n)` | `Float64 -> String` | Float to string |
+| `string_to_int(s)` | `String -> Int64` | Parse string to integer (0 on failure) |
+| `string_to_float(s)` | `String -> Float64` | Parse string to float (0.0 on failure) |
+
+### 11.5 Math
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `abs_int(n)` | `Int64 -> Int64` | Absolute value |
+| `min_int(a, b)` | `Int64, Int64 -> Int64` | Minimum |
+| `max_int(a, b)` | `Int64, Int64 -> Int64` | Maximum |
+| `sqrt(n)` | `Float64 -> Float64` | Square root |
+| `pow(base, exp)` | `Float64, Float64 -> Float64` | Power |
+| `floor(n)` | `Float64 -> Float64` | Floor |
+| `ceil(n)` | `Float64 -> Float64` | Ceiling |
+
+### 11.6 List Operations
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `length(list)` | `List<T> -> Int64` | Number of elements |
+| `head(list)` | `List<T> -> T` | First element |
+| `tail(list)` | `List<T> -> List<T>` | All elements except first |
+| `append(list, elem)` | `List<T>, T -> List<T>` | Add element to end |
+| `concat(a, b)` | `List<T>, List<T> -> List<T>` | Concatenate two lists |
+| `reverse(list)` | `List<T> -> List<T>` | Reverse a list |
+
+---
+
+## 12. Self-Healing Test System
+
+Clarity includes a built-in test framework designed for LLM self-correction loops.
+
+### 12.1 Writing Tests
+
+Test functions must:
+- Start with the `test_` prefix
+- Declare `effect[Test]`
+- Take zero parameters
+- Return `Unit`
+
+```
+function add(a: Int64, b: Int64) -> Int64 { a + b }
+
+effect[Test] function test_add() -> Unit {
+  assert_eq(add(2, 3), 5);
+  assert_eq(add(0, 0), 0)
+}
+```
+
+### 12.2 Assertions (require `Test` effect)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `assert_eq(actual, expected)` | `Int64, Int64 -> Unit` | Assert integers equal |
+| `assert_eq_float(actual, expected)` | `Float64, Float64 -> Unit` | Assert floats equal (epsilon 1e-9) |
+| `assert_eq_string(actual, expected)` | `String, String -> Unit` | Assert strings equal |
+| `assert_true(condition)` | `Bool -> Unit` | Assert condition is True |
+| `assert_false(condition)` | `Bool -> Unit` | Assert condition is False |
+
+### 12.3 Running Tests
+
+```bash
+clarityc test file.clarity              # run tests, human-readable output
+clarityc test file.clarity --json       # machine-readable JSON output
+clarityc test file.clarity --fail-fast  # stop on first failure
+```
+
+### 12.4 Failure Output
+
+When a test fails, the output includes structured fields for LLM consumption:
+```
+[FAIL] test_broken
+  assertion_failed: assert_eq
+  actual: -1
+  expected: 5
+  function: test_broken
+  fix_hint: "Expected Int64 value 5 but got -1. Check arithmetic logic and edge cases."
+```
+
+The `--json` flag outputs machine-parseable JSON with `actual`, `expected`, `function`, `location`, and `fix_hint` fields, enabling a **compile → test → fix** self-healing loop.
+
+---
+
 ## Appendix A: Complete Grammar
 
 See `docs/grammar.peg` for the formal PEG grammar.
@@ -524,4 +660,52 @@ effect[DB, Log] function authenticate(
 
 // This would NOT compile — missing DB effect:
 // function bad() -> AuthResult { authenticate("a", "b") }
+```
+
+### B.4 I/O and CLI Programs
+```
+module WordCount
+
+function count_chars(s: String, i: Int64, ch: String, acc: Int64) -> Int64 {
+  match i >= string_length(s) {
+    True -> acc,
+    False -> {
+      let next = match string_eq(char_at(s, i), ch) {
+        True -> acc + 1,
+        False -> acc
+      };
+      count_chars(s, i + 1, ch, next)
+    }
+  }
+}
+
+effect[FileSystem, Log] function main() -> Unit {
+  let input = read_all_stdin();
+  let spaces = count_chars(input, 0, " ", 0);
+  let newlines = count_chars(input, 0, "\n", 0);
+  let words = match string_length(input) > 0 {
+    True -> spaces + newlines + 1,
+    False -> 0
+  };
+  print_string("words: " ++ int_to_string(words))
+}
+```
+
+### B.5 Self-Healing Tests
+```
+module StringUtils
+
+function repeat(s: String, n: Int64) -> String {
+  match n <= 0 {
+    True -> "",
+    False -> s ++ repeat(s, n - 1)
+  }
+}
+
+effect[Test] function test_repeat() -> Unit {
+  assert_eq_string(repeat("ab", 3), "ababab");
+  assert_eq_string(repeat("x", 1), "x");
+  assert_eq_string(repeat("hi", 0), "");
+  assert_eq(string_length(repeat("abc", 4)), 12)
+}
 ```
