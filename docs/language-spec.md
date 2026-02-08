@@ -583,6 +583,23 @@ The `--json` flag outputs machine-parseable JSON with `actual`, `expected`, `fun
 
 ---
 
+## 13. Introspection
+
+The compiler provides machine-readable introspection of all language capabilities via the `introspect` command:
+
+```bash
+clarityc introspect              # full JSON: builtins, effects, types
+clarityc introspect --builtins   # built-in functions with signatures, docs, categories
+clarityc introspect --effects    # effects with their associated function lists
+clarityc introspect --types      # built-in types
+```
+
+Output is JSON designed for LLM consumption. LLMs can query the compiler's capabilities before generating code or proposing extensions.
+
+All built-in functions and effects are defined in a single registry file (`src/registry/builtins-registry.ts`). See `CLAUDE.md` for the contributor protocol for adding new built-ins.
+
+---
+
 ## Appendix A: Complete Grammar
 
 See `docs/grammar.peg` for the formal PEG grammar.

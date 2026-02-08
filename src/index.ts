@@ -3,6 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { compile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
 import { createRuntime } from "./codegen/runtime.js";
+import { CLARITY_BUILTINS, EFFECT_DEFINITIONS } from "./registry/builtins-registry.js";
+import { typeToString } from "./checker/types.js";
 
 const program = new Command()
   .name("clarityc")
@@ -315,5 +317,43 @@ function generateFixHint(failure: { kind: string; actual: string; expected: stri
       return `Assertion failed. Review the test logic.`;
   }
 }
+
+program
+  .command("introspect")
+  .description("Output language capabilities as JSON (for LLM consumption)")
+  .option("--builtins", "Show only built-in functions")
+  .option("--effects", "Show only effects")
+  .option("--types", "Show only built-in types")
+  .action((opts: Record<string, unknown>) => {
+    const builtins = CLARITY_BUILTINS.map((b) => ({
+      name: b.name,
+      params: b.params.map(typeToString),
+      returnType: typeToString(b.returnType),
+      effects: b.effects.length > 0 ? b.effects : undefined,
+      doc: b.doc,
+      category: b.category,
+    }));
+
+    const effects = EFFECT_DEFINITIONS.map((e) => ({
+      name: e.name,
+      description: e.description,
+      functions: CLARITY_BUILTINS.filter((b) => b.effects.includes(e.name)).map((b) => b.name),
+    }));
+
+    const types = [
+      "Int64", "Float64", "String", "Bool", "Bytes", "Timestamp", "Unit",
+      "List<T>", "Option<T>",
+    ];
+
+    if (opts.builtins) {
+      console.log(JSON.stringify({ builtins }, null, 2));
+    } else if (opts.effects) {
+      console.log(JSON.stringify({ effects }, null, 2));
+    } else if (opts.types) {
+      console.log(JSON.stringify({ types }, null, 2));
+    } else {
+      console.log(JSON.stringify({ version: "0.2.1", builtins, effects, types }, null, 2));
+    }
+  });
 
 program.parse();

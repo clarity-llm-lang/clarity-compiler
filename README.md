@@ -267,6 +267,14 @@ npx tsx src/index.ts test myfile.clarity --json      # machine-readable output
 npx tsx src/index.ts test myfile.clarity --fail-fast  # stop on first failure
 ```
 
+### Introspect language capabilities (for LLM consumption)
+```bash
+npx tsx src/index.ts introspect              # full JSON: builtins, effects, types
+npx tsx src/index.ts introspect --builtins   # built-in functions with signatures and docs
+npx tsx src/index.ts introspect --effects    # effects with their function lists
+npx tsx src/index.ts introspect --types      # built-in types
+```
+
 ### Other commands
 ```bash
 npx tsx src/index.ts compile myfile.clarity --check-only   # type-check only
@@ -296,6 +304,9 @@ Then just describe what you want. Claude will write Clarity.
 ### With any LLM
 Include the [language spec](docs/language-spec.md) in your system prompt or context, then ask the LLM to generate Clarity code. The spec is designed to be compact enough to fit in a single context window.
 
+### Extending Clarity (for LLMs)
+Clarity is designed to be extended by LLMs. The `introspect` command lets any LLM discover current capabilities as JSON, and the [contributor protocol in CLAUDE.md](CLAUDE.md#extending-the-compiler) describes how to add new built-in functions (2-file edit) or new effects. All built-in functions and effects are defined in a single registry (`src/registry/builtins-registry.ts`).
+
 ---
 
 ## Compilation Target
@@ -321,6 +332,7 @@ clarity/
 │   ├── lexer/              # Tokenizer
 │   ├── parser/             # Recursive descent + Pratt parser
 │   ├── checker/            # Type checker, effect system, exhaustiveness
+│   ├── registry/           # Built-in function & effect registry (single source of truth)
 │   ├── codegen/            # WASM code generation via binaryen
 │   └── errors/             # Diagnostics and error formatting
 ├── docs/
