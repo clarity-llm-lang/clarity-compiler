@@ -1,0 +1,17 @@
+module FileCopy
+
+// Copy a file from one path to another.
+// Demonstrates: get_args, read_file, write_file, pattern matching on lists.
+//
+// Usage:
+//   npx tsx src/index.ts run examples/file_copy.clarity -f main -a '"source.txt"' '"dest.txt"'
+
+effect[FileSystem, Log] function copy(src: String, dst: String) -> Unit {
+  let content = read_file(src);
+  write_file(dst, content);
+  print_string("Copied " ++ src ++ " -> " ++ dst)
+}
+
+effect[FileSystem, Log] function main(src: String, dst: String) -> Unit {
+  copy(src, dst)
+}

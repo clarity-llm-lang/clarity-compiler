@@ -1,0 +1,53 @@
+module WordCount
+
+// A simple word counter that reads from stdin and prints statistics.
+// Demonstrates: read_all_stdin, string operations, recursion, effects.
+//
+// Usage:
+//   echo "hello world foo bar" | npx tsx src/index.ts run examples/wordcount.clarity -f count_words
+
+// Count whitespace characters (space or newline) to estimate word count
+function count_separators(s: String, i: Int64, acc: Int64) -> Int64 {
+  match i >= string_length(s) {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, i);
+      let is_space = string_eq(ch, " ");
+      let is_newline = string_eq(ch, "\n");
+      let next = match is_space or is_newline {
+        True -> acc + 1,
+        False -> acc
+      };
+      count_separators(s, i + 1, next)
+    }
+  }
+}
+
+// Count newlines to get line count
+function count_lines(s: String, i: Int64, acc: Int64) -> Int64 {
+  match i >= string_length(s) {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, i);
+      let next = match string_eq(ch, "\n") {
+        True -> acc + 1,
+        False -> acc
+      };
+      count_lines(s, i + 1, next)
+    }
+  }
+}
+
+// Main entry point: read stdin, count chars/words/lines, print results
+effect[FileSystem, Log] function count_words() -> Unit {
+  let input = read_all_stdin();
+  let chars = string_length(input);
+  let lines = count_lines(input, 0, 0);
+  let words = match chars > 0 {
+    True -> count_separators(input, 0, 0) + 1,
+    False -> 0
+  };
+  print_string("lines: " ++ int_to_string(lines));
+  print_string("words: " ++ int_to_string(words));
+  print_string("chars: " ++ int_to_string(chars))
+}

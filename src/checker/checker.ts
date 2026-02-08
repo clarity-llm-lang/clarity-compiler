@@ -128,6 +128,14 @@ export class Checker {
     defFn("concat", [LIST_INT, LIST_INT], LIST_INT);
     defFn("reverse", [LIST_INT], LIST_INT);
 
+    // --- I/O primitives (require FileSystem effect) ---
+    defFn("read_line", [], STRING, ["FileSystem"]);
+    defFn("read_all_stdin", [], STRING, ["FileSystem"]);
+    defFn("read_file", [STRING], STRING, ["FileSystem"]);
+    defFn("write_file", [STRING, STRING], UNIT, ["FileSystem"]);
+    defFn("get_args", [], { kind: "List" as const, element: STRING }, ["FileSystem"]);
+    defFn("exit", [INT64], UNIT, ["FileSystem"]);
+
     // --- Test assertions (require Test effect) ---
     defFn("assert_eq", [INT64, INT64], UNIT, ["Test"]);
     defFn("assert_eq_float", [FLOAT64, FLOAT64], UNIT, ["Test"]);
@@ -484,10 +492,14 @@ export class Checker {
         // Check argument types
         for (let i = 0; i < expr.args.length; i++) {
           const argType = this.checkExpr(expr.args[i].value);
-          if (!typesEqual(argType, calleeType.params[i])) {
+          const paramType = calleeType.params[i];
+          // Allow any List<T> to match any List<U> — proper generic
+          // checking requires parametric polymorphism (Phase 2).
+          const listsCompatible = argType.kind === "List" && paramType.kind === "List";
+          if (!listsCompatible && !typesEqual(argType, paramType)) {
             this.diagnostics.push(
               error(
-                `Argument ${i + 1}: expected ${typeToString(calleeType.params[i])} but got ${typeToString(argType)}`,
+                `Argument ${i + 1}: expected ${typeToString(paramType)} but got ${typeToString(argType)}`,
                 expr.args[i].span,
               ),
             );

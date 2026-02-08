@@ -7,7 +7,7 @@ import { createRuntime } from "./codegen/runtime.js";
 const program = new Command()
   .name("clarityc")
   .description("Clarity language compiler — optimized for LLM code generation, compiles to WASM")
-  .version("0.2.0");
+  .version("0.2.1");
 
 program
   .command("compile <file>")
@@ -84,7 +84,9 @@ program
       }
 
       // Create runtime with host functions for strings, print, logging
-      const runtime = createRuntime();
+      // Pass CLI args through so Clarity programs can access them via get_args()
+      const cliArgs = (opts.args as string[]) ?? [];
+      const runtime = createRuntime({ argv: cliArgs });
       const { instance } = await WebAssembly.instantiate(result.wasm, runtime.imports);
 
       // Bind to the WASM module's exported memory
@@ -119,6 +121,9 @@ program
       });
 
       const resultValue = fn(...args);
+
+      // Don't print undefined/void results (Unit return type)
+      if (resultValue === undefined) return;
 
       // If result is an i32, it might be a string pointer — try to read it
       if (typeof resultValue === "number" && resultValue > 0 && resultValue < runtime.memory.buffer.byteLength) {

@@ -65,6 +65,14 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "list_concat", importModule: "env", importName: "list_concat", params: binaryen.createType([i32, i32, i32]), result: i32 },
     { name: "list_reverse", importModule: "env", importName: "list_reverse", params: pair_i32, result: i32 },
 
+    // --- I/O primitives ---
+    { name: "read_line", importModule: "env", importName: "read_line", params: binaryen.none, result: i32 },
+    { name: "read_all_stdin", importModule: "env", importName: "read_all_stdin", params: binaryen.none, result: i32 },
+    { name: "read_file", importModule: "env", importName: "read_file", params: i32, result: i32 },
+    { name: "write_file", importModule: "env", importName: "write_file", params: pair_i32, result: none },
+    { name: "get_args", importModule: "env", importName: "get_args", params: binaryen.none, result: i32 },
+    { name: "exit", importModule: "env", importName: "exit", params: i64, result: none },
+
     // --- Test assertions ---
     { name: "assert_eq", importModule: "env", importName: "assert_eq", params: pair_i64, result: none },
     { name: "assert_eq_float", importModule: "env", importName: "assert_eq_float", params: pair_f64, result: none },

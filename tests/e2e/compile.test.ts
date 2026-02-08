@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { compile } from "../../src/compiler.js";
-import { createRuntime } from "../../src/codegen/runtime.js";
+import { createRuntime, type RuntimeConfig } from "../../src/codegen/runtime.js";
 
-function makeRuntime() {
-  return createRuntime();
+function makeRuntime(config?: RuntimeConfig) {
+  return createRuntime(config);
 }
 
-async function instantiate(wasm: Uint8Array) {
-  const runtime = makeRuntime();
+async function instantiate(wasm: Uint8Array, config?: RuntimeConfig) {
+  const runtime = makeRuntime(config);
   const { instance } = await WebAssembly.instantiate(wasm, runtime.imports);
   // Bind to the WASM module's exported memory
   const exportedMemory = instance.exports.memory as WebAssembly.Memory;
@@ -688,5 +688,121 @@ describe("end-to-end compilation", () => {
       expect(fn.body.resolvedType).toBeDefined();
       expect(fn.body.resolvedType!.kind).toBe("Int64");
     }
+  });
+
+  // ============================================================
+  // Phase 1.5: I/O Primitives
+  // ============================================================
+
+  it("read_line reads from stdin config", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function get_input() -> String {
+        read_line()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "hello world\nsecond line" });
+    const get_input = instance.exports.get_input as () => number;
+    const ptr = get_input();
+    expect(runtime.readString(ptr)).toBe("hello world");
+  });
+
+  it("read_line requires FileSystem effect", () => {
+    const source = `
+      module Test
+      function bad() -> String {
+        read_line()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("effect");
+  });
+
+  it("get_args returns command-line arguments as list", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function arg_count() -> Int64 {
+        let args = get_args();
+        list_length(args)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!, { argv: ["hello", "world", "foo"] });
+    const arg_count = instance.exports.arg_count as () => bigint;
+    expect(arg_count()).toBe(3n);
+  });
+
+  it("read_file reads file content via config fs", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function load(path: String) -> String {
+        read_file(path)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const mockFs = {
+      readFileSync: (path: string, _encoding: string) => {
+        if (path === "test.txt") return "file content here";
+        return "";
+      },
+      writeFileSync: () => {},
+    };
+    const { instance, runtime } = await instantiate(result.wasm!, { fs: mockFs });
+    const load = instance.exports.load as (ptr: number) => number;
+    const pathPtr = runtime.writeString("test.txt");
+    const resultPtr = load(pathPtr);
+    expect(runtime.readString(resultPtr)).toBe("file content here");
+  });
+
+  it("write_file writes content via config fs", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function save(path: String, content: String) -> Unit {
+        write_file(path, content)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const written: Record<string, string> = {};
+    const mockFs = {
+      readFileSync: () => "",
+      writeFileSync: (path: string, content: string) => { written[path] = content; },
+    };
+    const { instance, runtime } = await instantiate(result.wasm!, { fs: mockFs });
+    const save = instance.exports.save as (pathPtr: number, contentPtr: number) => void;
+    const pathPtr = runtime.writeString("out.txt");
+    const contentPtr = runtime.writeString("hello from clarity");
+    save(pathPtr, contentPtr);
+    expect(written["out.txt"]).toBe("hello from clarity");
+  });
+
+  it("read_all_stdin reads entire stdin", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function slurp() -> String {
+        read_all_stdin()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "line1\nline2\nline3" });
+    const slurp = instance.exports.slurp as () => number;
+    const ptr = slurp();
+    expect(runtime.readString(ptr)).toBe("line1\nline2\nline3");
   });
 });
