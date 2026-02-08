@@ -1,0 +1,33 @@
+import binaryen from "binaryen";
+import type { ClarityType } from "../checker/types.js";
+
+export function clarityTypeToWasm(type: ClarityType): binaryen.Type {
+  switch (type.kind) {
+    case "Int64": return binaryen.i64;
+    case "Float64": return binaryen.f64;
+    case "Bool": return binaryen.i32;
+    case "Unit": return binaryen.none;
+    // Future: records, unions, strings → i32 pointers into linear memory
+    case "Record":
+    case "Union":
+    case "String":
+    case "Bytes":
+    case "List":
+    case "Option":
+      return binaryen.i32;
+    default:
+      return binaryen.i32;
+  }
+}
+
+export function isNumericType(type: ClarityType): boolean {
+  return type.kind === "Int64" || type.kind === "Float64";
+}
+
+export function isI64(type: ClarityType): boolean {
+  return type.kind === "Int64";
+}
+
+export function isF64(type: ClarityType): boolean {
+  return type.kind === "Float64";
+}

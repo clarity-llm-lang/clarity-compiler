@@ -1,0 +1,26 @@
+module Fibonacci
+
+function fibonacci(n: Int64) -> Int64 {
+  match n <= 1 {
+    True -> n,
+    False -> {
+      let a = fibonacci(n - 1);
+      let b = fibonacci(n - 2);
+      a + b
+    }
+  }
+}
+
+function abs(n: Int64) -> Int64 {
+  match n >= 0 {
+    True -> n,
+    False -> 0 - n
+  }
+}
+
+function max(a: Int64, b: Int64) -> Int64 {
+  match a >= b {
+    True -> a,
+    False -> b
+  }
+}
