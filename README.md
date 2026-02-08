@@ -382,7 +382,7 @@ Fix correctness bugs in the type system and codegen so that existing features ac
 - Float64 modulo operator
 - string_to_int / string_to_float return proper Option-tagged values
 
-### Phase 1.5 — I/O Primitives (v0.2.1)
+### Phase 1.5 — I/O Primitives (v0.2.1) -- DONE
 Make Clarity usable for real CLI programs.
 - stdin/stdout: `read_line()`, `read_all_stdin()`
 - File I/O: `read_file(path)`, `write_file(path, content)`
