@@ -258,9 +258,30 @@ Make programs viable beyond demos.
 4. **Multi-line string literals**.
 5. **REPL / browser playground**.
 
+## Workflow rules
+
+### Documentation must stay in sync
+After every implementation task, check and update these files if affected:
+- `README.md` — Current status, roadmap, test count, feature list
+- `docs/language-spec.md` — Language specification (built-in functions, effects, examples)
+- `docs/grammar.peg` — Formal grammar and built-in function inventory
+
+### Trunk-based development
+Use trunk-based development. Create a PR after every major task:
+1. Work on a short-lived feature branch
+2. Commit with a clear message describing the change
+3. Push and create a PR immediately after completing each major task
+4. Merge promptly — do not let branches live long
+
+### Test discipline
+- Run `npm test` before every commit
+- All tests must pass before pushing
+- Add e2e tests for every new feature or builtin
+
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
 - `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
 - `examples/` — Example Clarity programs
 - `tests/` — Test suite
 - `docs/grammar.peg` — Formal grammar
+- `docs/language-spec.md` — Full language specification
