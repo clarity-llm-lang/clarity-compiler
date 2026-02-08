@@ -3,6 +3,8 @@
 //
 // String memory layout: [length: u32 (4 bytes)][utf8 data: length bytes]
 // Strings are stored in WASM linear memory. A string pointer (i32) points to the length prefix.
+
+import * as nodeFs from "node:fs";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
 
 export interface RuntimeExports {
@@ -10,7 +12,19 @@ export interface RuntimeExports {
   __heap_base?: WebAssembly.Global;
 }
 
-export function createRuntime() {
+export interface RuntimeConfig {
+  /** Command-line arguments to expose via get_args() */
+  argv?: string[];
+  /** Stdin content (pre-read). If not provided, reads synchronously from process.stdin */
+  stdin?: string;
+  /** File system access. If not provided, uses Node.js fs */
+  fs?: {
+    readFileSync: (path: string, encoding: string) => string;
+    writeFileSync: (path: string, content: string) => void;
+  };
+}
+
+export function createRuntime(config: RuntimeConfig = {}) {
   // Memory is set after instantiation via bindMemory()
   let memory: WebAssembly.Memory = null!;
   let heapPtr = 1024; // start heap after data segment area
@@ -360,6 +374,99 @@ export function createRuntime() {
             testFunction: currentTestFunction,
           });
         }
+      },
+
+      // --- I/O primitives ---
+      read_line(): number {
+        if (config.stdin !== undefined) {
+          // Return the first line from pre-provided stdin
+          const newline = config.stdin.indexOf("\n");
+          if (newline === -1) {
+            const line = config.stdin;
+            config.stdin = "";
+            return writeString(line);
+          }
+          const line = config.stdin.substring(0, newline);
+          config.stdin = config.stdin.substring(newline + 1);
+          return writeString(line);
+        }
+        // Synchronous stdin read via Node.js
+        try {
+          const fs = nodeFs;
+          const buf = Buffer.alloc(4096);
+          const bytesRead = fs.readSync(0, buf, 0, buf.length, null);
+          const input = buf.toString("utf-8", 0, bytesRead);
+          const newline = input.indexOf("\n");
+          return writeString(newline === -1 ? input : input.substring(0, newline));
+        } catch {
+          return writeString("");
+        }
+      },
+
+      read_all_stdin(): number {
+        if (config.stdin !== undefined) {
+          const content = config.stdin;
+          config.stdin = "";
+          return writeString(content);
+        }
+        try {
+          const fs = nodeFs;
+          const chunks: Buffer[] = [];
+          const buf = Buffer.alloc(4096);
+          let bytesRead: number;
+          while ((bytesRead = fs.readSync(0, buf, 0, buf.length, null)) > 0) {
+            chunks.push(buf.subarray(0, bytesRead));
+          }
+          return writeString(Buffer.concat(chunks).toString("utf-8"));
+        } catch {
+          return writeString("");
+        }
+      },
+
+      read_file(pathPtr: number): number {
+        const path = readString(pathPtr);
+        try {
+          if (config.fs) {
+            return writeString(config.fs.readFileSync(path, "utf-8"));
+          }
+          const fs = nodeFs;
+          return writeString(fs.readFileSync(path, "utf-8"));
+        } catch (e: unknown) {
+          return writeString("");
+        }
+      },
+
+      write_file(pathPtr: number, contentPtr: number): void {
+        const path = readString(pathPtr);
+        const content = readString(contentPtr);
+        if (config.fs) {
+          config.fs.writeFileSync(path, content);
+          return;
+        }
+        nodeFs.writeFileSync(path, content);
+      },
+
+      get_args(): number {
+        const args = config.argv ?? [];
+        // Build a List<String> in WASM memory: [length: i32][ptr0: i32][ptr1: i32]...
+        // Each element is an i32 string pointer
+        const strPtrs = args.map(a => writeString(a));
+        const listSize = 4 + strPtrs.length * 4;
+        const listPtr = heapPtr;
+        heapPtr = (heapPtr + listSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const view = new DataView(memory.buffer);
+        view.setInt32(listPtr, strPtrs.length, true);
+        for (let i = 0; i < strPtrs.length; i++) {
+          view.setInt32(listPtr + 4 + i * 4, strPtrs[i], true);
+        }
+        return listPtr;
+      },
+
+      exit(code: bigint): void {
+        process.exit(Number(code));
       },
 
       list_reverse(ptr: number, elemSize: number): number {

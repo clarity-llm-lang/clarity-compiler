@@ -92,6 +92,45 @@ function calc(x: Int64) -> Int64 {
 - No `var` — use `let` (immutable) or `let mut` (mutable)
 - No implicit type conversions
 
+### I/O Primitives
+All I/O functions require the `FileSystem` effect.
+```
+// Read a line from stdin
+effect[FileSystem] function get_input() -> String {
+  read_line()
+}
+
+// Read all of stdin
+effect[FileSystem] function slurp() -> String {
+  read_all_stdin()
+}
+
+// Read/write files
+effect[FileSystem] function copy(src: String, dst: String) -> Unit {
+  let content = read_file(src);
+  write_file(dst, content)
+}
+
+// Access command-line arguments
+effect[FileSystem] function first_arg() -> String {
+  let args = get_args();
+  head(args)
+}
+
+// Exit with a status code
+effect[FileSystem] function bail() -> Unit {
+  exit(1)
+}
+```
+
+Available I/O builtins:
+- `read_line() -> String` — read one line from stdin
+- `read_all_stdin() -> String` — read all of stdin
+- `read_file(path: String) -> String` — read entire file as string
+- `write_file(path: String, content: String) -> Unit` — write string to file
+- `get_args() -> List<String>` — command-line arguments
+- `exit(code: Int64) -> Unit` — exit process with status code
+
 ### Comments
 ```
 // Single-line comments only
@@ -181,6 +220,14 @@ Make what exists actually correct.
 4. ✓ **Fix record type ambiguity** — Match record literals by field names AND field types for disambiguation.
 5. ✓ **Float64 modulo** — Delegates to JS runtime `f64_rem` since WASM has no `f64.rem`.
 6. **Mutable reassignment** — Deferred to Phase 2. Add `=` assignment to parser and codegen.
+
+### Phase 1.5 — I/O Primitives (v0.2.1)
+Make Clarity usable for real CLI programs before tackling the type system.
+1. **stdin/stdout** — `read_line() -> String`, `read_all_stdin() -> String` for reading input.
+2. **File I/O** — `read_file(path: String) -> String`, `write_file(path: String, content: String) -> Unit`.
+3. **Command-line arguments** — `get_args() -> List<String>` to access argv.
+4. **Process control** — `exit(code: Int64) -> Unit`.
+5. All I/O functions require `FileSystem` effect.
 
 ### Phase 2 — Type System Foundations (v0.3)
 Make the type system robust enough for real programs.

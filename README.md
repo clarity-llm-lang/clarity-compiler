@@ -276,7 +276,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 79 tests across lexer, parser, type checker, and end-to-end
+npm test    # 90 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -327,7 +327,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 79 tests
+└── tests/                  # 90 tests
 ```
 
 ---
@@ -351,6 +351,7 @@ clarity/
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
+- I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
@@ -368,6 +369,13 @@ Fix correctness bugs in the type system and codegen so that existing features ac
 - Record literal type matching uses declared type names
 - Float64 modulo operator
 - string_to_int / string_to_float return proper Option-tagged values
+
+### Phase 1.5 — I/O Primitives (v0.2.1)
+Make Clarity usable for real CLI programs.
+- stdin/stdout: `read_line()`, `read_all_stdin()`
+- File I/O: `read_file(path)`, `write_file(path, content)`
+- Command-line arguments: `get_args() -> List<String>`
+- Process control: `exit(code)`
 
 ### Phase 2 — Type System Foundations (v0.3)
 Make the type system robust enough for real programs.

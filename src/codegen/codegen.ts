@@ -1183,6 +1183,11 @@ export class CodeGenerator {
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
+      // I/O primitives
+      read_line: { kind: "String" }, read_all_stdin: { kind: "String" },
+      read_file: { kind: "String" }, write_file: UNIT,
+      get_args: { kind: "List", element: { kind: "String" } } as ClarityType,
+      exit: UNIT,
       // Test assertions
       assert_eq: UNIT, assert_eq_float: UNIT, assert_eq_string: UNIT,
       assert_true: UNIT, assert_false: UNIT,
