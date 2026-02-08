@@ -1,16 +1,9 @@
 import type { Span } from "../errors/diagnostic.js";
 import type { Diagnostic } from "../errors/diagnostic.js";
 import { error } from "../errors/diagnostic.js";
+import { getKnownEffectNames } from "../registry/builtins-registry.js";
 
-export const KNOWN_EFFECTS = new Set([
-  "DB",
-  "Network",
-  "Time",
-  "Random",
-  "Log",
-  "FileSystem",
-  "Test",
-]);
+export const KNOWN_EFFECTS = getKnownEffectNames();
 
 export function validateEffectNames(effects: string[], span: Span): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];

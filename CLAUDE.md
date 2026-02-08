@@ -160,6 +160,12 @@ npm test
 npx tsx src/index.ts test file.clarity
 npx tsx src/index.ts test file.clarity --json      # machine-readable output
 npx tsx src/index.ts test file.clarity --fail-fast  # stop on first failure
+
+# Introspect language capabilities (JSON output for LLM consumption)
+npx tsx src/index.ts introspect              # all capabilities
+npx tsx src/index.ts introspect --builtins   # built-in functions only
+npx tsx src/index.ts introspect --effects    # effects only
+npx tsx src/index.ts introspect --types      # built-in types only
 ```
 
 ### Self-healing test system
@@ -278,9 +284,38 @@ Use trunk-based development. Create a PR after every major task:
 - All tests must pass before pushing
 - Add e2e tests for every new feature or builtin
 
+## Extending the compiler
+
+### Discovering current capabilities
+Before adding features, query what already exists:
+```bash
+npx tsx src/index.ts introspect              # full JSON dump
+npx tsx src/index.ts introspect --builtins   # all built-in functions with signatures and docs
+npx tsx src/index.ts introspect --effects    # all effects with their function lists
+```
+
+### Adding a new built-in function
+1. **Registry entry** — Add to `CLARITY_BUILTINS` in `src/registry/builtins-registry.ts`
+   - Specify: name, params, returnType, effects, doc, category
+   - If a new effect is needed, also add to `EFFECT_DEFINITIONS`
+2. **Runtime implementation** — Add the JS function in `src/codegen/runtime.ts`
+   - Use `readString(ptr)` / `writeString(str)` for string handling
+   - Use `BigInt` for Int64, `number` for Float64/Bool
+3. **WASM import** (only if new parameter shape) — Add to `src/codegen/builtins.ts`
+   - Most functions follow existing patterns; only needed for novel param/result combos
+4. **Test** — Add an e2e test in `tests/`
+5. **Verify** — `npm test` and `npx tsx src/index.ts introspect --builtins`
+
+### Adding a new effect
+1. Add to `EFFECT_DEFINITIONS` in `src/registry/builtins-registry.ts`
+2. Add built-in functions for the effect (see above)
+3. The checker and introspection derive from the registry automatically
+
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
+- `src/registry/builtins-registry.ts` — Single source of truth for built-in functions and effects
 - `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
+- `src/codegen/builtins.ts` — WASM import declarations (codegen internals)
 - `examples/` — Example Clarity programs
 - `tests/` — Test suite
 - `docs/grammar.peg` — Formal grammar

@@ -12,6 +12,7 @@ import {
 import { Environment } from "./environment.js";
 import { validateEffectNames, checkEffectSafety } from "./effects.js";
 import { checkExhaustiveness } from "./exhaustiveness.js";
+import { CLARITY_BUILTINS } from "../registry/builtins-registry.js";
 
 export class Checker {
   private env: Environment = new Environment();
@@ -63,96 +64,25 @@ export class Checker {
       source: "<builtin>",
     };
 
-    // Helper to define a built-in function in the environment
-    const defFn = (
-      name: string,
-      params: ClarityType[],
-      returnType: ClarityType,
-      effects: string[] = [],
-    ) => {
-      this.env.define(name, {
-        name,
+    // Register all built-in functions from the central registry
+    for (const builtin of CLARITY_BUILTINS) {
+      this.env.define(builtin.name, {
+        name: builtin.name,
         type: {
           kind: "Function",
-          params,
-          returnType,
-          effects: new Set(effects),
+          params: builtin.params,
+          returnType: builtin.returnType,
+          effects: new Set(builtin.effects),
         },
         mutable: false,
         defined: builtinSpan,
       });
-    };
+    }
 
-    // --- I/O & Logging (require Log effect) ---
-    defFn("print_string", [STRING], UNIT, ["Log"]);
-    defFn("print_int", [INT64], UNIT, ["Log"]);
-    defFn("print_float", [FLOAT64], UNIT, ["Log"]);
-    defFn("log_info", [STRING], UNIT, ["Log"]);
-    defFn("log_warn", [STRING], UNIT, ["Log"]);
-
-    // --- String operations ---
-    defFn("string_concat", [STRING, STRING], STRING);
-    defFn("string_eq", [STRING, STRING], BOOL);
-    defFn("string_length", [STRING], INT64);
-    defFn("substring", [STRING, INT64, INT64], STRING);
-    defFn("char_at", [STRING, INT64], STRING);
-
-    // --- Type conversions ---
-    defFn("int_to_float", [INT64], FLOAT64);
-    defFn("float_to_int", [FLOAT64], INT64);
-    defFn("int_to_string", [INT64], STRING);
-    defFn("float_to_string", [FLOAT64], STRING);
-    // Note: string_to_int/string_to_float return raw values (0 on failure).
-    // Proper Option<T> return types require generics (Phase 2).
-    defFn("string_to_int", [STRING], INT64);
-    defFn("string_to_float", [STRING], FLOAT64);
-
-    // --- Math builtins ---
-    defFn("abs_int", [INT64], INT64);
-    defFn("min_int", [INT64, INT64], INT64);
-    defFn("max_int", [INT64, INT64], INT64);
-    defFn("sqrt", [FLOAT64], FLOAT64);
-    defFn("pow", [FLOAT64, FLOAT64], FLOAT64);
-    defFn("floor", [FLOAT64], FLOAT64);
-    defFn("ceil", [FLOAT64], FLOAT64);
-
-    // --- List operations ---
-    // These use List<Int64> as a placeholder type. The checker accepts
-    // any List<T> since Error type propagation handles mismatches gracefully.
-    const LIST_INT = { kind: "List" as const, element: INT64 };
-    defFn("list_length", [LIST_INT], INT64);
-    defFn("length", [LIST_INT], INT64);
-    defFn("head", [LIST_INT], INT64);
-    defFn("tail", [LIST_INT], LIST_INT);
-    defFn("append", [LIST_INT, INT64], LIST_INT);
-    defFn("concat", [LIST_INT, LIST_INT], LIST_INT);
-    defFn("reverse", [LIST_INT], LIST_INT);
-
-    // --- I/O primitives (require FileSystem effect) ---
-    defFn("read_line", [], STRING, ["FileSystem"]);
-    defFn("read_all_stdin", [], STRING, ["FileSystem"]);
-    defFn("read_file", [STRING], STRING, ["FileSystem"]);
-    defFn("write_file", [STRING, STRING], UNIT, ["FileSystem"]);
-    defFn("get_args", [], { kind: "List" as const, element: STRING }, ["FileSystem"]);
-    defFn("exit", [INT64], UNIT, ["FileSystem"]);
-
-    // --- Test assertions (require Test effect) ---
-    defFn("assert_eq", [INT64, INT64], UNIT, ["Test"]);
-    defFn("assert_eq_float", [FLOAT64, FLOAT64], UNIT, ["Test"]);
-    defFn("assert_eq_string", [STRING, STRING], UNIT, ["Test"]);
-    defFn("assert_true", [BOOL], UNIT, ["Test"]);
-    defFn("assert_false", [BOOL], UNIT, ["Test"]);
-
-    // --- Pre-register Option<T> type ---
-    // Option<T> is a built-in union with Some(value: T) and None.
+    // Note on Option<T>: Option<T> is a built-in union with Some(value: T) and None.
     // Since Clarity doesn't have parametric polymorphism in the checker yet,
     // concrete Option types (Option<Int64>, Option<String>, etc.) are created
     // by resolveTypeRef when it encounters Option<SomeType>.
-    // We don't register generic Some/None constructors here because they'd need
-    // to be polymorphic. Instead, when the user defines their own union types,
-    // those constructors get registered. For Option<T>, the user can define:
-    //   type MyOption = | Some(value: Int64) | None
-    // Or use the built-in Option<Int64> syntax which the checker handles.
   }
 
   // ============================================================
