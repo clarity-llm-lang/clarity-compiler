@@ -125,6 +125,13 @@ export class CodeGenerator {
       }
     }
 
+    // Register Option<T> types from the checker's polymorphism registry
+    for (const [name, type] of this.checker.getOptionTypes()) {
+      if (!this.allTypeDecls.has(name)) {
+        this.allTypeDecls.set(name, type);
+      }
+    }
+
     // Pre-scan AST for all string literals to build data segments before setMemory.
     // This is required because binaryen needs memory to exist before we create
     // load/store instructions in functions.
@@ -783,6 +790,7 @@ export class CodeGenerator {
         case "-": return this.mod.f64.sub(leftExpr, rightExpr);
         case "*": return this.mod.f64.mul(leftExpr, rightExpr);
         case "/": return this.mod.f64.div(leftExpr, rightExpr);
+        case "%": return this.mod.call("f64_rem", [leftExpr, rightExpr], binaryen.f64);
         case "==": return this.mod.f64.eq(leftExpr, rightExpr);
         case "!=": return this.mod.f64.ne(leftExpr, rightExpr);
         case "<": return this.mod.f64.lt(leftExpr, rightExpr);
@@ -1044,6 +1052,13 @@ export class CodeGenerator {
   // ============================================================
 
   private inferExprType(expr: Expr): ClarityType {
+    // Use the resolved type from the checker if available (preferred path).
+    if (expr.resolvedType && expr.resolvedType.kind !== "Error") {
+      return expr.resolvedType;
+    }
+
+    // Fallback for expressions not annotated by the checker (e.g., codegen
+    // internals or sub-expressions in match patterns).
     switch (expr.kind) {
       case "IntLiteral": return INT64;
       case "FloatLiteral": return FLOAT64;
@@ -1053,7 +1068,6 @@ export class CodeGenerator {
       case "IdentifierExpr": {
         const local = this.locals.get(expr.name);
         if (local) return local.clarityType;
-        // Check if this is a zero-field union variant constructor (e.g. None)
         const ctor = this.findConstructorType(expr.name);
         if (ctor) return ctor.union;
         return INT64;
@@ -1075,7 +1089,6 @@ export class CodeGenerator {
       case "CallExpr": {
         if (expr.callee.kind === "IdentifierExpr") {
           const name = expr.callee.name;
-          // List operations that return types derived from their arguments
           if (expr.args.length > 0) {
             const argType = this.inferExprType(expr.args[0].value);
             if (argType.kind === "List") {

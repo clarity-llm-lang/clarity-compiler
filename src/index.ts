@@ -7,7 +7,7 @@ import { createRuntime } from "./codegen/runtime.js";
 const program = new Command()
   .name("clarityc")
   .description("Clarity language compiler — optimized for LLM code generation, compiles to WASM")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .command("compile <file>")

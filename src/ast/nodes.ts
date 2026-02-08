@@ -1,4 +1,5 @@
 import type { Span } from "../errors/diagnostic.js";
+import type { ClarityType } from "../checker/types.js";
 
 // ============================================================
 // Base
@@ -6,6 +7,8 @@ import type { Span } from "../errors/diagnostic.js";
 
 interface BaseNode {
   span: Span;
+  /** Resolved type, set by the checker during type checking. */
+  resolvedType?: ClarityType;
 }
 
 // ============================================================

@@ -17,6 +17,8 @@ export class Checker {
   private env: Environment = new Environment();
   private diagnostics: Diagnostic[] = [];
   private currentEffects: Set<string> = new Set();
+  // Registry of all Option<T> instantiations for polymorphic Some/None
+  private optionTypes: Map<string, ClarityType> = new Map();
 
   check(module: ModuleDecl): Diagnostic[] {
     this.diagnostics = [];
@@ -100,20 +102,10 @@ export class Checker {
     defFn("float_to_int", [FLOAT64], INT64);
     defFn("int_to_string", [INT64], STRING);
     defFn("float_to_string", [FLOAT64], STRING);
-    defFn("string_to_int", [STRING], {
-      kind: "Union", name: "Option<Int64>",
-      variants: [
-        { name: "Some", fields: new Map([["value", INT64]]) },
-        { name: "None", fields: new Map() },
-      ],
-    });
-    defFn("string_to_float", [STRING], {
-      kind: "Union", name: "Option<Float64>",
-      variants: [
-        { name: "Some", fields: new Map([["value", FLOAT64]]) },
-        { name: "None", fields: new Map() },
-      ],
-    });
+    // Note: string_to_int/string_to_float return raw values (0 on failure).
+    // Proper Option<T> return types require generics (Phase 2).
+    defFn("string_to_int", [STRING], INT64);
+    defFn("string_to_float", [STRING], FLOAT64);
 
     // --- Math builtins ---
     defFn("abs_int", [INT64], INT64);
@@ -185,16 +177,34 @@ export class Checker {
     }
   }
 
-  private findRecordType(fieldNames: Set<string>): (ClarityType & { kind: "Record" }) | null {
+  private findRecordType(fieldNames: Set<string>, fieldTypes?: Map<string, ClarityType>): (ClarityType & { kind: "Record" }) | null {
+    const candidates: (ClarityType & { kind: "Record" })[] = [];
     for (const [, type] of this.env.allTypes()) {
       if (type.kind === "Record") {
         const typeFieldNames = new Set(type.fields.keys());
         if (typeFieldNames.size === fieldNames.size && [...fieldNames].every(n => typeFieldNames.has(n))) {
-          return type;
+          candidates.push(type);
         }
       }
     }
-    return null;
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    // Multiple candidates — disambiguate by field types
+    if (fieldTypes) {
+      for (const candidate of candidates) {
+        let matches = true;
+        for (const [name, type] of fieldTypes) {
+          const expected = candidate.fields.get(name);
+          if (expected && type.kind !== "Error" && !typesEqual(type, expected)) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) return candidate;
+      }
+    }
+    // Fall back to first match
+    return candidates[0];
   }
 
   private resolveTypeExpr(expr: TypeExpr, name: string): ClarityType | null {
@@ -243,43 +253,51 @@ export class Checker {
     if (node.name === "Option" && node.typeArgs.length === 1) {
       const inner = this.resolveTypeRef(node.typeArgs[0]);
       if (inner) {
-        // Option<T> is represented as a Union with Some(value: T) and None
-        const optionUnion: ClarityType = {
-          kind: "Union",
-          name: `Option<${typeToString(inner)}>`,
-          variants: [
-            { name: "Some", fields: new Map([["value", inner]]) },
-            { name: "None", fields: new Map() },
-          ],
-        };
-        // Register Some/None constructors if not already defined
-        const builtinSpan: Span = {
-          start: { offset: 0, line: 0, column: 0 },
-          end: { offset: 0, line: 0, column: 0 },
-          source: "<builtin>",
-        };
-        if (!this.env.lookup("Some")) {
-          this.env.define("Some", {
-            name: "Some",
-            type: { kind: "Function", params: [inner], returnType: optionUnion, effects: new Set() },
-            mutable: false,
-            defined: builtinSpan,
-          });
-        }
-        if (!this.env.lookup("None")) {
-          this.env.define("None", {
-            name: "None",
-            type: { kind: "Function", params: [], returnType: optionUnion, effects: new Set() },
-            mutable: false,
-            defined: builtinSpan,
-          });
-        }
-        return optionUnion;
+        return this.makeOptionType(inner);
       }
     }
 
     this.diagnostics.push(error(`Unknown type '${node.name}'`, node.span));
     return null;
+  }
+
+  // Create (or return cached) Option<T> union type for a given inner type.
+  // Some/None constructors are NOT registered as global symbols — they are
+  // resolved specially at call sites to support polymorphism.
+  makeOptionType(inner: ClarityType): ClarityType {
+    const key = typeToString(inner);
+    const cached = this.optionTypes.get(key);
+    if (cached) return cached;
+
+    const optionUnion: ClarityType = {
+      kind: "Union",
+      name: `Option<${key}>`,
+      variants: [
+        { name: "Some", fields: new Map([["value", inner]]) },
+        { name: "None", fields: new Map() },
+      ],
+    };
+    this.optionTypes.set(key, optionUnion);
+    return optionUnion;
+  }
+
+  // Resolve a Some(value) call: infer Option<T> from the argument type.
+  private resolveSomeCall(argType: ClarityType): ClarityType {
+    return this.makeOptionType(argType);
+  }
+
+  // Resolve a None reference: try to find the expected Option type from context.
+  // If no context, return a generic Option<Unit> as placeholder.
+  private resolveNoneType(expectedType?: ClarityType): ClarityType {
+    if (expectedType && expectedType.kind === "Union" && expectedType.name.startsWith("Option<")) {
+      return expectedType;
+    }
+    return this.makeOptionType(UNIT);
+  }
+
+  // Get all registered Option<T> instantiations (used by codegen)
+  getOptionTypes(): Map<string, ClarityType> {
+    return this.optionTypes;
   }
 
   // ============================================================
@@ -370,6 +388,12 @@ export class Checker {
   // ============================================================
 
   checkExpr(expr: Expr): ClarityType {
+    const type = this.checkExprInner(expr);
+    expr.resolvedType = type;
+    return type;
+  }
+
+  private checkExprInner(expr: Expr): ClarityType {
     switch (expr.kind) {
       case "IntLiteral": return INT64;
       case "FloatLiteral": return FLOAT64;
@@ -378,6 +402,28 @@ export class Checker {
 
       case "IdentifierExpr": {
         if (expr.name === "<error>") return ERROR_TYPE;
+        // Special case: bare `Some` as identifier (not called) — it's a function
+        if (expr.name === "Some") {
+          const sym = this.env.lookup("Some");
+          if (sym) return sym.type;
+          // Not registered yet — return generic function type
+          return { kind: "Function", params: [ERROR_TYPE], returnType: this.makeOptionType(ERROR_TYPE), effects: new Set() };
+        }
+        // Special case: bare `None` resolves to the most recent Option type.
+        // This allows polymorphic None without global registration.
+        if (expr.name === "None") {
+          const sym = this.env.lookup("None");
+          if (sym) {
+            // User-defined None variant — use it
+            if (sym.type.kind === "Function" && sym.type.params.length === 0
+                && sym.type.returnType.kind === "Union") {
+              return sym.type.returnType;
+            }
+            return sym.type;
+          }
+          // Built-in None — resolve from Option registry
+          return this.resolveNoneType();
+        }
         const sym = this.env.lookup(expr.name);
         if (!sym) {
           this.diagnostics.push(error(`Undefined variable '${expr.name}'`, expr.span));
@@ -404,6 +450,16 @@ export class Checker {
       }
 
       case "CallExpr": {
+        // Special case: Some(value) — polymorphic Option constructor
+        if (expr.callee.kind === "IdentifierExpr" && expr.callee.name === "Some") {
+          if (expr.args.length !== 1) {
+            this.diagnostics.push(error(`Some expects exactly 1 argument but got ${expr.args.length}`, expr.span));
+            return ERROR_TYPE;
+          }
+          const argType = this.checkExpr(expr.args[0].value);
+          return this.resolveSomeCall(argType);
+        }
+
         const calleeType = this.checkExpr(expr.callee);
         if (calleeType.kind === "Error") return ERROR_TYPE;
 
@@ -566,9 +622,9 @@ export class Checker {
           fieldTypes.set(field.name, ft);
         }
 
-        // Find a registered record type that matches these field names
+        // Find a registered record type that matches these field names and types
         const fieldNames = new Set(fieldTypes.keys());
-        const matchingType = this.findRecordType(fieldNames);
+        const matchingType = this.findRecordType(fieldNames, fieldTypes);
         if (!matchingType) {
           this.diagnostics.push(
             error(

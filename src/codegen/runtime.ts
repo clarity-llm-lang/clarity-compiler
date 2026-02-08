@@ -170,6 +170,10 @@ export function createRuntime() {
         return Math.ceil(value);
       },
 
+      f64_rem(a: number, b: number): number {
+        return a % b;
+      },
+
       // --- Memory allocator (bump allocator) ---
       __alloc(size: number): number {
         const align = 4;
