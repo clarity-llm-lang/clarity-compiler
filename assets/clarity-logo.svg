@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Diamond/prism icon representing clarity -->
+  <g transform="translate(16, 12)">
+    <!-- Outer diamond shape -->
+    <path d="M48 4 L92 48 L48 92 L4 48 Z" fill="url(#grad)" opacity="0.9"/>
+    <!-- Inner facet lines for prism effect -->
+    <path d="M48 4 L48 92" stroke="white" stroke-width="1.2" opacity="0.3"/>
+    <path d="M4 48 L92 48" stroke="white" stroke-width="1.2" opacity="0.3"/>
+    <!-- Light refraction lines -->
+    <path d="M48 4 L72 48 L48 92" stroke="white" stroke-width="0.8" opacity="0.2" fill="none"/>
+    <path d="M48 4 L24 48 L48 92" stroke="white" stroke-width="0.8" opacity="0.2" fill="none"/>
+    <!-- Center highlight -->
+    <circle cx="48" cy="48" r="8" fill="white" opacity="0.25"/>
+    <!-- Match arrow symbol in center -->
+    <path d="M40 44 L52 48 L40 52" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>
+  </g>
+
+  <!-- Text -->
+  <text x="124" y="72" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="url(#grad2)" letter-spacing="-1">clarity</text>
+
+  <!-- Tagline -->
+  <text x="126" y="100" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#94a3b8" letter-spacing="3" font-weight="400">CODE FOR MACHINES</text>
+</svg>

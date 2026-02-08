@@ -1,6 +1,12 @@
-# Clarity
+<p align="center">
+  <img src="assets/clarity-logo.svg" alt="Clarity" width="480">
+</p>
 
-**A programming language designed for LLM code generation.**
+<p align="center">
+  <strong>A programming language designed for LLM code generation.</strong>
+</p>
+
+---
 
 Clarity is a statically typed, compiled language that optimizes for what matters when an LLM writes code: **correctness on first generation**. It compiles to WebAssembly.
 
@@ -223,7 +229,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run tests
 ```bash
-npm test    # 61 tests across lexer, parser, type checker, and end-to-end
+npm test    # 66 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -274,7 +280,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 61 tests
+└── tests/                  # 66 tests
 ```
 
 ---
@@ -291,11 +297,12 @@ clarity/
 - Recursive function calls
 - Effect system with compile-time enforcement
 - Record and union type declarations
+- String literals, concatenation, and equality in WASM linear memory
+- Built-in functions (print, logging) via host runtime
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
 
 **Planned:**
-- String operations in WASM runtime
 - Record/union values in linear memory
 - Standard library (Option, Result, List operations)
 - Module imports

@@ -51,4 +51,14 @@ export class Environment {
     }
     return undefined;
   }
+
+  allTypes(): IterableIterator<[string, ClarityType]> {
+    const merged = new Map<string, ClarityType>();
+    for (const scope of this.typeScopes) {
+      for (const [name, type] of scope) {
+        merged.set(name, type);
+      }
+    }
+    return merged.entries();
+  }
 }

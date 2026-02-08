@@ -21,6 +21,9 @@ export class Checker {
   check(module: ModuleDecl): Diagnostic[] {
     this.diagnostics = [];
 
+    // Register built-in functions and types before user declarations
+    this.registerBuiltins();
+
     // First pass: register all type declarations
     for (const decl of module.declarations) {
       if (decl.kind === "TypeDecl") {
@@ -45,6 +48,104 @@ export class Checker {
     }
 
     return this.diagnostics;
+  }
+
+  // ============================================================
+  // Built-in Functions & Types
+  // ============================================================
+
+  private registerBuiltins(): void {
+    const builtinSpan: Span = {
+      start: { offset: 0, line: 0, column: 0 },
+      end: { offset: 0, line: 0, column: 0 },
+      source: "<builtin>",
+    };
+
+    // Helper to define a built-in function in the environment
+    const defFn = (
+      name: string,
+      params: ClarityType[],
+      returnType: ClarityType,
+      effects: string[] = [],
+    ) => {
+      this.env.define(name, {
+        name,
+        type: {
+          kind: "Function",
+          params,
+          returnType,
+          effects: new Set(effects),
+        },
+        mutable: false,
+        defined: builtinSpan,
+      });
+    };
+
+    // --- I/O & Logging (require Log effect) ---
+    defFn("print_string", [STRING], UNIT, ["Log"]);
+    defFn("print_int", [INT64], UNIT, ["Log"]);
+    defFn("print_float", [FLOAT64], UNIT, ["Log"]);
+    defFn("log_info", [STRING], UNIT, ["Log"]);
+    defFn("log_warn", [STRING], UNIT, ["Log"]);
+
+    // --- String operations ---
+    defFn("string_concat", [STRING, STRING], STRING);
+    defFn("string_eq", [STRING, STRING], BOOL);
+    defFn("string_length", [STRING], INT64);
+    defFn("substring", [STRING, INT64, INT64], STRING);
+    defFn("char_at", [STRING, INT64], STRING);
+
+    // --- Type conversions ---
+    defFn("int_to_float", [INT64], FLOAT64);
+    defFn("float_to_int", [FLOAT64], INT64);
+    defFn("int_to_string", [INT64], STRING);
+    defFn("float_to_string", [FLOAT64], STRING);
+    defFn("string_to_int", [STRING], {
+      kind: "Union", name: "Option<Int64>",
+      variants: [
+        { name: "Some", fields: new Map([["value", INT64]]) },
+        { name: "None", fields: new Map() },
+      ],
+    });
+    defFn("string_to_float", [STRING], {
+      kind: "Union", name: "Option<Float64>",
+      variants: [
+        { name: "Some", fields: new Map([["value", FLOAT64]]) },
+        { name: "None", fields: new Map() },
+      ],
+    });
+
+    // --- Math builtins ---
+    defFn("abs_int", [INT64], INT64);
+    defFn("min_int", [INT64, INT64], INT64);
+    defFn("max_int", [INT64, INT64], INT64);
+    defFn("sqrt", [FLOAT64], FLOAT64);
+    defFn("pow", [FLOAT64, FLOAT64], FLOAT64);
+    defFn("floor", [FLOAT64], FLOAT64);
+    defFn("ceil", [FLOAT64], FLOAT64);
+
+    // --- List operations ---
+    // These use List<Int64> as a placeholder type. The checker accepts
+    // any List<T> since Error type propagation handles mismatches gracefully.
+    const LIST_INT = { kind: "List" as const, element: INT64 };
+    defFn("list_length", [LIST_INT], INT64);
+    defFn("length", [LIST_INT], INT64);
+    defFn("head", [LIST_INT], INT64);
+    defFn("tail", [LIST_INT], LIST_INT);
+    defFn("append", [LIST_INT, INT64], LIST_INT);
+    defFn("concat", [LIST_INT, LIST_INT], LIST_INT);
+    defFn("reverse", [LIST_INT], LIST_INT);
+
+    // --- Pre-register Option<T> type ---
+    // Option<T> is a built-in union with Some(value: T) and None.
+    // Since Clarity doesn't have parametric polymorphism in the checker yet,
+    // concrete Option types (Option<Int64>, Option<String>, etc.) are created
+    // by resolveTypeRef when it encounters Option<SomeType>.
+    // We don't register generic Some/None constructors here because they'd need
+    // to be polymorphic. Instead, when the user defines their own union types,
+    // those constructors get registered. For Option<T>, the user can define:
+    //   type MyOption = | Some(value: Int64) | None
+    // Or use the built-in Option<Int64> syntax which the checker handles.
   }
 
   // ============================================================
@@ -75,6 +176,18 @@ export class Checker {
         }
       }
     }
+  }
+
+  private findRecordType(fieldNames: Set<string>): (ClarityType & { kind: "Record" }) | null {
+    for (const [, type] of this.env.allTypes()) {
+      if (type.kind === "Record") {
+        const typeFieldNames = new Set(type.fields.keys());
+        if (typeFieldNames.size === fieldNames.size && [...fieldNames].every(n => typeFieldNames.has(n))) {
+          return type;
+        }
+      }
+    }
+    return null;
   }
 
   private resolveTypeExpr(expr: TypeExpr, name: string): ClarityType | null {
@@ -122,7 +235,40 @@ export class Checker {
     }
     if (node.name === "Option" && node.typeArgs.length === 1) {
       const inner = this.resolveTypeRef(node.typeArgs[0]);
-      if (inner) return { kind: "Option", inner };
+      if (inner) {
+        // Option<T> is represented as a Union with Some(value: T) and None
+        const optionUnion: ClarityType = {
+          kind: "Union",
+          name: `Option<${typeToString(inner)}>`,
+          variants: [
+            { name: "Some", fields: new Map([["value", inner]]) },
+            { name: "None", fields: new Map() },
+          ],
+        };
+        // Register Some/None constructors if not already defined
+        const builtinSpan: Span = {
+          start: { offset: 0, line: 0, column: 0 },
+          end: { offset: 0, line: 0, column: 0 },
+          source: "<builtin>",
+        };
+        if (!this.env.lookup("Some")) {
+          this.env.define("Some", {
+            name: "Some",
+            type: { kind: "Function", params: [inner], returnType: optionUnion, effects: new Set() },
+            mutable: false,
+            defined: builtinSpan,
+          });
+        }
+        if (!this.env.lookup("None")) {
+          this.env.define("None", {
+            name: "None",
+            type: { kind: "Function", params: [], returnType: optionUnion, effects: new Set() },
+            mutable: false,
+            defined: builtinSpan,
+          });
+        }
+        return optionUnion;
+      }
     }
 
     this.diagnostics.push(error(`Unknown type '${node.name}'`, node.span));
@@ -229,6 +375,12 @@ export class Checker {
         if (!sym) {
           this.diagnostics.push(error(`Undefined variable '${expr.name}'`, expr.span));
           return ERROR_TYPE;
+        }
+        // Zero-field union variant constructors can be used as bare identifiers
+        // e.g. `NoneVal` instead of `NoneVal()` — auto-call them
+        if (sym.type.kind === "Function" && sym.type.params.length === 0
+            && sym.type.returnType.kind === "Union") {
+          return sym.type.returnType;
         }
         return sym.type;
       }
@@ -397,6 +549,43 @@ export class Checker {
           }
         }
         return { kind: "List", element: firstType };
+      }
+
+      case "RecordLiteral": {
+        // Check each field value
+        const fieldTypes = new Map<string, ClarityType>();
+        for (const field of expr.fields) {
+          const ft = this.checkExpr(field.value);
+          fieldTypes.set(field.name, ft);
+        }
+
+        // Find a registered record type that matches these field names
+        const fieldNames = new Set(fieldTypes.keys());
+        const matchingType = this.findRecordType(fieldNames);
+        if (!matchingType) {
+          this.diagnostics.push(
+            error(
+              `No record type found with fields: ${[...fieldNames].join(", ")}`,
+              expr.span,
+            ),
+          );
+          return ERROR_TYPE;
+        }
+
+        // Verify field types match
+        for (const [name, expectedType] of matchingType.fields) {
+          const actualType = fieldTypes.get(name);
+          if (actualType && !typesEqual(actualType, expectedType) && actualType.kind !== "Error") {
+            this.diagnostics.push(
+              error(
+                `Field '${name}' expected type ${typeToString(expectedType)} but got ${typeToString(actualType)}`,
+                expr.fields.find(f => f.name === name)!.span,
+              ),
+            );
+          }
+        }
+
+        return matchingType;
       }
 
       default:

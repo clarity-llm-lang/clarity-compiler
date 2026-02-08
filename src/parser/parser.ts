@@ -10,6 +10,7 @@ import type {
   BlockExpr, LetExpr, MatchExpr, BinaryExpr, UnaryExpr,
   CallExpr, MemberExpr, IdentifierExpr,
   IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, ListLiteral,
+  RecordLiteral, RecordFieldInit,
   ConstructorPattern, BindingPattern, WildcardPattern, LiteralPattern,
 } from "../ast/nodes.js";
 
@@ -349,8 +350,15 @@ export class Parser {
         return this.parseMatchExpr();
       case TokenKind.Let:
         return this.parseLetExpr();
-      case TokenKind.LBrace:
+      case TokenKind.LBrace: {
+        // Disambiguate record literal { field: expr } from block { stmts }
+        // Record literal: `{` Identifier `:` (not in type annotation context)
+        if (this.peekAt(1).kind === TokenKind.Identifier && this.peekAt(2).kind === TokenKind.Colon) {
+          return this.parseRecordLiteral();
+        }
+        // Empty braces `{}` is an empty block
         return this.parseBlock();
+      }
       case TokenKind.LBracket:
         return this.parseListLiteral();
       case TokenKind.LParen: {
@@ -477,6 +485,31 @@ export class Parser {
 
     this.expect(TokenKind.RBracket);
     return { kind: "ListLiteral", elements, span: this.spanFrom(start) };
+  }
+
+  private parseRecordLiteral(): RecordLiteral {
+    const start = this.peek();
+    this.expect(TokenKind.LBrace);
+    const fields: RecordFieldInit[] = [];
+
+    while (this.peek().kind !== TokenKind.RBrace && !this.isAtEnd()) {
+      const fieldStart = this.peek();
+      const name = this.expect(TokenKind.Identifier).value;
+      this.expect(TokenKind.Colon);
+      const value = this.parseExpr();
+      fields.push({
+        kind: "RecordFieldInit",
+        name,
+        value,
+        span: this.spanFrom(fieldStart),
+      });
+      if (this.peek().kind === TokenKind.Comma) {
+        this.advance();
+      }
+    }
+
+    this.expect(TokenKind.RBrace);
+    return { kind: "RecordLiteral", fields, span: this.spanFrom(start) };
   }
 
   private parseArgList(): CallArg[] {
@@ -673,6 +706,10 @@ export class Parser {
 
   private peekNext(): Token {
     return this.tokens[this.pos + 1] ?? this.tokens[this.tokens.length - 1];
+  }
+
+  private peekAt(offset: number): Token {
+    return this.tokens[this.pos + offset] ?? this.tokens[this.tokens.length - 1];
   }
 
   private advance(): Token {

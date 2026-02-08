@@ -100,6 +100,7 @@ export type Expr =
   | StringLiteral
   | BoolLiteral
   | ListLiteral
+  | RecordLiteral
   | IdentifierExpr
   | BinaryExpr
   | UnaryExpr
@@ -132,6 +133,18 @@ export interface BoolLiteral extends BaseNode {
 export interface ListLiteral extends BaseNode {
   kind: "ListLiteral";
   elements: Expr[];
+}
+
+export interface RecordLiteral extends BaseNode {
+  kind: "RecordLiteral";
+  typeName?: string;
+  fields: RecordFieldInit[];
+}
+
+export interface RecordFieldInit extends BaseNode {
+  kind: "RecordFieldInit";
+  name: string;
+  value: Expr;
 }
 
 export interface IdentifierExpr extends BaseNode {

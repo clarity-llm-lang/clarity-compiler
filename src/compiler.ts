@@ -70,7 +70,7 @@ export function compile(
     const wasm = codegen.generate(ast, checker);
     return { tokens, ast, errors: [], wasm };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = e instanceof Error ? e.message : JSON.stringify(e) ?? String(e);
     return {
       tokens,
       ast,

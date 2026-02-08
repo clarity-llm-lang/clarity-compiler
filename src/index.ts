@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { readFile, writeFile } from "node:fs/promises";
 import { compile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
+import { createRuntime } from "./codegen/runtime.js";
 
 const program = new Command()
   .name("clarityc")
@@ -82,22 +83,55 @@ program
         process.exit(1);
       }
 
-      const { instance } = await WebAssembly.instantiate(result.wasm);
+      // Create runtime with host functions for strings, print, logging
+      const runtime = createRuntime();
+      const { instance } = await WebAssembly.instantiate(result.wasm, runtime.imports);
+
+      // Bind to the WASM module's exported memory
+      const exportedMemory = instance.exports.memory as WebAssembly.Memory;
+      if (exportedMemory) {
+        runtime.bindMemory(exportedMemory);
+      }
+
+      // Set heap pointer past the static data segments
+      const heapBase = instance.exports.__heap_base;
+      if (heapBase && typeof (heapBase as WebAssembly.Global).value === "number") {
+        runtime.setHeapBase((heapBase as WebAssembly.Global).value);
+      }
+
       const fnName = opts.function as string;
       const fn = instance.exports[fnName];
 
       if (typeof fn !== "function") {
-        console.error(`Function '${fnName}' not found in exports. Available: ${Object.keys(instance.exports).join(", ")}`);
+        const available = Object.keys(instance.exports).filter(k => typeof instance.exports[k] === "function");
+        console.error(`Function '${fnName}' not found in exports. Available: ${available.join(", ")}`);
         process.exit(1);
       }
 
-      // Parse arguments as bigints for Int64, numbers for Float64
+      // Parse arguments: "str" for strings, 1.5 for floats, 42 for ints
       const args = ((opts.args as string[]) ?? []).map((a) => {
+        if (a.startsWith('"') && a.endsWith('"')) {
+          // String argument — write to WASM memory, pass pointer
+          return runtime.writeString(a.slice(1, -1));
+        }
         if (a.includes(".")) return parseFloat(a);
         return BigInt(a);
       });
 
       const resultValue = fn(...args);
+
+      // If result is an i32, it might be a string pointer — try to read it
+      if (typeof resultValue === "number" && resultValue > 0 && resultValue < runtime.memory.buffer.byteLength) {
+        try {
+          const str = runtime.readString(resultValue);
+          if (str.length > 0 && str.length < 10000) {
+            console.log(str);
+            return;
+          }
+        } catch {
+          // Not a valid string pointer, print as number
+        }
+      }
       console.log(resultValue);
     } catch (e) {
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
