@@ -50,6 +50,18 @@ export function createRuntime() {
     memory = mem;
   }
 
+  // --- Test state (used by assertion functions and test runner) ---
+  interface AssertionFailure {
+    kind: string;
+    actual: string;
+    expected: string;
+    testFunction: string;
+  }
+
+  let currentTestFunction = "";
+  let assertionFailures: AssertionFailure[] = [];
+  let assertionCount = 0;
+
   const imports = {
     env: {
       // --- I/O & Logging ---
@@ -280,6 +292,72 @@ export function createRuntime() {
         return newPtr;
       },
 
+      // --- Test assertions ---
+      // Assertions accumulate failures rather than throwing, so an LLM
+      // can see ALL failures in a single test run for better self-healing.
+      assert_eq(actual: bigint, expected: bigint): void {
+        assertionCount++;
+        if (actual !== expected) {
+          assertionFailures.push({
+            kind: "assert_eq",
+            actual: actual.toString(),
+            expected: expected.toString(),
+            testFunction: currentTestFunction,
+          });
+        }
+      },
+
+      assert_eq_float(actual: number, expected: number): void {
+        assertionCount++;
+        const EPSILON = 1e-9;
+        if (Math.abs(actual - expected) > EPSILON) {
+          assertionFailures.push({
+            kind: "assert_eq_float",
+            actual: actual.toString(),
+            expected: expected.toString(),
+            testFunction: currentTestFunction,
+          });
+        }
+      },
+
+      assert_eq_string(actualPtr: number, expectedPtr: number): void {
+        assertionCount++;
+        const actualStr = readString(actualPtr);
+        const expectedStr = readString(expectedPtr);
+        if (actualStr !== expectedStr) {
+          assertionFailures.push({
+            kind: "assert_eq_string",
+            actual: JSON.stringify(actualStr),
+            expected: JSON.stringify(expectedStr),
+            testFunction: currentTestFunction,
+          });
+        }
+      },
+
+      assert_true(value: number): void {
+        assertionCount++;
+        if (value !== 1) {
+          assertionFailures.push({
+            kind: "assert_true",
+            actual: "False",
+            expected: "True",
+            testFunction: currentTestFunction,
+          });
+        }
+      },
+
+      assert_false(value: number): void {
+        assertionCount++;
+        if (value !== 0) {
+          assertionFailures.push({
+            kind: "assert_false",
+            actual: "True",
+            expected: "False",
+            testFunction: currentTestFunction,
+          });
+        }
+      },
+
       list_reverse(ptr: number, elemSize: number): number {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
@@ -309,5 +387,9 @@ export function createRuntime() {
     writeString,
     setHeapBase,
     bindMemory,
+    // Test runner API
+    setCurrentTest(name: string) { currentTestFunction = name; },
+    getTestResults() { return { total: assertionCount, failures: [...assertionFailures] }; },
+    resetTestState() { assertionFailures = []; assertionCount = 0; },
   };
 }

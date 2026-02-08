@@ -63,5 +63,12 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "list_append_i64", importModule: "env", importName: "list_append_i64", params: binaryen.createType([i32, i64]), result: i32 },
     { name: "list_concat", importModule: "env", importName: "list_concat", params: binaryen.createType([i32, i32, i32]), result: i32 },
     { name: "list_reverse", importModule: "env", importName: "list_reverse", params: pair_i32, result: i32 },
+
+    // --- Test assertions ---
+    { name: "assert_eq", importModule: "env", importName: "assert_eq", params: pair_i64, result: none },
+    { name: "assert_eq_float", importModule: "env", importName: "assert_eq_float", params: pair_f64, result: none },
+    { name: "assert_eq_string", importModule: "env", importName: "assert_eq_string", params: pair_i32, result: none },
+    { name: "assert_true", importModule: "env", importName: "assert_true", params: i32, result: none },
+    { name: "assert_false", importModule: "env", importName: "assert_false", params: i32, result: none },
   ];
 }

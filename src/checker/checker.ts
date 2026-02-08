@@ -136,6 +136,13 @@ export class Checker {
     defFn("concat", [LIST_INT, LIST_INT], LIST_INT);
     defFn("reverse", [LIST_INT], LIST_INT);
 
+    // --- Test assertions (require Test effect) ---
+    defFn("assert_eq", [INT64, INT64], UNIT, ["Test"]);
+    defFn("assert_eq_float", [FLOAT64, FLOAT64], UNIT, ["Test"]);
+    defFn("assert_eq_string", [STRING, STRING], UNIT, ["Test"]);
+    defFn("assert_true", [BOOL], UNIT, ["Test"]);
+    defFn("assert_false", [BOOL], UNIT, ["Test"]);
+
     // --- Pre-register Option<T> type ---
     // Option<T> is a built-in union with Some(value: T) and None.
     // Since Clarity doesn't have parametric polymorphism in the checker yet,
