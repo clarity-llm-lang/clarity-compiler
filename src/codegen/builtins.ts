@@ -40,8 +40,8 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "float_to_int", importModule: "env", importName: "float_to_int", params: f64, result: i64 },
     { name: "int_to_string", importModule: "env", importName: "int_to_string", params: i64, result: i32 },
     { name: "float_to_string", importModule: "env", importName: "float_to_string", params: f64, result: i32 },
-    // string_to_int and string_to_float return Option<T> which requires tagged encoding.
-    // Stubbed for now — they return i32 pointer to an Option layout in memory.
+    // string_to_int/string_to_float return raw values (0 on failure).
+    // Proper Option<T> return requires generics (Phase 2).
     { name: "string_to_int", importModule: "env", importName: "string_to_int", params: i32, result: i64 },
     { name: "string_to_float", importModule: "env", importName: "string_to_float", params: i32, result: f64 },
 
@@ -53,6 +53,7 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "pow", importModule: "env", importName: "pow", params: pair_f64, result: f64 },
     { name: "floor", importModule: "env", importName: "floor", params: f64, result: f64 },
     { name: "ceil", importModule: "env", importName: "ceil", params: f64, result: f64 },
+    { name: "f64_rem", importModule: "env", importName: "f64_rem", params: pair_f64, result: f64 },
 
     // --- List operations ---
     { name: "list_length", importModule: "env", importName: "list_length", params: i32, result: i64 },

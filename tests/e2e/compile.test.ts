@@ -567,4 +567,126 @@ describe("end-to-end compilation", () => {
     expect(result.wat).toContain("func");
     expect(result.wat).toContain("i64.add");
   });
+
+  // === v0.2 fixes ===
+
+  it("compiles Float64 modulo operator", async () => {
+    const source = `
+      module Test
+      function fmod(a: Float64, b: Float64) -> Float64 { a % b }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const fmod = instance.exports.fmod as (a: number, b: number) => number;
+    expect(fmod(10.5, 3.0)).toBeCloseTo(1.5);
+    expect(fmod(7.0, 2.0)).toBeCloseTo(1.0);
+  });
+
+  it("compiles Option<Int64> with polymorphic Some/None", async () => {
+    const source = `
+      module Test
+      type MaybeInt =
+        | SomeVal(n: Int64)
+        | NoneVal
+
+      type MaybeStr =
+        | SomeStr(s: String)
+        | NoneStr
+
+      function unwrap_int(m: MaybeInt) -> Int64 {
+        match m {
+          SomeVal(n) -> n,
+          NoneVal -> 0
+        }
+      }
+
+      function unwrap_str(m: MaybeStr) -> String {
+        match m {
+          SomeStr(s) -> s,
+          NoneStr -> "empty"
+        }
+      }
+
+      function make_int() -> MaybeInt { SomeVal(42) }
+      function make_str(s: String) -> MaybeStr { SomeStr(s) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const make_int = instance.exports.make_int as () => number;
+    const make_str = instance.exports.make_str as (ptr: number) => number;
+    const unwrap_int = instance.exports.unwrap_int as (ptr: number) => bigint;
+    const unwrap_str = instance.exports.unwrap_str as (ptr: number) => number;
+
+    expect(unwrap_int(make_int())).toBe(42n);
+    const strPtr = runtime.writeString("hello");
+    expect(runtime.readString(unwrap_str(make_str(strPtr)))).toBe("hello");
+  });
+
+  it("compiles record field access correctly", async () => {
+    const source = `
+      module Test
+      type Point = { x: Int64, y: Int64 }
+
+      function get_x(p: Point) -> Int64 { p.x }
+      function get_y(p: Point) -> Int64 { p.y }
+      function make_point(x: Int64, y: Int64) -> Point {
+        { x: x, y: y }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const make_point = instance.exports.make_point as (x: bigint, y: bigint) => number;
+    const get_x = instance.exports.get_x as (ptr: number) => bigint;
+    const get_y = instance.exports.get_y as (ptr: number) => bigint;
+
+    const p = make_point(10n, 20n);
+    expect(get_x(p)).toBe(10n);
+    expect(get_y(p)).toBe(20n);
+  });
+
+  it("compiles string_to_int returning raw Int64", async () => {
+    const source = `
+      module Test
+      function parse(s: String) -> Int64 {
+        string_to_int(s)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const parse = instance.exports.parse as (ptr: number) => bigint;
+    expect(parse(runtime.writeString("42"))).toBe(42n);
+    expect(parse(runtime.writeString("not_a_number"))).toBe(0n);
+  });
+
+  it("checker annotates resolved types on AST nodes", () => {
+    const source = `
+      module Test
+      function add(a: Int64, b: Int64) -> Int64 {
+        let x = a + b;
+        x
+      }
+    `;
+    const result = compile(source, "test.clarity", { checkOnly: true });
+    expect(result.errors).toHaveLength(0);
+    expect(result.ast).toBeDefined();
+    // The function body should have a resolved type
+    const fn = result.ast!.declarations[0];
+    expect(fn.kind).toBe("FunctionDecl");
+    if (fn.kind === "FunctionDecl") {
+      expect(fn.body.resolvedType).toBeDefined();
+      expect(fn.body.resolvedType!.kind).toBe("Int64");
+    }
+  });
 });

@@ -150,22 +150,8 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 
 ## Known gaps / missing features
 
-### Missing list operations
-`List<T>` is parsed and type-checked but codegen is stubbed (`i32.const 0`). No list functions exist. Needed:
-- `length(lst: List<T>) -> Int64`
-- `head(lst: List<T>) -> Option<T>`
-- `tail(lst: List<T>) -> List<T>`
-- `append(lst: List<T>, elem: T) -> List<T>`
-- `concat(a: List<T>, b: List<T>) -> List<T>`
-- `reverse(lst: List<T>) -> List<T>`
-
-List memory layout in WASM linear memory is undefined.
-
-### Option<T> not pre-defined
-The spec presents `Option<T>` with `Some`/`None` as built-in, but users must manually define it as a union type. `Some` and `None` constructors should be pre-registered.
-
-### Record field access codegen is stubbed
-`record.field` (MemberExpr) returns `i32.const 0` in the codegen — records cannot be used at runtime.
+### string_to_int / string_to_float return raw values
+These functions return `Int64` / `Float64` (0 on parse failure) instead of `Option<T>`. Proper Option return types require generics (Phase 2).
 
 ### Mutable binding reassignment not implemented
 `let mut` declarations parse and type-check, but there is no assignment operator in the parser or codegen. `let mut x = 1; x = x + 1;` will fail to parse — reassignment syntax does not exist yet.
@@ -176,12 +162,58 @@ The compiler processes a single file at a time. There are no import/export keywo
 ### Named arguments are not semantically checked
 The parser accepts named arguments (`foo(name: value)`), but the checker ignores the name entirely and matches arguments by position only. Passing arguments in the wrong order with names will silently use positional semantics.
 
-### Float64 modulo not implemented
-The `%` operator works for `Int64` but the codegen has no case for `Float64` modulo — it will produce incorrect output or error at runtime.
+### No generics / parametric polymorphism
+List builtins (`head`, `tail`, etc.) are typed as `List<Int64>` placeholders. The checker has no mechanism for generic type parameters on user-defined functions or types.
+
+### No higher-order functions
+Functions cannot be passed as arguments or returned from other functions. Without loops, `map`, `filter`, `fold` over lists are essential and require first-class function support.
+
+### No garbage collection
+The runtime uses a bump allocator that never frees memory. Every string concatenation, list operation, and constructor call leaks. Programs that run for extended periods will exhaust memory.
+
+## Implementation roadmap
+
+### Phase 1 — Correctness & Soundness (v0.2) ✓ DONE
+Make what exists actually correct.
+1. ✓ **AST type annotations** — Checker attaches resolved `ClarityType` to AST nodes. Codegen uses these instead of its own `inferExprType()`.
+2. ✓ **Fix Option<T> polymorphism** — `Some`/`None` constructors are parameterized per instantiation so `Option<Int64>` and `Option<String>` don't collide.
+3. ✓ **Fix `string_to_int`/`string_to_float`** — Changed to return raw Int64/Float64 (0 on failure). Proper Option return deferred to Phase 2 (requires generics).
+4. ✓ **Fix record type ambiguity** — Match record literals by field names AND field types for disambiguation.
+5. ✓ **Float64 modulo** — Delegates to JS runtime `f64_rem` since WASM has no `f64.rem`.
+6. **Mutable reassignment** — Deferred to Phase 2. Add `=` assignment to parser and codegen.
+
+### Phase 2 — Type System Foundations (v0.3)
+Make the type system robust enough for real programs.
+1. **Parametric polymorphism / generics** — At minimum for `List<T>`, `Option<T>`, and user-defined generic types.
+2. **Proper list builtin typing** — `head : List<T> -> Option<T>`, `tail : List<T> -> List<T>`, etc.
+3. **Result<T, E> as built-in** — Reduce boilerplate for error handling.
+4. **Higher-order functions** — `map`, `filter`, `fold`. Requires function types as first-class values and closure support.
+5. **Type aliases** — `type UserId = Int64` as a distinct type.
+
+### Phase 3 — Module System & Multi-File (v0.4)
+Support programs larger than a single file.
+1. **Import/export syntax** — `import { User } from "models"`, `export function`.
+2. **Module resolution** — File-based or package-based.
+3. **Separate compilation** — Compile to individual WASM modules or merge.
+4. **Standard library** — `std.string`, `std.math`, `std.list`.
+
+### Phase 4 — Runtime & Performance (v0.5)
+Make programs viable beyond demos.
+1. **Memory management** — Arena allocator, reference counting, or WASM GC proposal.
+2. **Tail call optimization** — Essential since there are no loops. WASM tail-call proposal or trampolining.
+3. **Nested record/list codegen** — Records containing lists, lists of records, etc.
+4. **String interning** — Deduplicate runtime-created strings.
+
+### Phase 5 — Language Completeness (v0.6+)
+1. **Pattern guards and range patterns** — `match x { n if n > 0 -> ... }`.
+2. **Named argument semantic checking** — Enforce name matching, not just positional.
+3. **Bytes and Timestamp runtime support** — Currently declared but unusable.
+4. **Multi-line string literals**.
+5. **REPL / browser playground**.
 
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
 - `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
 - `examples/` — Example Clarity programs
-- `tests/` — Test suite (79 tests)
+- `tests/` — Test suite
 - `docs/grammar.peg` — Formal grammar

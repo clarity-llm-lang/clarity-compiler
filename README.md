@@ -332,10 +332,10 @@ clarity/
 
 ---
 
-## Current Status
+## Current Status (v0.2)
 
 **Working:**
-- Int64 and Float64 arithmetic
+- Int64 and Float64 arithmetic (including Float64 modulo)
 - Boolean logic and comparisons
 - Pattern matching on booleans and union types
 - Exhaustiveness checking
@@ -343,8 +343,10 @@ clarity/
 - Blocks with multiple statements
 - Recursive function calls
 - Effect system with compile-time enforcement
-- Record and union type declarations
-- Union constructor and pattern matching codegen
+- Record types — declaration, construction, field access
+- Union types — constructors, pattern matching, destructuring
+- Option<T> as built-in (Some/None with correct polymorphism)
+- List literals, length, head, tail, append, concat, reverse
 - String literals, concatenation, equality, length, substring, char_at
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
@@ -353,12 +355,45 @@ clarity/
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
 
-**Planned:**
-- Record field access codegen
-- List operations codegen
-- Mutable binding reassignment
-- Module imports
-- Higher-order functions
+---
+
+## Roadmap
+
+Development follows a phased approach. Each phase builds on the previous one.
+
+### Phase 1 — Correctness & Soundness (v0.2) -- DONE
+Fix correctness bugs in the type system and codegen so that existing features actually work reliably.
+- AST carries resolved types from the checker into codegen (no duplicate type inference)
+- Option<T> polymorphism fixed (Option<Int64> and Option<String> coexist)
+- Record literal type matching uses declared type names
+- Float64 modulo operator
+- string_to_int / string_to_float return proper Option-tagged values
+
+### Phase 2 — Type System Foundations (v0.3)
+Make the type system robust enough for real programs.
+- Parametric polymorphism / generics for user-defined types and functions
+- Properly typed list builtins (`head : List<T> -> Option<T>`, etc.)
+- Built-in `Result<T, E>` type
+- Higher-order functions (`map`, `filter`, `fold`) — essential since there are no loops
+- Mutable binding reassignment (`let mut x = 1; x = x + 1`)
+
+### Phase 3 — Module System (v0.4)
+Support programs larger than a single file.
+- Import/export syntax
+- File-based module resolution
+- Standard library (`std.string`, `std.math`, `std.list`)
+
+### Phase 4 — Runtime & Performance (v0.5)
+Make programs viable for real workloads.
+- Memory management (arena, refcounting, or WASM GC)
+- Tail call optimization (critical — no loops means recursion must be efficient)
+- String interning
+
+### Phase 5 — Language Completeness (v0.6+)
+- Pattern guards and range patterns
+- Named argument semantic checking
+- Bytes and Timestamp runtime support
+- REPL / browser playground
 
 ---
 
