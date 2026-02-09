@@ -789,6 +789,60 @@ describe("end-to-end compilation", () => {
     expect(written["out.txt"]).toBe("hello from clarity");
   });
 
+  it("compiles and runs mutable variable reassignment", async () => {
+    const source = `
+      module Test
+      function counter() -> Int64 {
+        let mut x = 0;
+        x = x + 1;
+        x = x + 1;
+        x = x + 1;
+        x
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const counter = instance.exports.counter as () => bigint;
+    expect(counter()).toBe(3n);
+  });
+
+  it("compiles mutable string reassignment", async () => {
+    const source = `
+      module Test
+      function greet(name: String) -> String {
+        let mut msg = "hello";
+        msg = msg ++ " " ++ name;
+        msg
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const greet = instance.exports.greet as (ptr: number) => number;
+    const namePtr = runtime.writeString("world");
+    const resultPtr = greet(namePtr);
+    expect(runtime.readString(resultPtr)).toBe("hello world");
+  });
+
+  it("rejects assignment to immutable variable at compile time", () => {
+    const source = `
+      module Test
+      function f() -> Int64 {
+        let x = 1;
+        x = 2;
+        x
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("immutable");
+  });
+
   it("read_all_stdin reads entire stdin", async () => {
     const source = `
       module Test

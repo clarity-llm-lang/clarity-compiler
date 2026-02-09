@@ -199,6 +199,9 @@ export class CodeGenerator {
       case "LetExpr":
         this.scanExprForStrings(expr.value);
         break;
+      case "AssignmentExpr":
+        this.scanExprForStrings(expr.value);
+        break;
       case "BlockExpr":
         for (const stmt of expr.statements) this.scanExprForStrings(stmt);
         if (expr.result) this.scanExprForStrings(expr.result);
@@ -435,11 +438,20 @@ export class CodeGenerator {
         return this.mod.local.set(index, value);
       }
 
+      case "AssignmentExpr": {
+        const local = this.locals.get(expr.name);
+        if (!local) {
+          throw new Error(`Undefined variable in codegen: ${expr.name}`);
+        }
+        const value = this.generateExpr(expr.value);
+        return this.mod.local.set(local.index, value);
+      }
+
       case "BlockExpr": {
         const stmts: binaryen.ExpressionRef[] = [];
         for (const stmt of expr.statements) {
           const generated = this.generateExpr(stmt);
-          if (stmt.kind !== "LetExpr") {
+          if (stmt.kind !== "LetExpr" && stmt.kind !== "AssignmentExpr") {
             // Only drop if the expression produces a value (not void/none)
             const stmtType = this.inferExprType(stmt);
             if (stmtType.kind === "Unit") {
@@ -1112,6 +1124,7 @@ export class CodeGenerator {
       }
 
       case "LetExpr": return UNIT;
+      case "AssignmentExpr": return UNIT;
 
       case "BlockExpr": {
         if (expr.result) return this.inferExprType(expr.result);

@@ -129,6 +129,70 @@ describe("Checker", () => {
     });
   });
 
+  describe("mutable assignment", () => {
+    it("accepts assignment to mutable variable", () => {
+      const { errors } = check(`
+        module Test
+        function f() -> Int64 {
+          let mut x = 1;
+          x = 2;
+          x
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects assignment to immutable variable", () => {
+      const { errors } = check(`
+        module Test
+        function f() -> Int64 {
+          let x = 1;
+          x = 2;
+          x
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("immutable");
+    });
+
+    it("rejects assignment with wrong type", () => {
+      const { errors } = check(`
+        module Test
+        function f() -> Int64 {
+          let mut x = 1;
+          x = True;
+          x
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Cannot assign");
+    });
+
+    it("rejects assignment to undefined variable", () => {
+      const { errors } = check(`
+        module Test
+        function f() -> Int64 {
+          y = 1;
+          1
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Undefined");
+    });
+
+    it("rejects assignment to function parameter", () => {
+      const { errors } = check(`
+        module Test
+        function f(x: Int64) -> Int64 {
+          x = 2;
+          x
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("immutable");
+    });
+  });
+
   describe("function calls", () => {
     it("checks argument count", () => {
       const { errors } = check(`

@@ -127,6 +127,7 @@ function describe(r: Result) -> String {
 ```
 let x = 42;         // immutable
 let mut y = 0;       // explicitly mutable
+y = y + 1;           // reassignment allowed for let mut
 ```
 
 ### No Null, No Exceptions
@@ -284,7 +285,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 90 tests across lexer, parser, type checker, and end-to-end
+npm test    # 109 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -339,7 +340,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 90 tests
+└── tests/                  # 109 tests
 ```
 
 ---
@@ -351,7 +352,7 @@ clarity/
 - Boolean logic and comparisons
 - Pattern matching on booleans and union types
 - Exhaustiveness checking
-- Let bindings (immutable and mutable)
+- Let bindings (immutable and mutable) with reassignment for `let mut`
 - Blocks with multiple statements
 - Recursive function calls
 - Effect system with compile-time enforcement
@@ -395,7 +396,7 @@ Make the type system robust enough for real programs.
 - Properly typed list builtins (`head : List<T> -> Option<T>`, etc.)
 - Built-in `Result<T, E>` type
 - Higher-order functions (`map`, `filter`, `fold`) — essential since there are no loops
-- Mutable binding reassignment (`let mut x = 1; x = x + 1`)
+- ~~Mutable binding reassignment~~ (done — `let mut x = 1; x = x + 1` works)
 
 ### Phase 3 — Module System (v0.4)
 Support programs larger than a single file.
