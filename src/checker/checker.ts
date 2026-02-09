@@ -527,6 +527,34 @@ export class Checker {
         return UNIT;
       }
 
+      case "AssignmentExpr": {
+        const sym = this.env.lookup(expr.name);
+        if (!sym) {
+          this.diagnostics.push(error(`Undefined variable '${expr.name}'`, expr.span));
+          return UNIT;
+        }
+        if (!sym.mutable) {
+          this.diagnostics.push(
+            error(
+              `Cannot assign to immutable variable '${expr.name}'`,
+              expr.span,
+              "Declare with 'let mut' to make it mutable",
+            ),
+          );
+          return UNIT;
+        }
+        const valueType = this.checkExpr(expr.value);
+        if (!typesEqual(valueType, sym.type)) {
+          this.diagnostics.push(
+            error(
+              `Cannot assign ${typeToString(valueType)} to variable '${expr.name}' of type ${typeToString(sym.type)}`,
+              expr.value.span,
+            ),
+          );
+        }
+        return UNIT;
+      }
+
       case "BlockExpr": {
         this.env.enterScope();
         for (const stmt of expr.statements) {

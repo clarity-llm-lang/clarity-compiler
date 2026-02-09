@@ -228,6 +228,16 @@ let name: Type = expression;    // with type annotation
 - The wildcard `_` discards the value (useful for side effects).
 - Let bindings have type `Unit`.
 
+### 5.2.1 Assignment
+```
+name = expression;              // reassign a mutable variable
+```
+
+- Only variables declared with `let mut` can be reassigned.
+- Assigning to an immutable variable is a compile error.
+- The assigned value must match the variable's declared type.
+- Assignment expressions have type `Unit`.
+
 ### 5.3 Match Expression
 ```
 match scrutinee {
@@ -372,14 +382,15 @@ match c { Red -> 1, Green -> 2 }
 All bindings are immutable by default:
 ```
 let x = 42;
-// x = 43;  // COMPILE ERROR: cannot reassign immutable binding
+x = 43;  // COMPILE ERROR: Cannot assign to immutable variable 'x'
 ```
 
 ### 8.2 Explicit Mutability
 Use `let mut` for mutable bindings:
 ```
 let mut counter = 0;
-// counter = counter + 1;  // OK
+counter = counter + 1;  // OK — counter is now 1
+counter = counter + 1;  // OK — counter is now 2
 ```
 
 ### 8.3 Function Parameters

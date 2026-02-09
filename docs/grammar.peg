@@ -29,8 +29,9 @@ UnionType       <- '|' VariantDef ('|' VariantDef)*
 VariantDef      <- Identifier ('(' FieldList ')')?
 
 # === Expressions ===
-Expression      <- MatchExpr / LetExpr / BinaryExpr
+Expression      <- MatchExpr / LetExpr / AssignmentExpr / BinaryExpr
 LetExpr         <- 'let' 'mut'? Pattern '=' Expression
+AssignmentExpr  <- Identifier '=' Expression
 MatchExpr       <- 'match' Expression '{' MatchArm+ '}'
 MatchArm        <- Pattern '->' Expression ','?
 
@@ -54,7 +55,7 @@ ArgList         <- (Arg (',' Arg)*)?
 Arg             <- (Identifier ':')? Expression
 
 Block           <- '{' Statement* Expression? '}'
-Statement       <- LetExpr ';' / Expression ';'
+Statement       <- LetExpr ';' / AssignmentExpr ';' / Expression ';'
 
 # === Patterns ===
 Pattern         <- WildcardPat / LiteralPat / ConstructorPat / BindingPat

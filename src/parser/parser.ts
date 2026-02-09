@@ -7,7 +7,7 @@ import type {
   Parameter, TypeNode, TypeExpr, RecordType, UnionType, VariantDef, FieldDef,
   Expr, BinaryOp, UnaryOp, CallArg, MatchArm,
   Pattern, PatternField,
-  BlockExpr, LetExpr, MatchExpr, BinaryExpr, UnaryExpr,
+  BlockExpr, LetExpr, AssignmentExpr, MatchExpr, BinaryExpr, UnaryExpr,
   CallExpr, MemberExpr, IdentifierExpr,
   IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, ListLiteral,
   RecordLiteral, RecordFieldInit,
@@ -369,6 +369,17 @@ export class Parser {
       }
       case TokenKind.Identifier: {
         this.advance();
+        // Check for assignment: identifier = expr
+        if (this.peek().kind === TokenKind.Eq) {
+          this.advance(); // skip '='
+          const value = this.parseExpr();
+          return {
+            kind: "AssignmentExpr",
+            name: tok.value,
+            value,
+            span: this.spanBetween(tok.span, value.span),
+          } as AssignmentExpr;
+        }
         return { kind: "IdentifierExpr", name: tok.value, span: tok.span } as IdentifierExpr;
       }
       default: {

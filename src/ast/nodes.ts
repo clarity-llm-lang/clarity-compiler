@@ -111,6 +111,7 @@ export type Expr =
   | MemberExpr
   | MatchExpr
   | LetExpr
+  | AssignmentExpr
   | BlockExpr;
 
 export interface IntLiteral extends BaseNode {
@@ -212,6 +213,12 @@ export interface LetExpr extends BaseNode {
   name: string;
   mutable: boolean;
   typeAnnotation?: TypeNode;
+  value: Expr;
+}
+
+export interface AssignmentExpr extends BaseNode {
+  kind: "AssignmentExpr";
+  name: string;
   value: Expr;
 }
 

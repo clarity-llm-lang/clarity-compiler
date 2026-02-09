@@ -220,6 +220,70 @@ describe("Parser", () => {
     });
   });
 
+  describe("mutable assignment", () => {
+    it("parses let mut declaration", () => {
+      const { module, errors } = parse(`
+        module Test
+        function f() -> Int64 {
+          let mut x = 1;
+          x
+        }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        expect(fn.body.statements).toHaveLength(1);
+        const letExpr = fn.body.statements[0];
+        expect(letExpr.kind).toBe("LetExpr");
+        if (letExpr.kind === "LetExpr") {
+          expect(letExpr.mutable).toBe(true);
+          expect(letExpr.name).toBe("x");
+        }
+      }
+    });
+
+    it("parses assignment expression", () => {
+      const { module, errors } = parse(`
+        module Test
+        function f() -> Int64 {
+          let mut x = 1;
+          x = 2;
+          x
+        }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        expect(fn.body.statements).toHaveLength(2);
+        const assign = fn.body.statements[1];
+        expect(assign.kind).toBe("AssignmentExpr");
+        if (assign.kind === "AssignmentExpr") {
+          expect(assign.name).toBe("x");
+        }
+      }
+    });
+
+    it("parses assignment with complex rhs expression", () => {
+      const { module, errors } = parse(`
+        module Test
+        function f() -> Int64 {
+          let mut x = 1;
+          x = x + 10;
+          x
+        }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        const assign = fn.body.statements[1];
+        expect(assign.kind).toBe("AssignmentExpr");
+        if (assign.kind === "AssignmentExpr") {
+          expect(assign.value.kind).toBe("BinaryExpr");
+        }
+      }
+    });
+  });
+
   describe("error recovery", () => {
     it("provides helpful hint for if/else", () => {
       const { errors } = parse(`

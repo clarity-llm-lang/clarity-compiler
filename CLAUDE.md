@@ -66,11 +66,12 @@ function describe(result: AuthResult) -> String {
 }
 ```
 
-### Let bindings
+### Let bindings and assignment
 ```
 function calc(x: Int64) -> Int64 {
   let a = x + 1;       // immutable (default)
   let mut b = a * 2;    // mutable
+  b = b + 1;            // reassignment (only for let mut)
   a + b                 // last expression = return value
 }
 ```
@@ -198,9 +199,6 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 ### string_to_int / string_to_float return raw values
 These functions return `Int64` / `Float64` (0 on parse failure) instead of `Option<T>`. Proper Option return types require generics (Phase 2).
 
-### Mutable binding reassignment not implemented
-`let mut` declarations parse and type-check, but there is no assignment operator in the parser or codegen. `let mut x = 1; x = x + 1;` will fail to parse — reassignment syntax does not exist yet.
-
 ### No module system (import/export)
 The compiler processes a single file at a time. There are no import/export keywords, no file dependency resolution, and no module linking. Programs cannot span multiple `.clarity` files.
 
@@ -225,7 +223,7 @@ Make what exists actually correct.
 3. ✓ **Fix `string_to_int`/`string_to_float`** — Changed to return raw Int64/Float64 (0 on failure). Proper Option return deferred to Phase 2 (requires generics).
 4. ✓ **Fix record type ambiguity** — Match record literals by field names AND field types for disambiguation.
 5. ✓ **Float64 modulo** — Delegates to JS runtime `f64_rem` since WASM has no `f64.rem`.
-6. **Mutable reassignment** — Deferred to Phase 2. Add `=` assignment to parser and codegen.
+6. ✓ **Mutable reassignment** — `let mut x = 1; x = x + 1;` now works. Parser, checker (mutability + type validation), and codegen all implemented.
 
 ### Phase 1.5 — I/O Primitives (v0.2.1)
 Make Clarity usable for real CLI programs before tackling the type system.
