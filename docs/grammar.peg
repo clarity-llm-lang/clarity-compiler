@@ -6,8 +6,9 @@ Module          <- 'module' Identifier ModuleBody
 ModuleBody      <- (TypeDecl / FunctionDecl / ConstDecl)*
 
 # === Declarations ===
-TypeDecl        <- 'type' Identifier '=' TypeExpr
-FunctionDecl    <- EffectAnnotation? 'function' Identifier '(' ParamList ')' '->' TypeRef Block
+TypeDecl        <- 'type' Identifier TypeParams? '=' TypeExpr
+FunctionDecl    <- EffectAnnotation? 'function' Identifier TypeParams? '(' ParamList ')' '->' TypeRef Block
+TypeParams      <- '<' Identifier (',' Identifier)* '>'
 ConstDecl       <- 'const' Identifier ':' TypeRef '=' Expression ';'
 
 EffectAnnotation <- 'effect' '[' EffectList ']'

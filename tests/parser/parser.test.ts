@@ -353,4 +353,48 @@ describe("Parser", () => {
       expect(errors[0].help).toContain("last expression");
     });
   });
+
+  describe("generic type parameters", () => {
+    it("parses generic function with single type param", () => {
+      const { module, errors } = parse(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0] as any;
+      expect(fn.kind).toBe("FunctionDecl");
+      expect(fn.typeParams).toEqual(["T"]);
+    });
+
+    it("parses generic function with multiple type params", () => {
+      const { module, errors } = parse(`
+        module Test
+        function pair<A, B>(a: A, b: B) -> A { a }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0] as any;
+      expect(fn.typeParams).toEqual(["A", "B"]);
+    });
+
+    it("parses non-generic function with empty type params", () => {
+      const { module, errors } = parse(`
+        module Test
+        function add(a: Int64, b: Int64) -> Int64 { a + b }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0] as any;
+      expect(fn.typeParams).toEqual([]);
+    });
+
+    it("parses generic type declaration", () => {
+      const { module, errors } = parse(`
+        module Test
+        type Wrapper<T> = { value: T }
+      `);
+      expect(errors).toHaveLength(0);
+      const td = module.declarations[0] as any;
+      expect(td.kind).toBe("TypeDecl");
+      expect(td.typeParams).toEqual(["T"]);
+    });
+  });
 });

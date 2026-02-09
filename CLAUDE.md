@@ -91,6 +91,21 @@ function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 function result() -> Int64 { apply(double, 5) }  // returns 10
 ```
 
+### Generics (parametric polymorphism)
+Functions and types can have type parameters. Types are inferred at call sites:
+```
+function identity<T>(x: T) -> T { x }
+function first<A, B>(a: A, b: B) -> A { a }
+
+identity(42)          // T = Int64
+identity("hello")     // T = String
+first(1, "x")         // A = Int64, B = String
+
+type Wrapper<T> = { value: T }
+```
+
+List builtins are generic: `head(xs)` returns the element type of the list.
+
 ### What Clarity does NOT have
 - No `if`/`else` — use `match`
 - No `while`/`for` loops — use recursion
@@ -214,9 +229,6 @@ The compiler processes a single file at a time. There are no import/export keywo
 ### Named arguments are not semantically checked
 The parser accepts named arguments (`foo(name: value)`), but the checker ignores the name entirely and matches arguments by position only. Passing arguments in the wrong order with names will silently use positional semantics.
 
-### No generics / parametric polymorphism
-List builtins (`head`, `tail`, etc.) are typed as `List<Int64>` placeholders. The checker has no mechanism for generic type parameters on user-defined functions or types.
-
 ### No lambdas or closures
 Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
 
@@ -244,8 +256,8 @@ Make Clarity usable for real CLI programs before tackling the type system.
 
 ### Phase 2 — Type System Foundations (v0.3)
 Make the type system robust enough for real programs.
-1. **Parametric polymorphism / generics** — At minimum for `List<T>`, `Option<T>`, and user-defined generic types.
-2. **Proper list builtin typing** — `head : List<T> -> Option<T>`, `tail : List<T> -> List<T>`, etc.
+1. ✓ **Parametric polymorphism / generics** — Type parameters on functions (`function identity<T>(x: T) -> T`) and types (`type Wrapper<T> = { value: T }`). Type inference at call sites. Monomorphization in codegen.
+2. ✓ **Proper list builtin typing** — `head : List<T> -> T`, `tail : List<T> -> List<T>`, `append : (List<T>, T) -> List<T>`, etc. All list builtins are now generic.
 3. **Result<T, E> as built-in** — Reduce boilerplate for error handling.
 4. ✓ **Higher-order functions** — Function types `(T) -> U` as parameters, function references, `call_indirect`. Named functions can be passed as values. Lambdas/closures deferred.
 5. **Type aliases** — `type UserId = Int64` as a distinct type (transparent aliases already work).

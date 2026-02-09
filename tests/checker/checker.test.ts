@@ -290,4 +290,117 @@ describe("Checker", () => {
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe("generic functions", () => {
+    it("accepts generic identity function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> Int64 { identity(42) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("infers return type from generic function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> String { identity("hello") }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects wrong return type usage of generic function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> String { identity(42) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts generic function with multiple type params", () => {
+      const { errors } = check(`
+        module Test
+        function first<A, B>(a: A, b: B) -> A { a }
+        function test() -> Int64 { first(42, "hello") }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts generic list operations with string lists", () => {
+      const { errors } = check(`
+        module Test
+        effect[FileSystem] function test() -> Int64 {
+          let args = get_args();
+          list_length(args)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("head infers correct element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2, 3];
+          head(xs)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("head of string list returns String", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> String {
+          let xs = ["a", "b"];
+          head(xs)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects head of string list used as Int64", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = ["a", "b"];
+          head(xs)
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts generic type declaration", () => {
+      const { errors } = check(`
+        module Test
+        type Wrapper<T> = { value: T }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("tail preserves list element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2, 3];
+          head(tail(xs))
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("append with matching element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2];
+          let ys = append(xs, 3);
+          head(ys)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

@@ -152,14 +152,47 @@ function result() -> Int64 { apply(double, 5) }  // returns 10
 
 Lambdas and closures are not yet supported. Only named functions can be passed as values.
 
-### 3.6 No Implicit Conversions
+### 3.6 Generics (Parametric Polymorphism)
+
+Functions and type declarations can have type parameters:
+```
+// Generic function — T is inferred from the argument
+function identity<T>(x: T) -> T { x }
+
+identity(42)       // T = Int64, returns Int64
+identity("hello")  // T = String, returns String
+```
+
+Multiple type parameters:
+```
+function first<A, B>(a: A, b: B) -> A { a }
+```
+
+Generic type declarations:
+```
+type Wrapper<T> = { value: T }
+```
+
+Type parameters are inferred automatically at call sites — no explicit type arguments needed.
+
+Built-in list operations are generic:
+```
+head([1, 2, 3])       // returns Int64 (inferred from List<Int64>)
+head(["a", "b"])      // returns String (inferred from List<String>)
+tail([1, 2])          // returns List<Int64>
+append([1, 2], 3)     // returns List<Int64>
+```
+
+Generic functions are monomorphized at compile time — a separate WASM function is generated for each concrete type instantiation.
+
+### 3.7 No Implicit Conversions
 There are **no implicit type conversions**. `Int64` and `Float64` cannot be mixed in arithmetic:
 ```
 // COMPILE ERROR: Cannot mix Int64 and Float64 in arithmetic
 function bad(a: Int64, b: Float64) -> Float64 { a + b }
 ```
 
-### 3.7 No Null
+### 3.8 No Null
 There is no `null`, `nil`, or `undefined`. Use `Option<T>`:
 ```
 type Option<T> = | Some(value: T) | None

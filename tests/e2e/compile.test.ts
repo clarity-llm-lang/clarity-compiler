@@ -923,4 +923,73 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  // --- Generic functions ---
+  it("compiles and runs generic identity function with Int64", async () => {
+    const source = `
+      module Test
+      function identity<T>(x: T) -> T { x }
+      function test_int() -> Int64 { identity(42) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+    const test_int = instance.exports.test_int as () => bigint;
+    expect(test_int()).toBe(42n);
+  });
+
+  it("compiles and runs generic identity function with String", async () => {
+    const source = `
+      module Test
+      function identity<T>(x: T) -> T { x }
+      function test_str() -> String { identity("hello") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_str = instance.exports.test_str as () => number;
+    expect(runtime.readString(test_str())).toBe("hello");
+  });
+
+  it("compiles generic function with two type params", async () => {
+    const source = `
+      module Test
+      function first<A, B>(a: A, b: B) -> A { a }
+      function test() -> Int64 { first(99, "ignored") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(99n);
+  });
+
+  it("head of string list returns correct string", async () => {
+    const source = `
+      module Test
+      function test() -> String {
+        let xs = ["alpha", "beta"];
+        head(xs)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => number;
+    expect(runtime.readString(test())).toBe("alpha");
+  });
+
+  it("rejects generic function return type mismatch", () => {
+    const source = `
+      module Test
+      function identity<T>(x: T) -> T { x }
+      function bad() -> String { identity(42) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
 });

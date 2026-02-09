@@ -71,6 +71,10 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
 const LIST_INT: ClarityType = { kind: "List", element: INT64 };
 const LIST_STRING: ClarityType = { kind: "List", element: STRING };
 
+// Generic type variable for polymorphic list operations
+const T: ClarityType = { kind: "TypeVar", name: "T" };
+const LIST_T: ClarityType = { kind: "List", element: T };
+
 // -----------------------------------------------------------------------------
 // Built-in Function Definitions
 // -----------------------------------------------------------------------------
@@ -268,12 +272,10 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "math",
   },
 
-  // --- List operations ---
-  // Note: These use List<Int64> as placeholder types. Proper generic typing
-  // requires parametric polymorphism (Phase 2).
+  // --- List operations (generic over element type T) ---
   {
     name: "list_length",
-    params: [LIST_INT],
+    params: [LIST_T],
     returnType: INT64,
     effects: [],
     doc: "Return the number of elements in a list.",
@@ -281,7 +283,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   },
   {
     name: "length",
-    params: [LIST_INT],
+    params: [LIST_T],
     returnType: INT64,
     effects: [],
     doc: "Return the number of elements in a list (alias for list_length).",
@@ -289,40 +291,40 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   },
   {
     name: "head",
-    params: [LIST_INT],
-    returnType: INT64,
+    params: [LIST_T],
+    returnType: T,
     effects: [],
     doc: "Return the first element of a list. Traps on empty list.",
     category: "list",
   },
   {
     name: "tail",
-    params: [LIST_INT],
-    returnType: LIST_INT,
+    params: [LIST_T],
+    returnType: LIST_T,
     effects: [],
     doc: "Return a list without its first element.",
     category: "list",
   },
   {
     name: "append",
-    params: [LIST_INT, INT64],
-    returnType: LIST_INT,
+    params: [LIST_T, T],
+    returnType: LIST_T,
     effects: [],
     doc: "Append an element to the end of a list.",
     category: "list",
   },
   {
     name: "concat",
-    params: [LIST_INT, LIST_INT],
-    returnType: LIST_INT,
+    params: [LIST_T, LIST_T],
+    returnType: LIST_T,
     effects: [],
     doc: "Concatenate two lists.",
     category: "list",
   },
   {
     name: "reverse",
-    params: [LIST_INT],
-    returnType: LIST_INT,
+    params: [LIST_T],
+    returnType: LIST_T,
     effects: [],
     doc: "Reverse a list.",
     category: "list",

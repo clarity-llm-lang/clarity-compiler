@@ -85,9 +85,10 @@ export class Parser {
     const start = this.peek();
     this.expect(TokenKind.Type);
     const name = this.expectIdent();
+    const typeParams = this.parseOptionalTypeParams();
     this.expect(TokenKind.Eq);
     const typeExpr = this.parseTypeExpr();
-    return { kind: "TypeDecl", name, typeExpr, span: this.spanFrom(start) };
+    return { kind: "TypeDecl", name, typeParams, typeExpr, span: this.spanFrom(start) };
   }
 
   private parseFunctionDecl(): FunctionDecl {
@@ -95,6 +96,7 @@ export class Parser {
     const effects = this.parseOptionalEffects();
     this.expect(TokenKind.Function);
     const name = this.expectIdent();
+    const typeParams = this.parseOptionalTypeParams();
     this.expect(TokenKind.LParen);
     const params = this.parseParamList();
     this.expect(TokenKind.RParen);
@@ -104,6 +106,7 @@ export class Parser {
     return {
       kind: "FunctionDecl",
       name,
+      typeParams,
       effects,
       params,
       returnType,
@@ -122,6 +125,20 @@ export class Parser {
     const value = this.parseExpr();
     this.expect(TokenKind.Semicolon);
     return { kind: "ConstDecl", name, typeAnnotation, value, span: this.spanFrom(start) };
+  }
+
+  private parseOptionalTypeParams(): string[] {
+    if (this.peek().kind !== TokenKind.Lt) return [];
+    this.advance(); // skip '<'
+    const params: string[] = [];
+    params.push(this.expectIdent());
+    while (this.peek().kind === TokenKind.Comma) {
+      this.advance();
+      if (this.peek().kind === TokenKind.Gt) break;
+      params.push(this.expectIdent());
+    }
+    this.expect(TokenKind.Gt);
+    return params;
   }
 
   private parseOptionalEffects(): string[] {

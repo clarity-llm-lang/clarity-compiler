@@ -30,12 +30,14 @@ export type Declaration = TypeDecl | FunctionDecl | ConstDecl;
 export interface TypeDecl extends BaseNode {
   kind: "TypeDecl";
   name: string;
+  typeParams: string[];
   typeExpr: TypeExpr;
 }
 
 export interface FunctionDecl extends BaseNode {
   kind: "FunctionDecl";
   name: string;
+  typeParams: string[];
   effects: string[];
   params: Parameter[];
   returnType: TypeNode;
