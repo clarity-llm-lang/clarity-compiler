@@ -11,6 +11,7 @@ export type ClarityType =
   | { kind: "List"; element: ClarityType }
   | { kind: "Option"; inner: ClarityType }
   | { kind: "Function"; params: ClarityType[]; returnType: ClarityType; effects: Set<string> }
+  | { kind: "TypeVar"; name: string }
   | { kind: "Error" };
 
 export interface ClarityVariant {
@@ -77,6 +78,11 @@ export function typesEqual(a: ClarityType, b: ClarityType): boolean {
       return typesEqual(a.returnType, bFn.returnType);
     }
 
+    case "TypeVar": {
+      const bVar = b as Extract<ClarityType, { kind: "TypeVar" }>;
+      return a.name === bVar.name;
+    }
+
     default:
       return false;
   }
@@ -96,6 +102,7 @@ export function typeToString(t: ClarityType): string {
     case "List": return `List<${typeToString(t.element)}>`;
     case "Option": return `Option<${typeToString(t.inner)}>`;
     case "Function": return `(${t.params.map(typeToString).join(", ")}) -> ${typeToString(t.returnType)}`;
+    case "TypeVar": return t.name;
     case "Error": return "<error>";
   }
 }
@@ -111,5 +118,116 @@ export function resolveBuiltinType(name: string): ClarityType | null {
     case "Timestamp": return TIMESTAMP;
     case "Unit": return UNIT;
     default: return null;
+  }
+}
+
+// Check if a type contains any TypeVar
+export function containsTypeVar(t: ClarityType): boolean {
+  switch (t.kind) {
+    case "TypeVar": return true;
+    case "List": return containsTypeVar(t.element);
+    case "Option": return containsTypeVar(t.inner);
+    case "Function": return t.params.some(containsTypeVar) || containsTypeVar(t.returnType);
+    case "Record": return [...t.fields.values()].some(containsTypeVar);
+    case "Union": return t.variants.some(v => [...v.fields.values()].some(containsTypeVar));
+    default: return false;
+  }
+}
+
+// Substitute type variables using a mapping
+export function substituteTypeVars(t: ClarityType, subst: Map<string, ClarityType>): ClarityType {
+  switch (t.kind) {
+    case "TypeVar": return subst.get(t.name) ?? t;
+    case "List": return { kind: "List", element: substituteTypeVars(t.element, subst) };
+    case "Option": return { kind: "Option", inner: substituteTypeVars(t.inner, subst) };
+    case "Function": return {
+      kind: "Function",
+      params: t.params.map(p => substituteTypeVars(p, subst)),
+      returnType: substituteTypeVars(t.returnType, subst),
+      effects: t.effects,
+    };
+    case "Record": {
+      const fields = new Map<string, ClarityType>();
+      for (const [k, v] of t.fields) fields.set(k, substituteTypeVars(v, subst));
+      return { kind: "Record", name: t.name, fields };
+    }
+    case "Union": {
+      const variants = t.variants.map(v => {
+        const fields = new Map<string, ClarityType>();
+        for (const [k, fv] of v.fields) fields.set(k, substituteTypeVars(fv, subst));
+        return { name: v.name, fields };
+      });
+      return { kind: "Union", name: t.name, variants };
+    }
+    default: return t;
+  }
+}
+
+// Unify a generic type with a concrete type, collecting type variable bindings.
+// Returns true if unification succeeds.
+export function unifyTypes(
+  generic: ClarityType,
+  concrete: ClarityType,
+  bindings: Map<string, ClarityType>,
+): boolean {
+  if (generic.kind === "Error" || concrete.kind === "Error") return true;
+
+  if (generic.kind === "TypeVar") {
+    const existing = bindings.get(generic.name);
+    if (existing) {
+      return typesEqual(existing, concrete);
+    }
+    bindings.set(generic.name, concrete);
+    return true;
+  }
+
+  if (generic.kind !== concrete.kind) return false;
+
+  switch (generic.kind) {
+    case "Int64":
+    case "Float64":
+    case "String":
+    case "Bool":
+    case "Bytes":
+    case "Timestamp":
+    case "Unit":
+      return true;
+
+    case "List": {
+      const cList = concrete as Extract<ClarityType, { kind: "List" }>;
+      return unifyTypes(generic.element, cList.element, bindings);
+    }
+
+    case "Option": {
+      const cOpt = concrete as Extract<ClarityType, { kind: "Option" }>;
+      return unifyTypes(generic.inner, cOpt.inner, bindings);
+    }
+
+    case "Function": {
+      const cFn = concrete as Extract<ClarityType, { kind: "Function" }>;
+      if (generic.params.length !== cFn.params.length) return false;
+      for (let i = 0; i < generic.params.length; i++) {
+        if (!unifyTypes(generic.params[i], cFn.params[i], bindings)) return false;
+      }
+      return unifyTypes(generic.returnType, cFn.returnType, bindings);
+    }
+
+    case "Record": {
+      const cRec = concrete as Extract<ClarityType, { kind: "Record" }>;
+      if (generic.name !== cRec.name) return false;
+      for (const [k, v] of generic.fields) {
+        const cv = cRec.fields.get(k);
+        if (!cv || !unifyTypes(v, cv, bindings)) return false;
+      }
+      return true;
+    }
+
+    case "Union": {
+      const cUnion = concrete as Extract<ClarityType, { kind: "Union" }>;
+      return generic.name === cUnion.name;
+    }
+
+    default:
+      return false;
   }
 }

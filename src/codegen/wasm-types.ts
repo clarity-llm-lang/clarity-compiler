@@ -14,6 +14,8 @@ export function clarityTypeToWasm(type: ClarityType): binaryen.Type {
     case "Bytes":
     case "List":
     case "Option":
+    case "Function":
+    case "TypeVar":
       return binaryen.i32;
     default:
       return binaryen.i32;

@@ -250,4 +250,157 @@ describe("Checker", () => {
       expect(errors[0].message).toContain("exhaustive");
     });
   });
+
+  describe("higher-order functions", () => {
+    it("accepts function type parameter", () => {
+      const { errors } = check(`
+        module Test
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts passing function as argument", () => {
+      const { errors } = check(`
+        module Test
+        function double(x: Int64) -> Int64 { x * 2 }
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+        function test() -> Int64 { apply(double, 5) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects wrong function signature", () => {
+      const { errors } = check(`
+        module Test
+        function greet(s: String) -> String { s }
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+        function bad() -> Int64 { apply(greet, 5) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts multi-param function type", () => {
+      const { errors } = check(`
+        module Test
+        function add(a: Int64, b: Int64) -> Int64 { a + b }
+        function combine(f: (Int64, Int64) -> Int64, x: Int64, y: Int64) -> Int64 { f(x, y) }
+        function test() -> Int64 { combine(add, 3, 4) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe("generic functions", () => {
+    it("accepts generic identity function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> Int64 { identity(42) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("infers return type from generic function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> String { identity("hello") }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects wrong return type usage of generic function", () => {
+      const { errors } = check(`
+        module Test
+        function identity<T>(x: T) -> T { x }
+        function test() -> String { identity(42) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts generic function with multiple type params", () => {
+      const { errors } = check(`
+        module Test
+        function first<A, B>(a: A, b: B) -> A { a }
+        function test() -> Int64 { first(42, "hello") }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts generic list operations with string lists", () => {
+      const { errors } = check(`
+        module Test
+        effect[FileSystem] function test() -> Int64 {
+          let args = get_args();
+          list_length(args)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("head infers correct element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2, 3];
+          head(xs)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("head of string list returns String", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> String {
+          let xs = ["a", "b"];
+          head(xs)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects head of string list used as Int64", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = ["a", "b"];
+          head(xs)
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts generic type declaration", () => {
+      const { errors } = check(`
+        module Test
+        type Wrapper<T> = { value: T }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("tail preserves list element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2, 3];
+          head(tail(xs))
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("append with matching element type", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Int64 {
+          let xs = [1, 2];
+          let ys = append(xs, 3);
+          head(ys)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

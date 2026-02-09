@@ -8,6 +8,7 @@ import {
   type ClarityType, type ClarityVariant,
   INT64, FLOAT64, STRING, BOOL, UNIT, ERROR_TYPE,
   resolveBuiltinType, typesEqual, typeToString,
+  containsTypeVar, substituteTypeVars, unifyTypes,
 } from "./types.js";
 import { Environment } from "./environment.js";
 import { validateEffectNames, checkEffectSafety } from "./effects.js";
@@ -18,6 +19,8 @@ export class Checker {
   private env: Environment = new Environment();
   private diagnostics: Diagnostic[] = [];
   private currentEffects: Set<string> = new Set();
+  // Type parameters in scope (for generic functions/types)
+  private typeParamsInScope: Set<string> = new Set();
   // Registry of all Option<T> instantiations for polymorphic Some/None
   private optionTypes: Map<string, ClarityType> = new Map();
 
@@ -90,8 +93,19 @@ export class Checker {
   // ============================================================
 
   private registerTypeDecl(decl: TypeDecl): void {
+    // Bring type params into scope for resolving the type body
+    const prevTypeParams = this.typeParamsInScope;
+    this.typeParamsInScope = new Set([...prevTypeParams, ...decl.typeParams]);
+
     const type = this.resolveTypeExpr(decl.typeExpr, decl.name);
+
+    this.typeParamsInScope = prevTypeParams;
+
     if (type) {
+      // Store the type with its type parameters for later instantiation
+      if (decl.typeParams.length > 0) {
+        (type as any).__typeParams = decl.typeParams;
+      }
       this.env.defineType(decl.name, type);
 
       // If it's a union type, register variant constructors as functions
@@ -104,6 +118,9 @@ export class Checker {
             returnType: type,
             effects: new Set(),
           };
+          if (decl.typeParams.length > 0) {
+            (fnType as any).__typeParams = decl.typeParams;
+          }
           this.env.define(variant.name, {
             name: variant.name,
             type: fnType,
@@ -175,6 +192,22 @@ export class Checker {
   }
 
   resolveTypeRef(node: TypeNode): ClarityType | null {
+    // Handle function types: (Type, ...) -> ReturnType
+    if (node.kind === "FunctionType") {
+      const paramTypes: ClarityType[] = [];
+      for (const p of node.paramTypes) {
+        const resolved = this.resolveTypeRef(p);
+        paramTypes.push(resolved ?? ERROR_TYPE);
+      }
+      const returnType = this.resolveTypeRef(node.returnType) ?? ERROR_TYPE;
+      return { kind: "Function", params: paramTypes, returnType, effects: new Set() };
+    }
+
+    // Check if it's a type variable in scope
+    if (this.typeParamsInScope.has(node.name) && node.typeArgs.length === 0) {
+      return { kind: "TypeVar", name: node.name };
+    }
+
     // Check built-in types
     const builtin = resolveBuiltinType(node.name);
     if (builtin) return builtin;
@@ -246,6 +279,10 @@ export class Checker {
     // Validate effect names
     this.diagnostics.push(...validateEffectNames(decl.effects, decl.span));
 
+    // Bring type params into scope for resolving param/return types
+    const prevTypeParams = this.typeParamsInScope;
+    this.typeParamsInScope = new Set([...prevTypeParams, ...decl.typeParams]);
+
     const paramTypes: ClarityType[] = [];
     for (const param of decl.params) {
       const t = this.resolveTypeRef(param.typeAnnotation);
@@ -254,12 +291,19 @@ export class Checker {
 
     const returnType = this.resolveTypeRef(decl.returnType) ?? ERROR_TYPE;
 
+    this.typeParamsInScope = prevTypeParams;
+
     const fnType: ClarityType = {
       kind: "Function",
       params: paramTypes,
       returnType,
       effects: new Set(decl.effects),
     };
+
+    // Tag with type params so call sites can infer them
+    if (decl.typeParams.length > 0) {
+      (fnType as any).__typeParams = decl.typeParams;
+    }
 
     this.env.define(decl.name, {
       name: decl.name,
@@ -272,6 +316,10 @@ export class Checker {
   private checkFunctionBody(decl: FunctionDecl): void {
     this.env.enterScope();
     this.currentEffects = new Set(decl.effects);
+
+    // Bring type params into scope
+    const prevTypeParams = this.typeParamsInScope;
+    this.typeParamsInScope = new Set([...prevTypeParams, ...decl.typeParams]);
 
     // Define parameters in scope
     for (const param of decl.params) {
@@ -287,15 +335,20 @@ export class Checker {
     const expectedReturn = this.resolveTypeRef(decl.returnType) ?? ERROR_TYPE;
     const bodyType = this.checkExpr(decl.body);
 
+    // For generic functions, skip return type check when types contain TypeVars
+    // (the concrete check happens at each call site via inference)
     if (bodyType && !typesEqual(bodyType, expectedReturn)) {
-      this.diagnostics.push(
-        error(
-          `Function '${decl.name}' returns ${typeToString(bodyType)} but declared return type is ${typeToString(expectedReturn)}`,
-          decl.body.span,
-        ),
-      );
+      if (!containsTypeVar(bodyType) && !containsTypeVar(expectedReturn)) {
+        this.diagnostics.push(
+          error(
+            `Function '${decl.name}' returns ${typeToString(bodyType)} but declared return type is ${typeToString(expectedReturn)}`,
+            decl.body.span,
+          ),
+        );
+      }
     }
 
+    this.typeParamsInScope = prevTypeParams;
     this.env.exitScope();
     this.currentEffects = new Set();
   }
@@ -419,14 +472,41 @@ export class Checker {
           return calleeType.returnType;
         }
 
-        // Check argument types
+        // Check if this is a generic function call that needs type inference
+        const isGeneric = containsTypeVar(calleeType);
+
+        if (isGeneric) {
+          // Infer type variables from arguments
+          const bindings = new Map<string, ClarityType>();
+          for (let i = 0; i < expr.args.length; i++) {
+            const argType = this.checkExpr(expr.args[i].value);
+            const paramType = calleeType.params[i];
+            if (!unifyTypes(paramType, argType, bindings)) {
+              this.diagnostics.push(
+                error(
+                  `Argument ${i + 1}: expected ${typeToString(paramType)} but got ${typeToString(argType)}`,
+                  expr.args[i].span,
+                ),
+              );
+            }
+          }
+
+          // Substitute inferred types into the return type
+          const resolvedReturnType = substituteTypeVars(calleeType.returnType, bindings);
+
+          // Check effects
+          this.diagnostics.push(
+            ...checkEffectSafety(this.currentEffects, calleeType.effects, expr.span),
+          );
+
+          return resolvedReturnType;
+        }
+
+        // Non-generic: check argument types directly
         for (let i = 0; i < expr.args.length; i++) {
           const argType = this.checkExpr(expr.args[i].value);
           const paramType = calleeType.params[i];
-          // Allow any List<T> to match any List<U> — proper generic
-          // checking requires parametric polymorphism (Phase 2).
-          const listsCompatible = argType.kind === "List" && paramType.kind === "List";
-          if (!listsCompatible && !typesEqual(argType, paramType)) {
+          if (!typesEqual(argType, paramType)) {
             this.diagnostics.push(
               error(
                 `Argument ${i + 1}: expected ${typeToString(paramType)} but got ${typeToString(argType)}`,

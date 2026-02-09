@@ -82,8 +82,9 @@ type Result =
   | Ok(value: Int64)
   | Error(reason: String)
 
-// Generics
-type Queue = { items: List<String> }
+// Generics (on types and functions)
+type Wrapper<T> = { value: T }
+function identity<T>(x: T) -> T { x }
 ```
 
 ### Functions
@@ -285,7 +286,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 109 tests across lexer, parser, type checker, and end-to-end
+npm test    # 140 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -340,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 109 tests
+└── tests/                  # 140 tests
 ```
 
 ---
@@ -365,6 +366,9 @@ clarity/
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
+- Higher-order functions (pass named functions as arguments, function type syntax)
+- Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
+- Properly typed generic list builtins (`head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
@@ -392,10 +396,10 @@ Make Clarity usable for real CLI programs.
 
 ### Phase 2 — Type System Foundations (v0.3)
 Make the type system robust enough for real programs.
-- Parametric polymorphism / generics for user-defined types and functions
-- Properly typed list builtins (`head : List<T> -> Option<T>`, etc.)
+- ~~Parametric polymorphism / generics~~ (done — `function identity<T>(x: T) -> T` with monomorphization)
+- ~~Properly typed list builtins~~ (done — `head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
 - Built-in `Result<T, E>` type
-- Higher-order functions (`map`, `filter`, `fold`) — essential since there are no loops
+- ~~Higher-order functions~~ (done — named functions as values via `(T) -> U` type syntax and `call_indirect`)
 - ~~Mutable binding reassignment~~ (done — `let mut x = 1; x = x + 1` works)
 
 ### Phase 3 — Module System (v0.4)

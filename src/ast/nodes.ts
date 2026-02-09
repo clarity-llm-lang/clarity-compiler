@@ -30,12 +30,14 @@ export type Declaration = TypeDecl | FunctionDecl | ConstDecl;
 export interface TypeDecl extends BaseNode {
   kind: "TypeDecl";
   name: string;
+  typeParams: string[];
   typeExpr: TypeExpr;
 }
 
 export interface FunctionDecl extends BaseNode {
   kind: "FunctionDecl";
   name: string;
+  typeParams: string[];
   effects: string[];
   params: Parameter[];
   returnType: TypeNode;
@@ -87,10 +89,18 @@ export interface FieldDef extends BaseNode {
 // Type References (used in annotations)
 // ============================================================
 
-export interface TypeNode extends BaseNode {
+export type TypeNode = TypeRefNode | FunctionTypeNode;
+
+export interface TypeRefNode extends BaseNode {
   kind: "TypeRef";
   name: string;
   typeArgs: TypeNode[];
+}
+
+export interface FunctionTypeNode extends BaseNode {
+  kind: "FunctionType";
+  paramTypes: TypeNode[];
+  returnType: TypeNode;
 }
 
 // ============================================================

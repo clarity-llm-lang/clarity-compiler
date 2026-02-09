@@ -3,7 +3,7 @@ import type {
   ModuleDecl, FunctionDecl, Expr, BinaryOp, UnaryOp,
 } from "../ast/nodes.js";
 import type { ClarityType, ClarityVariant } from "../checker/types.js";
-import { INT64, FLOAT64, BOOL, UNIT } from "../checker/types.js";
+import { INT64, FLOAT64, BOOL, UNIT, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
 import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
@@ -33,6 +33,13 @@ export class CodeGenerator {
   // All type declarations for record/union layout computation
   private allTypeDecls: Map<string, ClarityType> = new Map();
 
+  // Function table for indirect calls (higher-order functions)
+  private functionTableNames: string[] = [];
+  private functionTableIndices: Map<string, number> = new Map();
+
+  // Monomorphization tracking for generic functions
+  private generatedMonomorphs: Set<string> = new Set();
+
   generate(module: ModuleDecl, checker: Checker): Uint8Array {
     this.mod = new binaryen.Module();
     this.checker = checker;
@@ -41,6 +48,9 @@ export class CodeGenerator {
     this.dataSegments = [];
     this.allFunctions = new Map();
     this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
+    this.generatedMonomorphs = new Set();
 
     this.setupModule(module);
 
@@ -60,6 +70,9 @@ export class CodeGenerator {
     this.dataSegments = [];
     this.allFunctions = new Map();
     this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
+    this.generatedMonomorphs = new Set();
 
     this.setupModule(module);
 
@@ -147,11 +160,30 @@ export class CodeGenerator {
     }));
     this.mod.setMemory(1, 256, "memory", segments);
 
-    // Generate all functions
+    // Build function table index map (before generating functions so codegen can reference indices)
+    // Skip generic functions — they are monomorphized at call sites
     for (const decl of module.declarations) {
-      if (decl.kind === "FunctionDecl") {
+      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
+        this.functionTableIndices.set(decl.name, this.functionTableNames.length);
+        this.functionTableNames.push(decl.name);
+      }
+    }
+
+    // Generate all non-generic functions (generic functions are monomorphized on demand)
+    for (const decl of module.declarations) {
+      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
         this.generateFunction(decl);
       }
+    }
+
+    // Set up function table for indirect calls (if any functions exist)
+    if (this.functionTableNames.length > 0) {
+      this.mod.addTable("0", this.functionTableNames.length, this.functionTableNames.length);
+      this.mod.addActiveElementSegment(
+        "0", "funcs",
+        this.functionTableNames,
+        this.mod.i32.const(0),
+      );
     }
 
     // Export the heap base so the runtime knows where dynamic allocation starts
@@ -410,6 +442,11 @@ export class CodeGenerator {
         if (ctorInfo && ctorInfo.variant.fields.size === 0) {
           return this.generateConstructorCall(expr.name, ctorInfo, []);
         }
+        // Check if this is a function reference (for higher-order functions)
+        const tableIndex = this.functionTableIndices.get(expr.name);
+        if (tableIndex !== undefined) {
+          return this.mod.i32.const(tableIndex);
+        }
         throw new Error(`Undefined variable in codegen: ${expr.name}`);
       }
 
@@ -501,6 +538,12 @@ export class CodeGenerator {
 
     const name = expr.callee.name;
 
+    // Check if calling a function-typed local variable (indirect call)
+    const local = this.locals.get(name);
+    if (local && local.clarityType.kind === "Function") {
+      return this.generateIndirectCall(expr, local, local.clarityType);
+    }
+
     // Check if this is a union variant constructor or a regular function
     const constructorType = this.findConstructorType(name);
     if (constructorType) {
@@ -511,9 +554,122 @@ export class CodeGenerator {
     const listCall = this.tryGenerateListCall(name, expr);
     if (listCall) return listCall;
 
+    // Check if this is a call to a generic function that needs monomorphization
+    const targetDecl = this.allFunctions.get(name);
+    if (targetDecl && targetDecl.typeParams.length > 0) {
+      return this.generateMonomorphizedCall(expr, targetDecl);
+    }
+
     // Regular function call
     const args = expr.args.map((a) => this.generateExpr(a.value));
     return this.mod.call(name, args, this.inferWasmReturnType(name));
+  }
+
+  // Resolve a type reference with type parameter names treated as TypeVars
+  private resolveTypeRefWithTypeParams(node: import("../ast/nodes.js").TypeNode, typeParams: string[]): ClarityType {
+    if (node.kind === "TypeRef" && typeParams.includes(node.name) && node.typeArgs.length === 0) {
+      return { kind: "TypeVar", name: node.name };
+    }
+    return this.checker.resolveTypeRef(node) ?? INT64;
+  }
+
+  private generateMonomorphizedCall(
+    expr: import("../ast/nodes.js").CallExpr,
+    genericDecl: FunctionDecl,
+  ): binaryen.ExpressionRef {
+    // Infer type bindings from argument types
+    const bindings = new Map<string, ClarityType>();
+    for (let i = 0; i < expr.args.length; i++) {
+      const argType = this.inferExprType(expr.args[i].value);
+      const paramType = this.resolveTypeRefWithTypeParams(
+        genericDecl.params[i].typeAnnotation, genericDecl.typeParams,
+      );
+      unifyTypes(paramType, argType, bindings);
+    }
+
+    // Build monomorphized function name: funcName$T1$T2
+    const typeKey = genericDecl.typeParams.map(tp => {
+      const bound = bindings.get(tp);
+      return bound ? typeToString(bound) : "unknown";
+    }).join("$");
+    const monoName = `${genericDecl.name}$${typeKey}`;
+
+    // Generate the monomorphized function if not already done
+    if (!this.generatedMonomorphs.has(monoName)) {
+      this.generatedMonomorphs.add(monoName);
+
+      // Save current function state
+      const savedLocals = this.locals;
+      const savedLocalIndex = this.localIndex;
+      const savedAdditionalLocals = this.additionalLocals;
+      const savedCurrentFunction = this.currentFunction;
+
+      // Set up new function context
+      this.locals = new Map();
+      this.localIndex = 0;
+      this.additionalLocals = [];
+      this.currentFunction = genericDecl;
+
+      const paramWasmTypes: binaryen.Type[] = [];
+      for (const param of genericDecl.params) {
+        const genericType = this.resolveTypeRefWithTypeParams(
+          param.typeAnnotation, genericDecl.typeParams,
+        );
+        const concreteType = substituteTypeVars(genericType, bindings);
+        const wasmType = clarityTypeToWasm(concreteType);
+        this.locals.set(param.name, {
+          index: this.localIndex,
+          wasmType,
+          clarityType: concreteType,
+        });
+        paramWasmTypes.push(wasmType);
+        this.localIndex++;
+      }
+
+      const genericReturnType = this.resolveTypeRefWithTypeParams(
+        genericDecl.returnType, genericDecl.typeParams,
+      );
+      const concreteReturnType = substituteTypeVars(genericReturnType, bindings);
+      const returnWasmType = clarityTypeToWasm(concreteReturnType);
+      const paramsType = binaryen.createType(paramWasmTypes);
+
+      const body = this.generateExpr(genericDecl.body, concreteReturnType);
+
+      this.mod.addFunction(monoName, paramsType, returnWasmType, this.additionalLocals, body);
+      this.mod.addFunctionExport(monoName, monoName);
+
+      // Restore previous function state
+      this.locals = savedLocals;
+      this.localIndex = savedLocalIndex;
+      this.additionalLocals = savedAdditionalLocals;
+      this.currentFunction = savedCurrentFunction;
+    }
+
+    // Generate the call to the monomorphized function
+    const args = expr.args.map((a) => this.generateExpr(a.value));
+    const genericReturnType = this.resolveTypeRefWithTypeParams(
+      genericDecl.returnType, genericDecl.typeParams,
+    );
+    const concreteReturn = substituteTypeVars(genericReturnType, bindings);
+    return this.mod.call(monoName, args, clarityTypeToWasm(concreteReturn));
+  }
+
+  private generateIndirectCall(
+    expr: import("../ast/nodes.js").CallExpr,
+    local: LocalVar,
+    fnType: Extract<ClarityType, { kind: "Function" }>,
+  ): binaryen.ExpressionRef {
+    const funcIndexExpr = this.mod.local.get(local.index, binaryen.i32);
+    const args = expr.args.map((a) => this.generateExpr(a.value));
+    const paramWasmTypes = fnType.params.map(clarityTypeToWasm);
+    const returnWasmType = clarityTypeToWasm(fnType.returnType);
+    return this.mod.call_indirect(
+      "0",
+      funcIndexExpr,
+      args,
+      binaryen.createType(paramWasmTypes),
+      returnWasmType,
+    );
   }
 
   // Handle user-facing list operations by mapping them to runtime functions
@@ -1082,6 +1238,11 @@ export class CodeGenerator {
         if (local) return local.clarityType;
         const ctor = this.findConstructorType(expr.name);
         if (ctor) return ctor.union;
+        // Function reference — return Function type
+        if (this.functionTableIndices.has(expr.name)) {
+          const fn = this.allFunctions.get(expr.name);
+          if (fn) return this.inferFunctionType(fn);
+        }
         return INT64;
       }
 
@@ -1101,6 +1262,11 @@ export class CodeGenerator {
       case "CallExpr": {
         if (expr.callee.kind === "IdentifierExpr") {
           const name = expr.callee.name;
+          // Check for indirect call through function-typed local
+          const local = this.locals.get(name);
+          if (local && local.clarityType.kind === "Function") {
+            return local.clarityType.returnType;
+          }
           if (expr.args.length > 0) {
             const argType = this.inferExprType(expr.args[0].value);
             if (argType.kind === "List") {
@@ -1162,6 +1328,12 @@ export class CodeGenerator {
 
       default: return INT64;
     }
+  }
+
+  private inferFunctionType(decl: FunctionDecl): ClarityType {
+    const params = decl.params.map(p => this.checker.resolveTypeRef(p.typeAnnotation) ?? INT64);
+    const returnType = this.checker.resolveTypeRef(decl.returnType) ?? INT64;
+    return { kind: "Function", params, returnType, effects: new Set(decl.effects) };
   }
 
   private inferFunctionReturnType(name: string): ClarityType {
