@@ -250,4 +250,44 @@ describe("Checker", () => {
       expect(errors[0].message).toContain("exhaustive");
     });
   });
+
+  describe("higher-order functions", () => {
+    it("accepts function type parameter", () => {
+      const { errors } = check(`
+        module Test
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts passing function as argument", () => {
+      const { errors } = check(`
+        module Test
+        function double(x: Int64) -> Int64 { x * 2 }
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+        function test() -> Int64 { apply(double, 5) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects wrong function signature", () => {
+      const { errors } = check(`
+        module Test
+        function greet(s: String) -> String { s }
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+        function bad() -> Int64 { apply(greet, 5) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("accepts multi-param function type", () => {
+      const { errors } = check(`
+        module Test
+        function add(a: Int64, b: Int64) -> Int64 { a + b }
+        function combine(f: (Int64, Int64) -> Int64, x: Int64, y: Int64) -> Int64 { f(x, y) }
+        function test() -> Int64 { combine(add, 3, 4) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

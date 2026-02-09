@@ -17,7 +17,8 @@ ParamList       <- (Param (',' Param)*)?
 Param           <- Identifier ':' TypeRef
 
 # === Types ===
-TypeRef         <- Identifier ('<' TypeArgList '>')?
+TypeRef         <- FunctionType / Identifier ('<' TypeArgList '>')?
+FunctionType    <- '(' (TypeRef (',' TypeRef)*)? ')' '->' TypeRef
 TypeArgList     <- TypeRef (',' TypeRef)*
 
 TypeExpr        <- RecordType / UnionType / TypeRef

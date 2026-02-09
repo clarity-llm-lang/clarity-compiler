@@ -859,4 +859,68 @@ describe("end-to-end compilation", () => {
     const ptr = slurp();
     expect(runtime.readString(ptr)).toBe("line1\nline2\nline3");
   });
+
+  it("passes and calls a function reference (higher-order)", async () => {
+    const source = `
+      module Test
+      function double(x: Int64) -> Int64 { x * 2 }
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test_it() -> Int64 { apply(double, 5) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_it = instance.exports.test_it as () => bigint;
+    expect(test_it()).toBe(10n);
+  });
+
+  it("passes multi-arg function reference", async () => {
+    const source = `
+      module Test
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      function mul(a: Int64, b: Int64) -> Int64 { a * b }
+      function combine(f: (Int64, Int64) -> Int64, x: Int64, y: Int64) -> Int64 { f(x, y) }
+      function test_add() -> Int64 { combine(add, 3, 4) }
+      function test_mul() -> Int64 { combine(mul, 3, 4) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_add = instance.exports.test_add as () => bigint;
+    const test_mul = instance.exports.test_mul as () => bigint;
+    expect(test_add()).toBe(7n);
+    expect(test_mul()).toBe(12n);
+  });
+
+  it("higher-order function with string return type", async () => {
+    const source = `
+      module Test
+      function greet(name: String) -> String { "Hello " ++ name }
+      function apply_str(f: (String) -> String, s: String) -> String { f(s) }
+      function test_it() -> String { apply_str(greet, "World") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_it = instance.exports.test_it as () => number;
+    const ptr = test_it();
+    expect(runtime.readString(ptr)).toBe("Hello World");
+  });
+
+  it("rejects wrong function signature at compile time", () => {
+    const source = `
+      module Test
+      function greet(s: String) -> String { s }
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function bad() -> Int64 { apply(greet, 5) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
 });

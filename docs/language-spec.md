@@ -138,7 +138,19 @@ Functions have typed parameters, a return type, and optional effect annotations:
 function name(param1: Type1, param2: Type2) -> ReturnType { body }
 ```
 
-Functions are not first-class values in the MVP. They can only be called by name.
+Named functions can be passed as arguments using function type syntax:
+```
+(ParamType1, ParamType2) -> ReturnType
+```
+
+Example:
+```
+function double(x: Int64) -> Int64 { x * 2 }
+function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+function result() -> Int64 { apply(double, 5) }  // returns 10
+```
+
+Lambdas and closures are not yet supported. Only named functions can be passed as values.
 
 ### 3.6 No Implicit Conversions
 There are **no implicit type conversions**. `Int64` and `Float64` cannot be mixed in arithmetic:
