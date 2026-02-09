@@ -284,6 +284,56 @@ describe("Parser", () => {
     });
   });
 
+  describe("function types", () => {
+    it("parses function type in parameter position", () => {
+      const { module, errors } = parse(`
+        module Test
+        function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        expect(fn.params[0].typeAnnotation.kind).toBe("FunctionType");
+        if (fn.params[0].typeAnnotation.kind === "FunctionType") {
+          expect(fn.params[0].typeAnnotation.paramTypes).toHaveLength(1);
+          expect(fn.params[0].typeAnnotation.returnType.kind).toBe("TypeRef");
+        }
+      }
+    });
+
+    it("parses multi-param function type", () => {
+      const { module, errors } = parse(`
+        module Test
+        function fold(xs: List<Int64>, acc: Int64, f: (Int64, Int64) -> Int64) -> Int64 { acc }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        const fParam = fn.params[2].typeAnnotation;
+        expect(fParam.kind).toBe("FunctionType");
+        if (fParam.kind === "FunctionType") {
+          expect(fParam.paramTypes).toHaveLength(2);
+        }
+      }
+    });
+
+    it("parses zero-param function type", () => {
+      const { module, errors } = parse(`
+        module Test
+        function run(f: () -> Int64) -> Int64 { f() }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0];
+      if (fn.kind === "FunctionDecl") {
+        const fParam = fn.params[0].typeAnnotation;
+        expect(fParam.kind).toBe("FunctionType");
+        if (fParam.kind === "FunctionType") {
+          expect(fParam.paramTypes).toHaveLength(0);
+        }
+      }
+    });
+  });
+
   describe("error recovery", () => {
     it("provides helpful hint for if/else", () => {
       const { errors } = parse(`

@@ -175,6 +175,17 @@ export class Checker {
   }
 
   resolveTypeRef(node: TypeNode): ClarityType | null {
+    // Handle function types: (Type, ...) -> ReturnType
+    if (node.kind === "FunctionType") {
+      const paramTypes: ClarityType[] = [];
+      for (const p of node.paramTypes) {
+        const resolved = this.resolveTypeRef(p);
+        paramTypes.push(resolved ?? ERROR_TYPE);
+      }
+      const returnType = this.resolveTypeRef(node.returnType) ?? ERROR_TYPE;
+      return { kind: "Function", params: paramTypes, returnType, effects: new Set() };
+    }
+
     // Check built-in types
     const builtin = resolveBuiltinType(node.name);
     if (builtin) return builtin;

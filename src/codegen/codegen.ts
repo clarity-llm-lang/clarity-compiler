@@ -33,6 +33,10 @@ export class CodeGenerator {
   // All type declarations for record/union layout computation
   private allTypeDecls: Map<string, ClarityType> = new Map();
 
+  // Function table for indirect calls (higher-order functions)
+  private functionTableNames: string[] = [];
+  private functionTableIndices: Map<string, number> = new Map();
+
   generate(module: ModuleDecl, checker: Checker): Uint8Array {
     this.mod = new binaryen.Module();
     this.checker = checker;
@@ -41,6 +45,8 @@ export class CodeGenerator {
     this.dataSegments = [];
     this.allFunctions = new Map();
     this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
 
     this.setupModule(module);
 
@@ -60,6 +66,8 @@ export class CodeGenerator {
     this.dataSegments = [];
     this.allFunctions = new Map();
     this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
 
     this.setupModule(module);
 
@@ -147,11 +155,29 @@ export class CodeGenerator {
     }));
     this.mod.setMemory(1, 256, "memory", segments);
 
+    // Build function table index map (before generating functions so codegen can reference indices)
+    for (const decl of module.declarations) {
+      if (decl.kind === "FunctionDecl") {
+        this.functionTableIndices.set(decl.name, this.functionTableNames.length);
+        this.functionTableNames.push(decl.name);
+      }
+    }
+
     // Generate all functions
     for (const decl of module.declarations) {
       if (decl.kind === "FunctionDecl") {
         this.generateFunction(decl);
       }
+    }
+
+    // Set up function table for indirect calls (if any functions exist)
+    if (this.functionTableNames.length > 0) {
+      this.mod.addTable("0", this.functionTableNames.length, this.functionTableNames.length);
+      this.mod.addActiveElementSegment(
+        "0", "funcs",
+        this.functionTableNames,
+        this.mod.i32.const(0),
+      );
     }
 
     // Export the heap base so the runtime knows where dynamic allocation starts
@@ -410,6 +436,11 @@ export class CodeGenerator {
         if (ctorInfo && ctorInfo.variant.fields.size === 0) {
           return this.generateConstructorCall(expr.name, ctorInfo, []);
         }
+        // Check if this is a function reference (for higher-order functions)
+        const tableIndex = this.functionTableIndices.get(expr.name);
+        if (tableIndex !== undefined) {
+          return this.mod.i32.const(tableIndex);
+        }
         throw new Error(`Undefined variable in codegen: ${expr.name}`);
       }
 
@@ -501,6 +532,12 @@ export class CodeGenerator {
 
     const name = expr.callee.name;
 
+    // Check if calling a function-typed local variable (indirect call)
+    const local = this.locals.get(name);
+    if (local && local.clarityType.kind === "Function") {
+      return this.generateIndirectCall(expr, local, local.clarityType);
+    }
+
     // Check if this is a union variant constructor or a regular function
     const constructorType = this.findConstructorType(name);
     if (constructorType) {
@@ -514,6 +551,24 @@ export class CodeGenerator {
     // Regular function call
     const args = expr.args.map((a) => this.generateExpr(a.value));
     return this.mod.call(name, args, this.inferWasmReturnType(name));
+  }
+
+  private generateIndirectCall(
+    expr: import("../ast/nodes.js").CallExpr,
+    local: LocalVar,
+    fnType: Extract<ClarityType, { kind: "Function" }>,
+  ): binaryen.ExpressionRef {
+    const funcIndexExpr = this.mod.local.get(local.index, binaryen.i32);
+    const args = expr.args.map((a) => this.generateExpr(a.value));
+    const paramWasmTypes = fnType.params.map(clarityTypeToWasm);
+    const returnWasmType = clarityTypeToWasm(fnType.returnType);
+    return this.mod.call_indirect(
+      "0",
+      funcIndexExpr,
+      args,
+      binaryen.createType(paramWasmTypes),
+      returnWasmType,
+    );
   }
 
   // Handle user-facing list operations by mapping them to runtime functions
@@ -1082,6 +1137,11 @@ export class CodeGenerator {
         if (local) return local.clarityType;
         const ctor = this.findConstructorType(expr.name);
         if (ctor) return ctor.union;
+        // Function reference — return Function type
+        if (this.functionTableIndices.has(expr.name)) {
+          const fn = this.allFunctions.get(expr.name);
+          if (fn) return this.inferFunctionType(fn);
+        }
         return INT64;
       }
 
@@ -1101,6 +1161,11 @@ export class CodeGenerator {
       case "CallExpr": {
         if (expr.callee.kind === "IdentifierExpr") {
           const name = expr.callee.name;
+          // Check for indirect call through function-typed local
+          const local = this.locals.get(name);
+          if (local && local.clarityType.kind === "Function") {
+            return local.clarityType.returnType;
+          }
           if (expr.args.length > 0) {
             const argType = this.inferExprType(expr.args[0].value);
             if (argType.kind === "List") {
@@ -1162,6 +1227,12 @@ export class CodeGenerator {
 
       default: return INT64;
     }
+  }
+
+  private inferFunctionType(decl: FunctionDecl): ClarityType {
+    const params = decl.params.map(p => this.checker.resolveTypeRef(p.typeAnnotation) ?? INT64);
+    const returnType = this.checker.resolveTypeRef(decl.returnType) ?? INT64;
+    return { kind: "Function", params, returnType, effects: new Set(decl.effects) };
   }
 
   private inferFunctionReturnType(name: string): ClarityType {

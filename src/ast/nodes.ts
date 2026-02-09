@@ -87,10 +87,18 @@ export interface FieldDef extends BaseNode {
 // Type References (used in annotations)
 // ============================================================
 
-export interface TypeNode extends BaseNode {
+export type TypeNode = TypeRefNode | FunctionTypeNode;
+
+export interface TypeRefNode extends BaseNode {
   kind: "TypeRef";
   name: string;
   typeArgs: TypeNode[];
+}
+
+export interface FunctionTypeNode extends BaseNode {
+  kind: "FunctionType";
+  paramTypes: TypeNode[];
+  returnType: TypeNode;
 }
 
 // ============================================================

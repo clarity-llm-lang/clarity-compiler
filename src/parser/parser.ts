@@ -5,6 +5,7 @@ import { unexpectedToken, clarityHint } from "./errors.js";
 import type {
   ModuleDecl, Declaration, TypeDecl, FunctionDecl, ConstDecl,
   Parameter, TypeNode, TypeExpr, RecordType, UnionType, VariantDef, FieldDef,
+  FunctionTypeNode,
   Expr, BinaryOp, UnaryOp, CallArg, MatchArm,
   Pattern, PatternField,
   BlockExpr, LetExpr, AssignmentExpr, MatchExpr, BinaryExpr, UnaryExpr,
@@ -231,6 +232,30 @@ export class Parser {
 
   private parseTypeRef(): TypeNode {
     const start = this.peek();
+
+    // Function type: (Type, ...) -> ReturnType
+    if (start.kind === TokenKind.LParen) {
+      this.advance(); // skip '('
+      const paramTypes: TypeNode[] = [];
+      if (this.peek().kind !== TokenKind.RParen) {
+        paramTypes.push(this.parseTypeRef());
+        while (this.peek().kind === TokenKind.Comma) {
+          this.advance();
+          if (this.peek().kind === TokenKind.RParen) break;
+          paramTypes.push(this.parseTypeRef());
+        }
+      }
+      this.expect(TokenKind.RParen);
+      this.expect(TokenKind.Arrow);
+      const returnType = this.parseTypeRef();
+      return {
+        kind: "FunctionType",
+        paramTypes,
+        returnType,
+        span: this.spanFrom(start),
+      } as FunctionTypeNode;
+    }
+
     const name = this.expectIdent();
     const typeArgs: TypeNode[] = [];
     if (this.peek().kind === TokenKind.Lt) {
