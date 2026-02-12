@@ -460,4 +460,33 @@ describe("Checker", () => {
       expect(errors.length).toBeGreaterThan(0);
     });
   });
+
+  describe("type aliases", () => {
+    it("accepts transparent type alias for built-in type", () => {
+      const { errors } = check(`
+        module Test
+        type UserId = Int64
+        function get_id() -> UserId { 42 }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("allows alias type to be used interchangeably with base type", () => {
+      const { errors } = check(`
+        module Test
+        type UserId = Int64
+        function add_one(id: UserId) -> Int64 { id + 1 }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("supports alias for String type", () => {
+      const { errors } = check(`
+        module Test
+        type Email = String
+        function greet(email: Email) -> String { "Hello " ++ email }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

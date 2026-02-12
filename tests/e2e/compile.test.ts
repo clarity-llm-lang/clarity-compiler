@@ -1066,4 +1066,22 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  // --- Type aliases ---
+  it("compiles and runs with transparent type alias", async () => {
+    const source = `
+      module Test
+      type UserId = Int64
+      function make_id(n: Int64) -> UserId { n }
+      function add_ids(a: UserId, b: UserId) -> UserId { a + b }
+      function test() -> Int64 { add_ids(make_id(10), make_id(32)) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(42n);
+  });
 });

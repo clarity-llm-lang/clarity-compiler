@@ -28,7 +28,10 @@ type AuthResult =
   | Success(token: String, user_id: Int64)
   | Failure(reason: String)
 
-// Generic built-ins: List<T>, Option<T>
+// Generic built-ins: List<T>, Option<T>, Result<T, E>
+
+// Type aliases (transparent)
+type UserId = Int64
 ```
 
 ### Functions
@@ -111,7 +114,7 @@ List builtins are generic: `head(xs)` returns the element type of the list.
 - No `while`/`for` loops — use recursion
 - No `return` keyword — last expression is the return value
 - No `null`/`nil`/`undefined` — use `Option<T>` (Some/None)
-- No exceptions — use union types for errors
+- No exceptions — use `Result<T, E>` (Ok/Err)
 - No `class`/`interface` — use `type` for records and unions
 - No `var` — use `let` (immutable) or `let mut` (mutable)
 - No implicit type conversions
@@ -258,9 +261,9 @@ Make Clarity usable for real CLI programs before tackling the type system.
 Make the type system robust enough for real programs.
 1. ✓ **Parametric polymorphism / generics** — Type parameters on functions (`function identity<T>(x: T) -> T`) and types (`type Wrapper<T> = { value: T }`). Type inference at call sites. Monomorphization in codegen.
 2. ✓ **Proper list builtin typing** — `head : List<T> -> T`, `tail : List<T> -> List<T>`, `append : (List<T>, T) -> List<T>`, etc. All list builtins are now generic.
-3. **Result<T, E> as built-in** — Reduce boilerplate for error handling.
+3. ✓ **Result<T, E> as built-in** — `Ok`/`Err` polymorphic constructors with type inference. Pattern matching with exhaustiveness checking.
 4. ✓ **Higher-order functions** — Function types `(T) -> U` as parameters, function references, `call_indirect`. Named functions can be passed as values. Lambdas/closures deferred.
-5. **Type aliases** — `type UserId = Int64` as a distinct type (transparent aliases already work).
+5. ✓ **Type aliases** — `type UserId = Int64` as transparent aliases. Distinct (opaque) aliases deferred.
 
 ### Phase 3 — Module System & Multi-File (v0.4)
 Support programs larger than a single file.
