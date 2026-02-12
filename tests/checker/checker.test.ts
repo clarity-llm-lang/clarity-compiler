@@ -403,4 +403,61 @@ describe("Checker", () => {
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe("Result<T, E> built-in type", () => {
+    it("accepts Result<Int64, String> type in function signature", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          Ok(42)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts Err constructor", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          Err("something went wrong")
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts match on Result type", () => {
+      const { errors } = check(`
+        module Test
+        function unwrap(r: Result<Int64, String>) -> Int64 {
+          match r {
+            Ok(value) -> value,
+            Err(error) -> 0
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects returning raw Int64 when Result expected", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          42
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("requires exhaustive match on Result", () => {
+      const { errors } = check(`
+        module Test
+        function test(r: Result<Int64, String>) -> Int64 {
+          match r {
+            Ok(value) -> value
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
 });

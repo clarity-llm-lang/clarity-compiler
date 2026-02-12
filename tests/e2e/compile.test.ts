@@ -992,4 +992,78 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  // --- Result<T, E> built-in type ---
+  it("compiles Result<Int64, String> with Ok and Err constructors", async () => {
+    const source = `
+      module Test
+      function try_divide(a: Int64, b: Int64) -> Result<Int64, String> {
+        match b == 0 {
+          True -> Err("division by zero"),
+          False -> Ok(a / b)
+        }
+      }
+      function unwrap_or(r: Result<Int64, String>, default_val: Int64) -> Int64 {
+        match r {
+          Ok(value) -> value,
+          Err(error) -> default_val
+        }
+      }
+      function test_ok() -> Int64 {
+        unwrap_or(try_divide(10, 2), 0)
+      }
+      function test_err() -> Int64 {
+        unwrap_or(try_divide(10, 0), -1)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_ok = instance.exports.test_ok as () => bigint;
+    const test_err = instance.exports.test_err as () => bigint;
+    expect(test_ok()).toBe(5n);
+    expect(test_err()).toBe(-1n);
+  });
+
+  it("compiles Result<String, String> with string payload", async () => {
+    const source = `
+      module Test
+      function validate(name: String) -> Result<String, String> {
+        match string_length(name) > 0 {
+          True -> Ok(name),
+          False -> Err("name is empty")
+        }
+      }
+      function get_or_default(r: Result<String, String>) -> String {
+        match r {
+          Ok(value) -> value,
+          Err(error) -> error
+        }
+      }
+      function test_valid() -> String { get_or_default(validate("Alice")) }
+      function test_invalid() -> String { get_or_default(validate("")) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_valid = instance.exports.test_valid as () => number;
+    const test_invalid = instance.exports.test_invalid as () => number;
+    expect(runtime.readString(test_valid())).toBe("Alice");
+    expect(runtime.readString(test_invalid())).toBe("name is empty");
+  });
+
+  it("type-checks Result type annotation in function signatures", () => {
+    const source = `
+      module Test
+      function bad() -> Result<Int64, String> {
+        42
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
 });

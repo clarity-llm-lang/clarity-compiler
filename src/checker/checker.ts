@@ -23,6 +23,8 @@ export class Checker {
   private typeParamsInScope: Set<string> = new Set();
   // Registry of all Option<T> instantiations for polymorphic Some/None
   private optionTypes: Map<string, ClarityType> = new Map();
+  // Registry of all Result<T, E> instantiations for polymorphic Ok/Err
+  private resultTypes: Map<string, ClarityType> = new Map();
 
   check(module: ModuleDecl): Diagnostic[] {
     this.diagnostics = [];
@@ -227,6 +229,13 @@ export class Checker {
         return this.makeOptionType(inner);
       }
     }
+    if (node.name === "Result" && node.typeArgs.length === 2) {
+      const okType = this.resolveTypeRef(node.typeArgs[0]);
+      const errType = this.resolveTypeRef(node.typeArgs[1]);
+      if (okType && errType) {
+        return this.makeResultType(okType, errType);
+      }
+    }
 
     this.diagnostics.push(error(`Unknown type '${node.name}'`, node.span));
     return null;
@@ -269,6 +278,49 @@ export class Checker {
   // Get all registered Option<T> instantiations (used by codegen)
   getOptionTypes(): Map<string, ClarityType> {
     return this.optionTypes;
+  }
+
+  // Create a Result<T, E> type. Uses the dedicated Result ClarityType kind
+  // so that typesEqual can handle Error type propagation (e.g. Ok(42) produces
+  // Result<Int64, <error>>, which matches Result<Int64, String>).
+  makeResultType(okType: ClarityType, errType: ClarityType): ClarityType {
+    return { kind: "Result", ok: okType, err: errType };
+  }
+
+  // Resolve an Ok(value) call: infer Result<T, E> from argument type.
+  // E is unknown at the Ok site, so we use Error type as placeholder.
+  private resolveOkCall(argType: ClarityType): ClarityType {
+    return this.makeResultType(argType, ERROR_TYPE);
+  }
+
+  // Resolve an Err(error) call: infer Result<T, E> from argument type.
+  // T is unknown at the Err site, so we use Error type as placeholder.
+  private resolveErrCall(argType: ClarityType): ClarityType {
+    return this.makeResultType(ERROR_TYPE, argType);
+  }
+
+  // Convert a Result type to its Union representation for codegen.
+  // Result<T, E> → Union { Ok(value: T) | Err(error: E) }
+  resultToUnion(resultType: Extract<ClarityType, { kind: "Result" }>): ClarityType & { kind: "Union" } {
+    const key = `${typeToString(resultType.ok)},${typeToString(resultType.err)}`;
+    const cached = this.resultTypes.get(key);
+    if (cached) return cached as ClarityType & { kind: "Union" };
+
+    const union: ClarityType & { kind: "Union" } = {
+      kind: "Union",
+      name: `Result<${typeToString(resultType.ok)}, ${typeToString(resultType.err)}>`,
+      variants: [
+        { name: "Ok", fields: new Map([["value", resultType.ok]]) },
+        { name: "Err", fields: new Map([["error", resultType.err]]) },
+      ],
+    };
+    this.resultTypes.set(key, union);
+    return union;
+  }
+
+  // Get all registered Result<T, E> Union instantiations (used by codegen)
+  getResultTypes(): Map<string, ClarityType> {
+    return this.resultTypes;
   }
 
   // ============================================================
@@ -415,6 +467,18 @@ export class Checker {
           // Built-in None — resolve from Option registry
           return this.resolveNoneType();
         }
+        // Special case: bare `Ok` as identifier (not called) — it's a function
+        if (expr.name === "Ok") {
+          const sym = this.env.lookup("Ok");
+          if (sym) return sym.type;
+          return { kind: "Function", params: [ERROR_TYPE], returnType: this.makeResultType(ERROR_TYPE, ERROR_TYPE), effects: new Set() };
+        }
+        // Special case: bare `Err` as identifier (not called) — it's a function
+        if (expr.name === "Err") {
+          const sym = this.env.lookup("Err");
+          if (sym) return sym.type;
+          return { kind: "Function", params: [ERROR_TYPE], returnType: this.makeResultType(ERROR_TYPE, ERROR_TYPE), effects: new Set() };
+        }
         const sym = this.env.lookup(expr.name);
         if (!sym) {
           this.diagnostics.push(error(`Undefined variable '${expr.name}'`, expr.span));
@@ -449,6 +513,34 @@ export class Checker {
           }
           const argType = this.checkExpr(expr.args[0].value);
           return this.resolveSomeCall(argType);
+        }
+
+        // Special case: Ok(value) — polymorphic Result constructor
+        if (expr.callee.kind === "IdentifierExpr" && expr.callee.name === "Ok") {
+          const sym = this.env.lookup("Ok");
+          if (!sym || (sym.type.kind === "Function" && sym.type.returnType.kind === "Error")) {
+            // Built-in Ok constructor
+            if (expr.args.length !== 1) {
+              this.diagnostics.push(error(`Ok expects exactly 1 argument but got ${expr.args.length}`, expr.span));
+              return ERROR_TYPE;
+            }
+            const argType = this.checkExpr(expr.args[0].value);
+            return this.resolveOkCall(argType);
+          }
+        }
+
+        // Special case: Err(error) — polymorphic Result constructor
+        if (expr.callee.kind === "IdentifierExpr" && expr.callee.name === "Err") {
+          const sym = this.env.lookup("Err");
+          if (!sym || (sym.type.kind === "Function" && sym.type.returnType.kind === "Error")) {
+            // Built-in Err constructor
+            if (expr.args.length !== 1) {
+              this.diagnostics.push(error(`Err expects exactly 1 argument but got ${expr.args.length}`, expr.span));
+              return ERROR_TYPE;
+            }
+            const argType = this.checkExpr(expr.args[0].value);
+            return this.resolveErrCall(argType);
+          }
         }
 
         const calleeType = this.checkExpr(expr.callee);
@@ -546,7 +638,14 @@ export class Checker {
       }
 
       case "MatchExpr": {
-        const scrutineeType = this.checkExpr(expr.scrutinee);
+        let scrutineeType = this.checkExpr(expr.scrutinee);
+
+        // Convert Result<T, E> to its Union representation for matching
+        if (scrutineeType.kind === "Result") {
+          scrutineeType = this.resultToUnion(scrutineeType);
+          // Re-attach the resolved type as the union representation
+          expr.scrutinee.resolvedType = scrutineeType;
+        }
 
         // Check exhaustiveness
         this.diagnostics.push(

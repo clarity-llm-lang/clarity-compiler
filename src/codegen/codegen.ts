@@ -145,6 +145,13 @@ export class CodeGenerator {
       }
     }
 
+    // Register Result<T, E> types from the checker's polymorphism registry
+    for (const [, type] of this.checker.getResultTypes()) {
+      if (type.kind === "Union" && !this.allTypeDecls.has(type.name)) {
+        this.allTypeDecls.set(type.name, type);
+      }
+    }
+
     // Pre-scan AST for all string literals to build data segments before setMemory.
     // This is required because binaryen needs memory to exist before we create
     // load/store instructions in functions.
@@ -189,6 +196,18 @@ export class CodeGenerator {
     // Export the heap base so the runtime knows where dynamic allocation starts
     this.mod.addGlobal("__heap_base", binaryen.i32, false, this.mod.i32.const(this.dataSegmentOffset || 1024));
     this.mod.addGlobalExport("__heap_base", "__heap_base");
+  }
+
+  // ============================================================
+  // Result<T, E> → Union conversion
+  // ============================================================
+
+  // Convert a Result<T, E> type to its Union representation for codegen.
+  private resolveResultToUnion(type: ClarityType): ClarityType {
+    if (type.kind === "Result") {
+      return this.checker.resultToUnion(type);
+    }
+    return type;
   }
 
   // ============================================================
@@ -267,6 +286,7 @@ export class CodeGenerator {
       case "Union":
       case "List":
       case "Option":
+      case "Result":
       case "Bytes":
         return 4;
       default: return 4;
