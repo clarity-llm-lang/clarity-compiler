@@ -286,7 +286,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 155 tests across lexer, parser, type checker, and end-to-end
+npm test    # 171 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 155 tests
+└── tests/                  # 171 tests
 ```
 
 ---
@@ -362,8 +362,9 @@ clarity/
 - Option<T> as built-in (Some/None with correct polymorphism)
 - Result<T, E> as built-in (Ok/Err with polymorphic type inference)
 - Transparent type aliases (`type UserId = Int64`)
-- List literals, length, head, tail, append, concat, reverse
-- String literals, concatenation, equality, length, substring, char_at
+- List literals, length, head, tail, append, concat, reverse, is_empty, nth
+- String literals, concatenation, equality, length, substring, char_at, contains, index_of, trim, split
+- Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
@@ -420,7 +421,7 @@ Make programs viable for real workloads.
 
 ### Phase 5 — Language Completeness (v0.6+)
 - Pattern guards and range patterns
-- Named argument semantic checking
+- ~~Named argument semantic checking~~ (done — named args validated and reordered)
 - Bytes and Timestamp runtime support
 - REPL / browser playground
 

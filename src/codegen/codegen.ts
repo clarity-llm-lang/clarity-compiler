@@ -1058,6 +1058,26 @@ export class CodeGenerator {
         const elemSize = this.fieldSize(listType.element);
         return this.mod.call("list_reverse", [listArg, this.mod.i32.const(elemSize)], binaryen.i32);
       }
+      case "is_empty": {
+        const listArg = this.generateExpr(expr.args[0].value);
+        // is_empty = list_length(ptr) == 0
+        return this.mod.i64.eq(
+          this.mod.call("list_length", [listArg], binaryen.i64),
+          this.mod.i64.const(0, 0),
+        );
+      }
+      case "nth": {
+        const listArg = this.generateExpr(expr.args[0].value);
+        const indexArg = this.generateExpr(expr.args[1].value);
+        const listType = this.inferExprType(expr.args[0].value);
+        if (listType.kind !== "List") return null;
+        const elemType = listType.element;
+        if (elemType.kind === "Int64" || elemType.kind === "Float64") {
+          return this.mod.call("list_get_i64", [listArg, indexArg], binaryen.i64);
+        }
+        // For pointer types (String, Record, etc.) use i32 getter
+        return this.mod.call("list_get_i32", [listArg, indexArg], binaryen.i32);
+      }
       default:
         return null;
     }
@@ -1606,9 +1626,10 @@ export class CodeGenerator {
             const argType = this.inferExprType(expr.args[0].value);
             if (argType.kind === "List") {
               switch (name) {
-                case "head": return argType.element;
+                case "head": case "nth": return argType.element;
                 case "tail": case "append": case "concat": case "reverse": return argType;
                 case "length": case "list_length": return INT64;
+                case "is_empty": return BOOL;
               }
             }
           }
@@ -1694,6 +1715,8 @@ export class CodeGenerator {
       // String ops
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
+      contains: BOOL, index_of: INT64, trim: { kind: "String" },
+      split: { kind: "List", element: { kind: "String" } } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },

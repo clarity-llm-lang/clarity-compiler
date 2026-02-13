@@ -34,6 +34,10 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "string_length", importModule: "env", importName: "string_length", params: i32, result: i64 },
     { name: "substring", importModule: "env", importName: "substring", params: str_i64_i64, result: i32 },
     { name: "char_at", importModule: "env", importName: "char_at", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "contains", importModule: "env", importName: "contains", params: pair_i32, result: i32 },
+    { name: "index_of", importModule: "env", importName: "index_of", params: pair_i32, result: i64 },
+    { name: "trim", importModule: "env", importName: "trim", params: i32, result: i32 },
+    { name: "split", importModule: "env", importName: "split", params: pair_i32, result: i32 },
 
     // --- Type conversions ---
     { name: "int_to_float", importModule: "env", importName: "int_to_float", params: i64, result: f64 },

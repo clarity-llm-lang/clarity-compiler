@@ -76,6 +76,7 @@ export class Checker {
         type: {
           kind: "Function",
           params: builtin.params,
+          paramNames: builtin.paramNames,
           returnType: builtin.returnType,
           effects: new Set(builtin.effects),
         },
@@ -117,6 +118,7 @@ export class Checker {
           const fnType: ClarityType = {
             kind: "Function",
             params: paramTypes,
+            paramNames: [...variant.fields.keys()],
             returnType: type,
             effects: new Set(),
           };
@@ -348,6 +350,7 @@ export class Checker {
     const fnType: ClarityType = {
       kind: "Function",
       params: paramTypes,
+      paramNames: decl.params.map(p => p.name),
       returnType,
       effects: new Set(decl.effects),
     };
@@ -562,6 +565,50 @@ export class Checker {
             ),
           );
           return calleeType.returnType;
+        }
+
+        // Named argument validation and reordering
+        const hasNamedArgs = expr.args.some(a => a.name !== undefined);
+        if (hasNamedArgs && calleeType.paramNames) {
+          const hasUnnamedArgs = expr.args.some(a => a.name === undefined);
+          if (hasUnnamedArgs) {
+            this.diagnostics.push(
+              error(`Cannot mix named and positional arguments`, expr.span),
+            );
+          } else {
+            // Validate all names match parameter names and reorder
+            const paramNames = calleeType.paramNames;
+            const reordered: typeof expr.args = new Array(expr.args.length);
+            let hasError = false;
+            for (const arg of expr.args) {
+              const idx = paramNames.indexOf(arg.name!);
+              if (idx === -1) {
+                this.diagnostics.push(
+                  error(
+                    `Unknown parameter name '${arg.name}'. Expected one of: ${paramNames.join(", ")}`,
+                    arg.span,
+                  ),
+                );
+                hasError = true;
+              } else if (reordered[idx] !== undefined) {
+                this.diagnostics.push(
+                  error(`Duplicate named argument '${arg.name}'`, arg.span),
+                );
+                hasError = true;
+              } else {
+                reordered[idx] = arg;
+              }
+            }
+            // Rewrite args in parameter order
+            if (!hasError) {
+              expr.args = reordered;
+            }
+          }
+        } else if (hasNamedArgs && !calleeType.paramNames) {
+          // Function type has no parameter names (e.g. function type parameter)
+          this.diagnostics.push(
+            error(`Named arguments are not supported for function type values`, expr.span),
+          );
         }
 
         // Check if this is a generic function call that needs type inference

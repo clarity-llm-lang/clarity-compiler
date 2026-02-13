@@ -437,7 +437,6 @@ describe("end-to-end compilation", () => {
     if (watResult.errors.length > 0) console.log("WAT ERRORS:", JSON.stringify(watResult.errors));
     else console.log("WAT:", watResult.wat);
     const result = compile(source, "test.clarity");
-    if (result.errors.length > 0) console.log("ERRORS:", JSON.stringify(result.errors));
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
@@ -1151,5 +1150,134 @@ describe("end-to-end compilation", () => {
     const { instance } = await instantiate(result.wasm!);
     const test = instance.exports.test as () => bigint;
     expect(test()).toBe(55n);
+  });
+
+  it("named arguments reorder correctly at runtime", async () => {
+    const source = `
+      module Test
+      function sub(a: Int64, b: Int64) -> Int64 { a - b }
+      function test() -> Int64 { sub(b: 3, a: 10) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    // sub(a: 10, b: 3) = 10 - 3 = 7 (not -7 from positional ordering)
+    expect(test()).toBe(7n);
+  });
+
+  it("named arguments work with mixed types", async () => {
+    const source = `
+      module Test
+      function pick(flag: Bool, x: Int64, y: Int64) -> Int64 {
+        match flag {
+          True -> x,
+          False -> y
+        }
+      }
+      function test() -> Int64 { pick(y: 20, x: 10, flag: True) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(10n);
+  });
+
+  it("is_empty returns True for empty list and False for non-empty", async () => {
+    const source = `
+      module Test
+      function test_empty() -> Bool { is_empty([]) }
+      function test_nonempty() -> Bool { is_empty([1, 2, 3]) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const testEmpty = instance.exports.test_empty as () => number;
+    const testNonempty = instance.exports.test_nonempty as () => number;
+    expect(testEmpty()).toBe(1); // True
+    expect(testNonempty()).toBe(0); // False
+  });
+
+  it("nth returns element at given index", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 { nth([10, 20, 30], 1) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(20n);
+  });
+
+  it("contains checks for substring presence", async () => {
+    const source = `
+      module Test
+      function test_yes() -> Bool { contains("hello world", "world") }
+      function test_no() -> Bool { contains("hello world", "xyz") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const testYes = instance.exports.test_yes as () => number;
+    const testNo = instance.exports.test_no as () => number;
+    expect(testYes()).toBe(1);
+    expect(testNo()).toBe(0);
+  });
+
+  it("index_of finds substring position", async () => {
+    const source = `
+      module Test
+      function test_found() -> Int64 { index_of("hello world", "world") }
+      function test_missing() -> Int64 { index_of("hello world", "xyz") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const testFound = instance.exports.test_found as () => bigint;
+    const testMissing = instance.exports.test_missing as () => bigint;
+    expect(testFound()).toBe(6n);
+    expect(testMissing()).toBe(-1n);
+  });
+
+  it("trim removes whitespace", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 { string_length(trim("  hello  ")) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(5n); // "hello" has length 5
+  });
+
+  it("split divides string by delimiter", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 { length(split("a,b,c", ",")) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(3n); // ["a", "b", "c"] has 3 elements
   });
 });

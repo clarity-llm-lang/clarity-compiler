@@ -11,7 +11,7 @@ export type ClarityType =
   | { kind: "List"; element: ClarityType }
   | { kind: "Option"; inner: ClarityType }
   | { kind: "Result"; ok: ClarityType; err: ClarityType }
-  | { kind: "Function"; params: ClarityType[]; returnType: ClarityType; effects: Set<string> }
+  | { kind: "Function"; params: ClarityType[]; paramNames?: string[]; returnType: ClarityType; effects: Set<string> }
   | { kind: "TypeVar"; name: string }
   | { kind: "Error" };
 
@@ -152,6 +152,7 @@ export function substituteTypeVars(t: ClarityType, subst: Map<string, ClarityTyp
     case "Function": return {
       kind: "Function",
       params: t.params.map(p => substituteTypeVars(p, subst)),
+      paramNames: t.paramNames,
       returnType: substituteTypeVars(t.returnType, subst),
       effects: t.effects,
     };

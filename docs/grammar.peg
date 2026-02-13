@@ -93,8 +93,8 @@ LineComment     <- '//' [^\n]*
 # === Built-in Functions (not part of grammar, but available in the environment) ===
 # I/O (FileSystem effect): read_line, read_all_stdin, read_file, write_file, get_args, exit
 # Logging (Log effect): print_string, print_int, print_float, log_info, log_warn
-# Strings: string_concat, string_eq, string_length, substring, char_at
+# Strings: string_concat, string_eq, string_length, substring, char_at, contains, index_of, trim, split
 # Conversions: int_to_float, float_to_int, int_to_string, float_to_string, string_to_int, string_to_float
 # Math: abs_int, min_int, max_int, sqrt, pow, floor, ceil
-# Lists: length, head, tail, append, concat, reverse
+# Lists: length, head, tail, append, concat, reverse, is_empty, nth
 # Tests (Test effect): assert_eq, assert_eq_float, assert_eq_string, assert_true, assert_false

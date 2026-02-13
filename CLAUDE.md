@@ -229,9 +229,6 @@ These functions return `Int64` / `Float64` (0 on parse failure) instead of `Opti
 ### No module system (import/export)
 The compiler processes a single file at a time. There are no import/export keywords, no file dependency resolution, and no module linking. Programs cannot span multiple `.clarity` files.
 
-### Named arguments are not semantically checked
-The parser accepts named arguments (`foo(name: value)`), but the checker ignores the name entirely and matches arguments by position only. Passing arguments in the wrong order with names will silently use positional semantics.
-
 ### No lambdas or closures
 Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
 
@@ -281,7 +278,7 @@ Make programs viable beyond demos.
 
 ### Phase 5 — Language Completeness (v0.6+)
 1. **Pattern guards and range patterns** — `match x { n if n > 0 -> ... }`.
-2. **Named argument semantic checking** — Enforce name matching, not just positional.
+2. ✓ **Named argument semantic checking** — Named args validated and reordered to match parameter order.
 3. **Bytes and Timestamp runtime support** — Currently declared but unusable.
 4. **Multi-line string literals**.
 5. **REPL / browser playground**.
