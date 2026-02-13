@@ -22,7 +22,7 @@ These properties make Clarity code **easier for LLMs to generate correctly** by 
 | Construct | Reason | Alternative |
 |-----------|--------|-------------|
 | `if`/`else` | Ambiguous nesting, easy to forget branches | `match` with exhaustiveness checking |
-| `while`/`for` loops | Mutable state bugs, off-by-one errors | Recursion, higher-order functions |
+| `while`/`for` loops | Mutable state bugs, off-by-one errors | Recursion (tail calls optimized to loops) |
 | `null`/`nil`/`undefined` | Billion-dollar mistake | `Option<T>` with `Some`/`None` |
 | Exceptions (`try`/`catch`/`throw`) | Hidden control flow, forgotten handlers | Union types for errors |
 | `class`/`interface`/inheritance | Complex dispatch, fragile hierarchies | Record types + union types |

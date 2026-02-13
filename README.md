@@ -286,7 +286,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 152 tests across lexer, parser, type checker, and end-to-end
+npm test    # 155 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 152 tests
+└── tests/                  # 155 tests
 ```
 
 ---
@@ -371,6 +371,7 @@ clarity/
 - Higher-order functions (pass named functions as arguments, function type syntax)
 - Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
 - Properly typed generic list builtins (`head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
+- Tail call optimization (self-recursive functions compiled to loops)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
@@ -414,7 +415,7 @@ Support programs larger than a single file.
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable for real workloads.
 - Memory management (arena, refcounting, or WASM GC)
-- Tail call optimization (critical — no loops means recursion must be efficient)
+- ~~Tail call optimization~~ (done — self-recursive tail calls converted to loops)
 - String interning
 
 ### Phase 5 — Language Completeness (v0.6+)

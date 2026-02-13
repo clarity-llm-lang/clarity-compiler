@@ -275,7 +275,7 @@ Support programs larger than a single file.
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable beyond demos.
 1. **Memory management** — Arena allocator, reference counting, or WASM GC proposal.
-2. **Tail call optimization** — Essential since there are no loops. WASM tail-call proposal or trampolining.
+2. ✓ **Tail call optimization** — Self-recursive tail calls are converted to loops in WASM codegen. Handles tail position in match arms and block results.
 3. **Nested record/list codegen** — Records containing lists, lists of records, etc.
 4. **String interning** — Deduplicate runtime-created strings.
 

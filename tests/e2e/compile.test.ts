@@ -1084,4 +1084,72 @@ describe("end-to-end compilation", () => {
     const test = instance.exports.test as () => bigint;
     expect(test()).toBe(42n);
   });
+
+  // --- Tail call optimization ---
+  it("optimizes tail-recursive sum to a loop (TCO)", async () => {
+    // This function would overflow the stack without TCO for large n
+    const source = `
+      module Test
+      function sum_tail(n: Int64, acc: Int64) -> Int64 {
+        match n <= 0 {
+          True -> acc,
+          False -> sum_tail(n - 1, acc + n)
+        }
+      }
+      function test() -> Int64 { sum_tail(100000, 0) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    // sum of 1..100000 = 100000 * 100001 / 2 = 5000050000
+    expect(test()).toBe(5000050000n);
+  });
+
+  it("optimizes tail-recursive countdown to a loop (TCO)", async () => {
+    const source = `
+      module Test
+      function countdown(n: Int64) -> Int64 {
+        match n <= 0 {
+          True -> 0,
+          False -> countdown(n - 1)
+        }
+      }
+      function test() -> Int64 { countdown(1000000) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(0n);
+  });
+
+  it("non-tail-recursive functions still work correctly", async () => {
+    // fibonacci is NOT tail-recursive, should still compile and work
+    const source = `
+      module Test
+      function fib(n: Int64) -> Int64 {
+        match n <= 1 {
+          True -> n,
+          False -> {
+            let a = fib(n - 1);
+            let b = fib(n - 2);
+            a + b
+          }
+        }
+      }
+      function test() -> Int64 { fib(10) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(55n);
+  });
 });
