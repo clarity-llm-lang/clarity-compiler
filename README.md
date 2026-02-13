@@ -304,7 +304,7 @@ Compile: npx tsx /path/to/clarity/src/index.ts compile <file>
 Then just describe what you want. Claude will write Clarity.
 
 ### With any LLM
-Include the [language spec](docs/language-spec.md) in your system prompt or context, then ask the LLM to generate Clarity code. The spec is designed to be compact enough to fit in a single context window.
+Include the [quick reference](docs/clarity-quickref.md) in your system prompt or context, then ask the LLM to generate Clarity code. The quickref is ~100 lines and designed for minimal token usage. For the full formal spec, see [language-spec.md](docs/language-spec.md).
 
 ### Extending Clarity (for LLMs)
 Clarity is designed to be extended by LLMs. The `introspect` command lets any LLM discover current capabilities as JSON, and the [contributor protocol in CLAUDE.md](CLAUDE.md#extending-the-compiler) describes how to add new built-in functions (2-file edit) or new effects. All built-in functions and effects are defined in a single registry (`src/registry/builtins-registry.ts`).
