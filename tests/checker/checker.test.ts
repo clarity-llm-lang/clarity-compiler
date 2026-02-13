@@ -403,4 +403,90 @@ describe("Checker", () => {
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe("Result<T, E> built-in type", () => {
+    it("accepts Result<Int64, String> type in function signature", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          Ok(42)
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts Err constructor", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          Err("something went wrong")
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts match on Result type", () => {
+      const { errors } = check(`
+        module Test
+        function unwrap(r: Result<Int64, String>) -> Int64 {
+          match r {
+            Ok(value) -> value,
+            Err(error) -> 0
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects returning raw Int64 when Result expected", () => {
+      const { errors } = check(`
+        module Test
+        function test() -> Result<Int64, String> {
+          42
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("requires exhaustive match on Result", () => {
+      const { errors } = check(`
+        module Test
+        function test(r: Result<Int64, String>) -> Int64 {
+          match r {
+            Ok(value) -> value
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("type aliases", () => {
+    it("accepts transparent type alias for built-in type", () => {
+      const { errors } = check(`
+        module Test
+        type UserId = Int64
+        function get_id() -> UserId { 42 }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("allows alias type to be used interchangeably with base type", () => {
+      const { errors } = check(`
+        module Test
+        type UserId = Int64
+        function add_one(id: UserId) -> Int64 { id + 1 }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("supports alias for String type", () => {
+      const { errors } = check(`
+        module Test
+        type Email = String
+        function greet(email: Email) -> String { "Hello " ++ email }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

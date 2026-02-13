@@ -1,6 +1,6 @@
 # Clarity Language Specification
 
-**Version:** 0.2.1
+**Version:** 0.3
 **Status:** Draft — LLM-optimized programming language
 
 ---
@@ -22,7 +22,7 @@ These properties make Clarity code **easier for LLMs to generate correctly** by 
 | Construct | Reason | Alternative |
 |-----------|--------|-------------|
 | `if`/`else` | Ambiguous nesting, easy to forget branches | `match` with exhaustiveness checking |
-| `while`/`for` loops | Mutable state bugs, off-by-one errors | Recursion, higher-order functions |
+| `while`/`for` loops | Mutable state bugs, off-by-one errors | Recursion (tail calls optimized to loops) |
 | `null`/`nil`/`undefined` | Billion-dollar mistake | `Option<T>` with `Some`/`None` |
 | Exceptions (`try`/`catch`/`throw`) | Hidden control flow, forgotten handlers | Union types for errors |
 | `class`/`interface`/inheritance | Complex dispatch, fragile hierarchies | Record types + union types |
@@ -101,6 +101,34 @@ All comparison and logical operators return `Bool`.
 |------|-------------|
 | `List<T>` | Ordered collection of elements of type `T` |
 | `Option<T>` | Either `Some(value: T)` or `None` |
+| `Result<T, E>` | Either `Ok(value: T)` or `Err(error: E)` |
+
+`Result<T, E>` is a built-in type for error handling. `Ok` and `Err` are polymorphic constructors — the compiler infers the full `Result` type from context:
+```
+function divide(a: Int64, b: Int64) -> Result<Int64, String> {
+  match b == 0 {
+    True -> Err("division by zero"),
+    False -> Ok(a / b)
+  }
+}
+
+function unwrap(r: Result<Int64, String>) -> Int64 {
+  match r {
+    Ok(value) -> value,
+    Err(error) -> 0
+  }
+}
+```
+
+### 3.2.1 Type Aliases
+
+Type aliases create transparent synonyms for existing types:
+```
+type UserId = Int64
+type Email = String
+```
+
+Aliases are fully interchangeable with their underlying type — `UserId` and `Int64` can be used interchangeably in all contexts.
 
 ### 3.3 Record Types
 Named product types with labeled fields:
@@ -196,6 +224,12 @@ function bad(a: Int64, b: Float64) -> Float64 { a + b }
 There is no `null`, `nil`, or `undefined`. Use `Option<T>`:
 ```
 type Option<T> = | Some(value: T) | None
+```
+
+### 3.9 No Exceptions
+There are no exceptions. Use `Result<T, E>` for operations that can fail:
+```
+type Result<T, E> = | Ok(value: T) | Err(error: E)
 ```
 
 ---

@@ -145,6 +145,13 @@ export class CodeGenerator {
       }
     }
 
+    // Register Result<T, E> types from the checker's polymorphism registry
+    for (const [, type] of this.checker.getResultTypes()) {
+      if (type.kind === "Union" && !this.allTypeDecls.has(type.name)) {
+        this.allTypeDecls.set(type.name, type);
+      }
+    }
+
     // Pre-scan AST for all string literals to build data segments before setMemory.
     // This is required because binaryen needs memory to exist before we create
     // load/store instructions in functions.
@@ -189,6 +196,18 @@ export class CodeGenerator {
     // Export the heap base so the runtime knows where dynamic allocation starts
     this.mod.addGlobal("__heap_base", binaryen.i32, false, this.mod.i32.const(this.dataSegmentOffset || 1024));
     this.mod.addGlobalExport("__heap_base", "__heap_base");
+  }
+
+  // ============================================================
+  // Result<T, E> → Union conversion
+  // ============================================================
+
+  // Convert a Result<T, E> type to its Union representation for codegen.
+  private resolveResultToUnion(type: ClarityType): ClarityType {
+    if (type.kind === "Result") {
+      return this.checker.resultToUnion(type);
+    }
+    return type;
   }
 
   // ============================================================
@@ -267,6 +286,7 @@ export class CodeGenerator {
       case "Union":
       case "List":
       case "Option":
+      case "Result":
       case "Bytes":
         return 4;
       default: return 4;
@@ -396,7 +416,15 @@ export class CodeGenerator {
     const returnWasmType = clarityTypeToWasm(returnClarityType);
     const paramsType = binaryen.createType(paramWasmTypes);
 
-    const body = this.generateExpr(decl.body, returnClarityType);
+    // Check if the function is tail-recursive and apply TCO
+    const isTailRec = this.isTailRecursive(decl.body, decl.name);
+
+    let body: binaryen.ExpressionRef;
+    if (isTailRec) {
+      body = this.generateTailRecursiveBody(decl, returnClarityType, returnWasmType);
+    } else {
+      body = this.generateExpr(decl.body, returnClarityType);
+    }
 
     this.mod.addFunction(
       decl.name,
@@ -406,6 +434,313 @@ export class CodeGenerator {
       body,
     );
     this.mod.addFunctionExport(decl.name, decl.name);
+  }
+
+  // ============================================================
+  // Tail Call Optimization
+  // ============================================================
+
+  // Check if an expression contains a self-recursive tail call
+  private isTailRecursive(expr: Expr, funcName: string): boolean {
+    switch (expr.kind) {
+      case "CallExpr":
+        return expr.callee.kind === "IdentifierExpr" && expr.callee.name === funcName;
+      case "BlockExpr":
+        if (expr.result) return this.isTailRecursive(expr.result, funcName);
+        return false;
+      case "MatchExpr":
+        return expr.arms.some(arm => this.isTailRecursive(arm.body, funcName));
+      default:
+        return false;
+    }
+  }
+
+  // Generate a loop-based body for a tail-recursive function
+  private generateTailRecursiveBody(
+    decl: FunctionDecl,
+    returnClarityType: ClarityType,
+    returnWasmType: binaryen.Type,
+  ): binaryen.ExpressionRef {
+    // The body is wrapped in a loop. Tail calls become:
+    //   1. Set param locals to new argument values
+    //   2. Branch back to the loop start
+    const loopLabel = `$tco_${decl.name}`;
+    const innerBody = this.generateExprTCO(decl.body, returnClarityType, decl.name, loopLabel);
+    return this.mod.loop(loopLabel, innerBody);
+  }
+
+  // Generate an expression with tail-call optimization awareness
+  private generateExprTCO(
+    expr: Expr,
+    expectedType: ClarityType | undefined,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    switch (expr.kind) {
+      case "CallExpr": {
+        // Check if this is a tail call to self
+        if (expr.callee.kind === "IdentifierExpr" && expr.callee.name === funcName) {
+          return this.generateTailCallUpdate(expr, funcName, loopLabel);
+        }
+        // Not a tail call — generate normally
+        return this.generateExpr(expr, expectedType);
+      }
+      case "BlockExpr": {
+        const stmts: binaryen.ExpressionRef[] = [];
+        for (const stmt of expr.statements) {
+          const generated = this.generateExpr(stmt);
+          if (stmt.kind !== "LetExpr" && stmt.kind !== "AssignmentExpr") {
+            const stmtType = this.inferExprType(stmt);
+            if (stmtType.kind === "Unit") {
+              stmts.push(generated);
+            } else {
+              stmts.push(this.mod.drop(generated));
+            }
+          } else {
+            stmts.push(generated);
+          }
+        }
+        if (expr.result) {
+          stmts.push(this.generateExprTCO(expr.result, expectedType, funcName, loopLabel));
+        }
+        if (stmts.length === 0) return this.mod.nop();
+        if (stmts.length === 1) return stmts[0];
+        const resultType = expr.result
+          ? clarityTypeToWasm(this.inferExprType(expr.result))
+          : binaryen.none;
+        return this.mod.block(null, stmts, resultType);
+      }
+      case "MatchExpr": {
+        return this.generateMatchTCO(expr, expectedType, funcName, loopLabel);
+      }
+      default:
+        return this.generateExpr(expr, expectedType);
+    }
+  }
+
+  // Generate a tail call: update params and branch back to loop
+  private generateTailCallUpdate(
+    expr: import("../ast/nodes.js").CallExpr,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    const decl = this.currentFunction;
+    const stmts: binaryen.ExpressionRef[] = [];
+
+    // First, evaluate all new argument values into temp locals
+    // (to avoid issues when arg expressions reference current params)
+    const tempLocals: number[] = [];
+    for (let i = 0; i < expr.args.length; i++) {
+      const argExpr = this.generateExpr(expr.args[i].value);
+      const paramLocal = this.locals.get(decl.params[i].name)!;
+      const tempIdx = this.localIndex++;
+      this.additionalLocals.push(paramLocal.wasmType);
+      tempLocals.push(tempIdx);
+      stmts.push(this.mod.local.set(tempIdx, argExpr));
+    }
+
+    // Then assign temps to param locals
+    for (let i = 0; i < expr.args.length; i++) {
+      const paramLocal = this.locals.get(decl.params[i].name)!;
+      stmts.push(
+        this.mod.local.set(
+          paramLocal.index,
+          this.mod.local.get(tempLocals[i], paramLocal.wasmType),
+        ),
+      );
+    }
+
+    // Branch back to the loop start
+    stmts.push(this.mod.br(loopLabel));
+
+    return this.mod.block(null, stmts, binaryen.none);
+  }
+
+  // Generate a match expression with TCO in arms
+  private generateMatchTCO(
+    matchExpr: import("../ast/nodes.js").MatchExpr,
+    expectedType: ClarityType | undefined,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    const scrutinee = this.generateExpr(matchExpr.scrutinee);
+    const scrutineeType = this.inferExprType(matchExpr.scrutinee);
+
+    if (scrutineeType.kind === "Bool") {
+      return this.generateBoolMatchTCO(scrutinee, matchExpr.arms, expectedType, funcName, loopLabel);
+    }
+
+    if (scrutineeType.kind === "Union") {
+      return this.generateUnionMatchTCO(scrutinee, scrutineeType, matchExpr.arms, expectedType, funcName, loopLabel);
+    }
+
+    // For other types, generate normally (TCO in arms)
+    return this.generateGenericMatchTCO(scrutinee, scrutineeType, matchExpr.arms, expectedType, funcName, loopLabel);
+  }
+
+  private generateBoolMatchTCO(
+    scrutinee: binaryen.ExpressionRef,
+    arms: import("../ast/nodes.js").MatchArm[],
+    expectedType: ClarityType | undefined,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    let trueBody: binaryen.ExpressionRef | null = null;
+    let falseBody: binaryen.ExpressionRef | null = null;
+    let wildcardBody: binaryen.ExpressionRef | null = null;
+
+    for (const arm of arms) {
+      if (arm.pattern.kind === "LiteralPattern" && arm.pattern.value.kind === "BoolLiteral") {
+        if (arm.pattern.value.value) {
+          trueBody = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
+        } else {
+          falseBody = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
+        }
+      } else if (arm.pattern.kind === "WildcardPattern" || arm.pattern.kind === "BindingPattern") {
+        wildcardBody = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
+      }
+    }
+
+    const ifTrue = trueBody ?? wildcardBody ?? this.mod.unreachable();
+    const ifFalse = falseBody ?? wildcardBody ?? this.mod.unreachable();
+    return this.mod.if(scrutinee, ifTrue, ifFalse);
+  }
+
+  private generateUnionMatchTCO(
+    scrutinee: binaryen.ExpressionRef,
+    unionType: Extract<ClarityType, { kind: "Union" }>,
+    arms: import("../ast/nodes.js").MatchArm[],
+    expectedType: ClarityType | undefined,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    // Store scrutinee pointer in a temp
+    const ptrLocal = this.localIndex++;
+    this.additionalLocals.push(binaryen.i32);
+    const setPtr = this.mod.local.set(ptrLocal, scrutinee);
+    const getPtr = () => this.mod.local.get(ptrLocal, binaryen.i32);
+
+    // Read the tag
+    const tagLocal = this.localIndex++;
+    this.additionalLocals.push(binaryen.i32);
+    const setTag = this.mod.local.set(tagLocal, this.mod.i32.load(0, 4, getPtr()));
+    const getTag = () => this.mod.local.get(tagLocal, binaryen.i32);
+
+    let result: binaryen.ExpressionRef = this.mod.unreachable();
+
+    for (let i = arms.length - 1; i >= 0; i--) {
+      const arm = arms[i];
+
+      if (arm.pattern.kind === "WildcardPattern" || arm.pattern.kind === "BindingPattern") {
+        if (arm.pattern.kind === "BindingPattern") {
+          const bindLocal = this.localIndex++;
+          this.additionalLocals.push(binaryen.i32);
+          this.locals.set(arm.pattern.name, {
+            index: bindLocal,
+            wasmType: binaryen.i32,
+            clarityType: unionType,
+          });
+          result = this.mod.block(null, [
+            this.mod.local.set(bindLocal, getPtr()),
+            this.generateExprTCO(arm.body, expectedType, funcName, loopLabel),
+          ]);
+        } else {
+          result = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
+        }
+      } else if (arm.pattern.kind === "ConstructorPattern") {
+        const variantIndex = unionType.variants.findIndex((v) => v.name === arm.pattern.name);
+        if (variantIndex === -1) continue;
+        const variant = unionType.variants[variantIndex];
+
+        const layout = this.recordLayout(variant.fields);
+        const fieldEntries = [...variant.fields.entries()];
+
+        for (let fi = 0; fi < arm.pattern.fields.length && fi < fieldEntries.length; fi++) {
+          const pat = arm.pattern.fields[fi];
+          if (pat.pattern.kind === "BindingPattern") {
+            const fieldType = fieldEntries[fi][1];
+            const wasmType = clarityTypeToWasm(fieldType);
+            const localIdx = this.localIndex++;
+            this.additionalLocals.push(wasmType);
+            this.locals.set(pat.pattern.name, {
+              index: localIdx,
+              wasmType,
+              clarityType: fieldType,
+            });
+          }
+        }
+
+        const bodyStmts: binaryen.ExpressionRef[] = [];
+        for (let fi = 0; fi < arm.pattern.fields.length && fi < fieldEntries.length; fi++) {
+          const pat = arm.pattern.fields[fi];
+          if (pat.pattern.kind === "BindingPattern") {
+            const fieldType = fieldEntries[fi][1];
+            const fieldOffset = layout[fi].offset + 4;
+            const local = this.locals.get(pat.pattern.name)!;
+            bodyStmts.push(
+              this.mod.local.set(local.index, this.loadField(getPtr(), fieldOffset, fieldType)),
+            );
+          }
+        }
+
+        bodyStmts.push(this.generateExprTCO(arm.body, expectedType, funcName, loopLabel));
+
+        const bodyBlock = bodyStmts.length === 1
+          ? bodyStmts[0]
+          : this.mod.block(null, bodyStmts, expectedType ? clarityTypeToWasm(expectedType) : undefined);
+
+        const cond = this.mod.i32.eq(getTag(), this.mod.i32.const(variantIndex));
+        result = this.mod.if(cond, bodyBlock, result);
+      }
+    }
+
+    const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+    return this.mod.block(null, [setPtr, setTag, result], matchResultType);
+  }
+
+  private generateGenericMatchTCO(
+    scrutinee: binaryen.ExpressionRef,
+    scrutineeType: ClarityType,
+    arms: import("../ast/nodes.js").MatchArm[],
+    expectedType: ClarityType | undefined,
+    funcName: string,
+    loopLabel: string,
+  ): binaryen.ExpressionRef {
+    const wasmType = clarityTypeToWasm(scrutineeType);
+    const tempIndex = this.localIndex++;
+    this.additionalLocals.push(wasmType);
+    const setTemp = this.mod.local.set(tempIndex, scrutinee);
+    const getTemp = () => this.mod.local.get(tempIndex, wasmType);
+
+    let result: binaryen.ExpressionRef = this.mod.unreachable();
+
+    for (let i = arms.length - 1; i >= 0; i--) {
+      const arm = arms[i];
+      const body = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
+
+      if (arm.pattern.kind === "WildcardPattern" || arm.pattern.kind === "BindingPattern") {
+        if (arm.pattern.kind === "BindingPattern") {
+          const bindIndex = this.localIndex++;
+          this.additionalLocals.push(wasmType);
+          this.locals.set(arm.pattern.name, {
+            index: bindIndex,
+            wasmType,
+            clarityType: scrutineeType,
+          });
+          result = this.mod.block(null, [
+            this.mod.local.set(bindIndex, getTemp()),
+            body,
+          ]);
+        } else {
+          result = body;
+        }
+      } else if (arm.pattern.kind === "LiteralPattern") {
+        const cond = this.generatePatternCondition(getTemp(), arm.pattern, scrutineeType);
+        result = this.mod.if(cond, body, result);
+      }
+    }
+
+    return this.mod.block(null, [setTemp, result]);
   }
 
   // ============================================================

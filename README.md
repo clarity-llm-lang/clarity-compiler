@@ -286,7 +286,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 140 tests across lexer, parser, type checker, and end-to-end
+npm test    # 155 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 140 tests
+└── tests/                  # 155 tests
 ```
 
 ---
@@ -360,6 +360,8 @@ clarity/
 - Record types — declaration, construction, field access
 - Union types — constructors, pattern matching, destructuring
 - Option<T> as built-in (Some/None with correct polymorphism)
+- Result<T, E> as built-in (Ok/Err with polymorphic type inference)
+- Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse
 - String literals, concatenation, equality, length, substring, char_at
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
@@ -369,6 +371,7 @@ clarity/
 - Higher-order functions (pass named functions as arguments, function type syntax)
 - Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
 - Properly typed generic list builtins (`head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
+- Tail call optimization (self-recursive functions compiled to loops)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
@@ -398,7 +401,8 @@ Make Clarity usable for real CLI programs.
 Make the type system robust enough for real programs.
 - ~~Parametric polymorphism / generics~~ (done — `function identity<T>(x: T) -> T` with monomorphization)
 - ~~Properly typed list builtins~~ (done — `head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
-- Built-in `Result<T, E>` type
+- ~~Built-in `Result<T, E>` type~~ (done — `Ok`/`Err` constructors with polymorphic type inference)
+- ~~Type aliases~~ (done — transparent: `type UserId = Int64`)
 - ~~Higher-order functions~~ (done — named functions as values via `(T) -> U` type syntax and `call_indirect`)
 - ~~Mutable binding reassignment~~ (done — `let mut x = 1; x = x + 1` works)
 
@@ -411,7 +415,7 @@ Support programs larger than a single file.
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable for real workloads.
 - Memory management (arena, refcounting, or WASM GC)
-- Tail call optimization (critical — no loops means recursion must be efficient)
+- ~~Tail call optimization~~ (done — self-recursive tail calls converted to loops)
 - String interning
 
 ### Phase 5 — Language Completeness (v0.6+)
