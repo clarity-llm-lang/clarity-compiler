@@ -1280,4 +1280,133 @@ describe("end-to-end compilation", () => {
     const test = instance.exports.test as () => bigint;
     expect(test()).toBe(3n); // ["a", "b", "c"] has 3 elements
   });
+
+  it("multi-line string literals work end-to-end", async () => {
+    // Use triple-quotes inside a Clarity program
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let s = ${'"""'}
+hello
+world${'"""'};
+        string_length(s)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(11n); // "hello\nworld" = 11 chars
+  });
+
+  it("append works with List<String>", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let xs = ["hello", "world"];
+        let ys = append(xs, "!");
+        length(ys)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(3n);
+  });
+
+  it("head works with List<String>", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let xs = ["hello", "world"];
+        string_length(head(xs))
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(5n); // "hello" = 5 chars
+  });
+
+  it("pattern guards work on Bool match", async () => {
+    const source = `
+      module Test
+      function classify(n: Int64) -> Int64 {
+        match n > 0 {
+          True if n < 10 -> 1,
+          True -> 2,
+          False -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const classify = instance.exports.classify as (n: bigint) => bigint;
+    expect(classify(5n)).toBe(1n);   // positive and < 10
+    expect(classify(50n)).toBe(2n);  // positive and >= 10
+    expect(classify(0n)).toBe(0n);   // non-positive
+    expect(classify(-5n)).toBe(0n);  // non-positive
+  });
+
+  it("pattern guards work on Int64 match", async () => {
+    const source = `
+      module Test
+      function classify(n: Int64) -> String {
+        match n {
+          x if x > 100 -> "large",
+          x if x > 0 -> "small",
+          _ -> "non-positive"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const classify = instance.exports.classify as (n: bigint) => number;
+    expect(runtime.readString(classify(200n))).toBe("large");
+    expect(runtime.readString(classify(50n))).toBe("small");
+    expect(runtime.readString(classify(0n))).toBe("non-positive");
+    expect(runtime.readString(classify(-10n))).toBe("non-positive");
+  });
+
+  it("pattern guards work with wildcard on union", async () => {
+    const source = `
+      module Test
+      type Status = | Active(count: Int64) | Inactive
+      function is_high_activity(s: Status) -> Bool {
+        match s {
+          Active(n) if n > 10 -> True,
+          _ -> False
+        }
+      }
+      function test_high() -> Bool { is_high_activity(Active(20)) }
+      function test_low() -> Bool { is_high_activity(Active(5)) }
+      function test_inactive() -> Bool { is_high_activity(Inactive) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_high = instance.exports.test_high as () => number;
+    const test_low = instance.exports.test_low as () => number;
+    const test_inactive = instance.exports.test_inactive as () => number;
+
+    expect(test_high()).toBe(1);  // True
+    expect(test_low()).toBe(0);   // False
+    expect(test_inactive()).toBe(0);  // False
+  });
 });

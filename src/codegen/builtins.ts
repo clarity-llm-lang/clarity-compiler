@@ -66,6 +66,7 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "list_head_i64", importModule: "env", importName: "list_head_i64", params: i32, result: i64 },
     { name: "list_tail", importModule: "env", importName: "list_tail", params: pair_i32, result: i32 },
     { name: "list_append_i64", importModule: "env", importName: "list_append_i64", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "list_append_i32", importModule: "env", importName: "list_append_i32", params: pair_i32, result: i32 },
     { name: "list_concat", importModule: "env", importName: "list_concat", params: binaryen.createType([i32, i32, i32]), result: i32 },
     { name: "list_reverse", importModule: "env", importName: "list_reverse", params: pair_i32, result: i32 },
 

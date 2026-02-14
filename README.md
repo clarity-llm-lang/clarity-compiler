@@ -286,7 +286,7 @@ npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 171 tests across lexer, parser, type checker, and end-to-end
+npm test    # 187 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 171 tests
+└── tests/                  # 187 tests
 ```
 
 ---

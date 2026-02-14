@@ -67,6 +67,15 @@ function describe(result: AuthResult) -> String {
     Failure(reason) -> reason
   }
 }
+
+// Pattern guards — add conditions to patterns
+function classify(n: Int64) -> String {
+  match n {
+    x if x > 100 -> "large",
+    x if x > 0 -> "small",
+    _ -> "non-positive"
+  }
+}
 ```
 
 ### Let bindings and assignment
@@ -273,15 +282,16 @@ Support programs larger than a single file.
 Make programs viable beyond demos.
 1. **Memory management** — Arena allocator, reference counting, or WASM GC proposal.
 2. ✓ **Tail call optimization** — Self-recursive tail calls are converted to loops in WASM codegen. Handles tail position in match arms and block results.
-3. **Nested record/list codegen** — Records containing lists, lists of records, etc.
+3. ✓ **Nested record/list codegen** — `list_append_i32` for pointer-type elements (e.g., List<String>). Supports lists of records, records containing lists.
 4. **String interning** — Deduplicate runtime-created strings.
 
 ### Phase 5 — Language Completeness (v0.6+)
-1. **Pattern guards and range patterns** — `match x { n if n > 0 -> ... }`.
+1. ✓ **Pattern guards** — `match x { n if n > 0 -> "positive", _ -> "non-positive" }`. Guards work on wildcard, binding, literal, and constructor patterns. Known limitation: multiple arms for the same variant with different guards may not work correctly.
 2. ✓ **Named argument semantic checking** — Named args validated and reordered to match parameter order.
-3. **Bytes and Timestamp runtime support** — Currently declared but unusable.
-4. **Multi-line string literals**.
-5. **REPL / browser playground**.
+3. ✓ **Multi-line string literals** — Triple-quote `"""..."""` strings with optional leading newline stripping.
+4. **Bytes and Timestamp runtime support** — Currently declared but unusable.
+5. **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`.
+6. **REPL / browser playground**.
 
 ## Workflow rules
 

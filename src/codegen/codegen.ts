@@ -740,7 +740,8 @@ export class CodeGenerator {
       }
     }
 
-    return this.mod.block(null, [setTemp, result]);
+    const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+    return this.mod.block(null, [setTemp, result], matchResultType);
   }
 
   // ============================================================
@@ -1037,11 +1038,12 @@ export class CodeGenerator {
         const elemArg = this.generateExpr(expr.args[1].value);
         const listType = this.inferExprType(expr.args[0].value);
         if (listType.kind !== "List") return null;
-        if (listType.element.kind === "Int64") {
+        const elemKind = listType.element.kind;
+        if (elemKind === "Int64" || elemKind === "Float64") {
           return this.mod.call("list_append_i64", [listArg, elemArg], binaryen.i32);
         }
-        // For other types, would need list_append_i32/f64 variants
-        return null;
+        // Pointer types (String, Record, List, Union, Option, Result)
+        return this.mod.call("list_append_i32", [listArg, elemArg], binaryen.i32);
       }
       case "concat": {
         const aArg = this.generateExpr(expr.args[0].value);
@@ -1384,6 +1386,12 @@ export class CodeGenerator {
     arms: import("../ast/nodes.js").MatchArm[],
     expectedType?: ClarityType,
   ): binaryen.ExpressionRef {
+    // If any arm has a guard, use a chain-based approach
+    const hasGuards = arms.some(a => a.guard);
+    if (hasGuards) {
+      return this.generateGuardedBoolMatch(scrutinee, arms, expectedType);
+    }
+
     let trueBody: binaryen.ExpressionRef | null = null;
     let falseBody: binaryen.ExpressionRef | null = null;
     let wildcardBody: binaryen.ExpressionRef | null = null;
@@ -1404,6 +1412,49 @@ export class CodeGenerator {
     const ifFalse = falseBody ?? wildcardBody ?? this.mod.unreachable();
 
     return this.mod.if(scrutinee, ifTrue, ifFalse);
+  }
+
+  private generateGuardedBoolMatch(
+    scrutinee: binaryen.ExpressionRef,
+    arms: import("../ast/nodes.js").MatchArm[],
+    expectedType?: ClarityType,
+  ): binaryen.ExpressionRef {
+    // Store scrutinee in temp to avoid re-evaluation
+    const tempIndex = this.localIndex++;
+    this.additionalLocals.push(binaryen.i32);
+    const setTemp = this.mod.local.set(tempIndex, scrutinee);
+    const getTemp = () => this.mod.local.get(tempIndex, binaryen.i32);
+
+    // Build if-else chain from last to first
+    let result: binaryen.ExpressionRef = this.mod.unreachable();
+
+    for (let i = arms.length - 1; i >= 0; i--) {
+      const arm = arms[i];
+      const body = this.generateExpr(arm.body, expectedType);
+
+      if (arm.pattern.kind === "WildcardPattern" || arm.pattern.kind === "BindingPattern") {
+        if (arm.guard) {
+          const guardCond = this.generateExpr(arm.guard);
+          result = this.mod.if(guardCond, body, result);
+        } else {
+          result = body;
+        }
+      } else if (arm.pattern.kind === "LiteralPattern" && arm.pattern.value.kind === "BoolLiteral") {
+        let cond: binaryen.ExpressionRef;
+        if (arm.pattern.value.value) {
+          cond = getTemp(); // True
+        } else {
+          cond = this.mod.i32.eqz(getTemp()); // False
+        }
+        if (arm.guard) {
+          cond = this.mod.i32.and(cond, this.generateExpr(arm.guard));
+        }
+        result = this.mod.if(cond, body, result);
+      }
+    }
+
+    const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+    return this.mod.block(null, [setTemp, result], matchResultType);
   }
 
   // Match on a union type by reading the tag and branching
@@ -1441,12 +1492,26 @@ export class CodeGenerator {
             wasmType: binaryen.i32,
             clarityType: unionType,
           });
-          result = this.mod.block(null, [
-            this.mod.local.set(bindLocal, getPtr()),
-            this.generateExpr(arm.body, expectedType),
-          ]);
+          // Bind BEFORE evaluating guard
+          const bindStmt = this.mod.local.set(bindLocal, getPtr());
+          const bodyExpr = this.generateExpr(arm.body, expectedType);
+          if (arm.guard) {
+            const guardCond = this.generateExpr(arm.guard);
+            const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+            const guardedResult = this.mod.if(guardCond, bodyExpr, result);
+            result = this.mod.block(null, [bindStmt, guardedResult], bodyResultType);
+          } else {
+            const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+            result = this.mod.block(null, [bindStmt, bodyExpr], bodyResultType);
+          }
         } else {
-          result = this.generateExpr(arm.body, expectedType);
+          const bodyExpr = this.generateExpr(arm.body, expectedType);
+          if (arm.guard) {
+            const guardCond = this.generateExpr(arm.guard);
+            result = this.mod.if(guardCond, bodyExpr, result);
+          } else {
+            result = bodyExpr;
+          }
         }
       } else if (arm.pattern.kind === "ConstructorPattern") {
         const variantIndex = unionType.variants.findIndex((v) => v.name === arm.pattern.name);
@@ -1487,14 +1552,25 @@ export class CodeGenerator {
           }
         }
 
-        bodyStmts.push(this.generateExpr(arm.body, expectedType));
+        const bodyExpr = this.generateExpr(arm.body, expectedType);
+        const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
 
-        const bodyBlock = bodyStmts.length === 1
-          ? bodyStmts[0]
-          : this.mod.block(null, bodyStmts, expectedType ? clarityTypeToWasm(expectedType) : undefined);
+        let armResult: binaryen.ExpressionRef;
+        if (arm.guard) {
+          // Load fields, check guard, then execute body or fallthrough
+          const guardCond = this.generateExpr(arm.guard);
+          const guardedBody = this.mod.if(guardCond, bodyExpr, result);
+          bodyStmts.push(guardedBody);
+          armResult = this.mod.block(null, bodyStmts, bodyResultType);
+        } else {
+          bodyStmts.push(bodyExpr);
+          armResult = bodyStmts.length === 1
+            ? bodyStmts[0]
+            : this.mod.block(null, bodyStmts, bodyResultType);
+        }
 
         const cond = this.mod.i32.eq(getTag(), this.mod.i32.const(variantIndex));
-        result = this.mod.if(cond, bodyBlock, result);
+        result = this.mod.if(cond, armResult, result);
 
         // Restore locals (pattern vars are scoped to the arm)
         // (We don't actually need to remove them since they won't conflict in WASM locals)
@@ -1533,20 +1609,37 @@ export class CodeGenerator {
             wasmType,
             clarityType: scrutineeType,
           });
-          result = this.mod.block(null, [
-            this.mod.local.set(bindIndex, getTemp()),
-            body,
-          ]);
+          // Bind BEFORE evaluating guard
+          const bindStmt = this.mod.local.set(bindIndex, getTemp());
+          if (arm.guard) {
+            const guardCond = this.generateExpr(arm.guard);
+            const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+            const guardedResult = this.mod.if(guardCond, body, result);
+            result = this.mod.block(null, [bindStmt, guardedResult], bodyResultType);
+          } else {
+            const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+            result = this.mod.block(null, [bindStmt, body], bodyResultType);
+          }
         } else {
-          result = body;
+          if (arm.guard) {
+            const guardCond = this.generateExpr(arm.guard);
+            result = this.mod.if(guardCond, body, result);
+          } else {
+            result = body;
+          }
         }
       } else if (arm.pattern.kind === "LiteralPattern") {
-        const cond = this.generatePatternCondition(getTemp(), arm.pattern, scrutineeType);
+        let cond = this.generatePatternCondition(getTemp(), arm.pattern, scrutineeType);
+        if (arm.guard) {
+          const guardCond = this.generateExpr(arm.guard);
+          cond = this.mod.i32.and(cond, guardCond);
+        }
         result = this.mod.if(cond, body, result);
       }
     }
 
-    return this.mod.block(null, [setTemp, result]);
+    const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+    return this.mod.block(null, [setTemp, result], matchResultType);
   }
 
   private generatePatternCondition(

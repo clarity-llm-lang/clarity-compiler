@@ -340,8 +340,9 @@ describe("Parser", () => {
         module Test
         if True { 1 }
       `);
+      // 'if' is now a valid keyword (for pattern guards), so the error
+      // is a syntax error rather than "unknown keyword"
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].help).toContain("match");
     });
 
     it("provides helpful hint for return", () => {

@@ -316,6 +316,25 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return newPtr;
       },
 
+      list_append_i32(ptr: number, value: number): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getInt32(ptr, true);
+        const newLen = len + 1;
+        const newSize = 4 + newLen * 4;
+        const newPtr = heapPtr;
+        heapPtr = (heapPtr + newSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const newView = new DataView(memory.buffer);
+        newView.setInt32(newPtr, newLen, true);
+        new Uint8Array(memory.buffer, newPtr + 4, len * 4).set(
+          new Uint8Array(memory.buffer, ptr + 4, len * 4),
+        );
+        newView.setInt32(newPtr + 4 + len * 4, value, true);
+        return newPtr;
+      },
+
       list_concat(aPtr: number, bPtr: number, elemSize: number): number {
         const view = new DataView(memory.buffer);
         const aLen = view.getInt32(aPtr, true);

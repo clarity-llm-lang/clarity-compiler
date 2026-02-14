@@ -20,6 +20,7 @@ export enum TokenKind {
   False = "False",
   And = "and",
   Or = "or",
+  If = "if",
 
   // Delimiters
   LParen = "(",

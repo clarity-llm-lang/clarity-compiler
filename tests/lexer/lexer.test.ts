@@ -129,4 +129,34 @@ describe("Lexer", () => {
       TokenKind.RBracket, TokenKind.EOF,
     ]);
   });
+
+  it("tokenizes multi-line string literal with triple quotes", () => {
+    const source = '"""hello\nworld"""';
+    const values = tokenValues(source);
+    expect(values[0]).toBe("hello\nworld");
+  });
+
+  it("tokenizes multi-line string with leading newline stripped", () => {
+    const source = '"""\nhello\nworld"""';
+    const values = tokenValues(source);
+    expect(values[0]).toBe("hello\nworld");
+  });
+
+  it("tokenizes empty triple-quote string", () => {
+    const source = '""""""';
+    const values = tokenValues(source);
+    expect(values[0]).toBe("");
+    expect(tokenKinds('""""""')[0]).toBe(TokenKind.StringLiteral);
+  });
+
+  it("tokenizes triple-quote string with embedded quotes", () => {
+    const source = '"""He said "hello" to me"""';
+    const values = tokenValues(source);
+    expect(values[0]).toBe('He said "hello" to me');
+  });
+
+  it("reports error for unterminated triple-quote string", () => {
+    const kinds = tokenKinds('"""hello');
+    expect(kinds[0]).toBe(TokenKind.Error);
+  });
 });

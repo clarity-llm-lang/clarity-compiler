@@ -567,4 +567,75 @@ describe("Checker", () => {
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe("Pattern Guards", () => {
+    it("accepts Bool guard on Bool match", () => {
+      const { errors } = check(`
+        module Test
+        function sign(n: Int64) -> String {
+          match n > 0 {
+            True if n < 100 -> "small positive",
+            True -> "large positive",
+            False -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on wildcard pattern", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            _ if n > 0 -> "positive",
+            _ -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on binding pattern", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            x if x > 0 -> "positive",
+            x -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on union constructor pattern", () => {
+      const { errors } = check(`
+        module Test
+        type Option = | Some(value: Int64) | None
+        function filter_large(opt: Option) -> String {
+          match opt {
+            Some(x) if x > 100 -> "large",
+            Some(x) -> "small",
+            None -> "none"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects non-Bool guard", () => {
+      const { errors } = check(`
+        module Test
+        function bad(n: Int64) -> String {
+          match n {
+            x if x -> "oops",
+            _ -> "other"
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Pattern guard must be Bool");
+    });
+  });
 });

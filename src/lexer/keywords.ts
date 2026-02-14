@@ -13,4 +13,5 @@ export const KEYWORDS: Map<string, TokenKind> = new Map([
   ["False", TokenKind.False],
   ["and", TokenKind.And],
   ["or", TokenKind.Or],
+  ["if", TokenKind.If],
 ]);

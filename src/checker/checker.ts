@@ -707,6 +707,17 @@ export class Checker {
         for (const arm of expr.arms) {
           this.env.enterScope();
           this.checkPattern(arm.pattern, scrutineeType);
+          if (arm.guard) {
+            const guardType = this.checkExpr(arm.guard);
+            if (guardType.kind !== "Error" && guardType.kind !== "Bool") {
+              this.diagnostics.push(
+                error(
+                  `Pattern guard must be Bool, got ${typeToString(guardType)}`,
+                  arm.guard.span,
+                ),
+              );
+            }
+          }
           const armType = this.checkExpr(arm.body);
           this.env.exitScope();
 
