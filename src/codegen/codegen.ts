@@ -648,15 +648,16 @@ export class CodeGenerator {
           result = this.generateExprTCO(arm.body, expectedType, funcName, loopLabel);
         }
       } else if (arm.pattern.kind === "ConstructorPattern") {
-        const variantIndex = unionType.variants.findIndex((v) => v.name === arm.pattern.name);
+        const ctorPattern = arm.pattern as import("../ast/nodes.js").ConstructorPattern;
+        const variantIndex = unionType.variants.findIndex((v) => v.name === ctorPattern.name);
         if (variantIndex === -1) continue;
         const variant = unionType.variants[variantIndex];
 
         const layout = this.recordLayout(variant.fields);
         const fieldEntries = [...variant.fields.entries()];
 
-        for (let fi = 0; fi < arm.pattern.fields.length && fi < fieldEntries.length; fi++) {
-          const pat = arm.pattern.fields[fi];
+        for (let fi = 0; fi < ctorPattern.fields.length && fi < fieldEntries.length; fi++) {
+          const pat = ctorPattern.fields[fi];
           if (pat.pattern.kind === "BindingPattern") {
             const fieldType = fieldEntries[fi][1];
             const wasmType = clarityTypeToWasm(fieldType);
@@ -1514,7 +1515,8 @@ export class CodeGenerator {
           }
         }
       } else if (arm.pattern.kind === "ConstructorPattern") {
-        const variantIndex = unionType.variants.findIndex((v) => v.name === arm.pattern.name);
+        const ctorPattern = arm.pattern as import("../ast/nodes.js").ConstructorPattern;
+        const variantIndex = unionType.variants.findIndex((v) => v.name === ctorPattern.name);
         if (variantIndex === -1) continue;
         const variant = unionType.variants[variantIndex];
 
@@ -1523,8 +1525,8 @@ export class CodeGenerator {
         const layout = this.recordLayout(variant.fields);
         const fieldEntries = [...variant.fields.entries()];
 
-        for (let fi = 0; fi < arm.pattern.fields.length && fi < fieldEntries.length; fi++) {
-          const pat = arm.pattern.fields[fi];
+        for (let fi = 0; fi < ctorPattern.fields.length && fi < fieldEntries.length; fi++) {
+          const pat = ctorPattern.fields[fi];
           if (pat.pattern.kind === "BindingPattern") {
             const fieldType = fieldEntries[fi][1];
             const wasmType = clarityTypeToWasm(fieldType);
@@ -1540,8 +1542,8 @@ export class CodeGenerator {
 
         // Generate body with field loads
         const bodyStmts: binaryen.ExpressionRef[] = [];
-        for (let fi = 0; fi < arm.pattern.fields.length && fi < fieldEntries.length; fi++) {
-          const pat = arm.pattern.fields[fi];
+        for (let fi = 0; fi < ctorPattern.fields.length && fi < fieldEntries.length; fi++) {
+          const pat = ctorPattern.fields[fi];
           if (pat.pattern.kind === "BindingPattern") {
             const fieldType = fieldEntries[fi][1];
             const fieldOffset = layout[fi].offset + 4; // +4 for tag

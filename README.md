@@ -254,34 +254,34 @@ npm install
 
 ### Compile a `.clarity` file
 ```bash
-npx tsx src/index.ts compile myfile.clarity
+npx clarityc compile myfile.clarity
 ```
 
 ### Compile and run
 ```bash
-npx tsx src/index.ts run myfile.clarity -f function_name -a arg1 arg2
+npx clarityc run myfile.clarity -f function_name -a arg1 arg2
 ```
 
 ### Run inline tests (self-healing test runner)
 ```bash
-npx tsx src/index.ts test myfile.clarity            # run test functions
-npx tsx src/index.ts test myfile.clarity --json      # machine-readable output
-npx tsx src/index.ts test myfile.clarity --fail-fast  # stop on first failure
+npx clarityc test myfile.clarity            # run test functions
+npx clarityc test myfile.clarity --json      # machine-readable output
+npx clarityc test myfile.clarity --fail-fast  # stop on first failure
 ```
 
 ### Introspect language capabilities (for LLM consumption)
 ```bash
-npx tsx src/index.ts introspect              # full JSON: builtins, effects, types
-npx tsx src/index.ts introspect --builtins   # built-in functions with signatures and docs
-npx tsx src/index.ts introspect --effects    # effects with their function lists
-npx tsx src/index.ts introspect --types      # built-in types
+npx clarityc introspect              # full JSON: builtins, effects, types
+npx clarityc introspect --builtins   # built-in functions with signatures and docs
+npx clarityc introspect --effects    # effects with their function lists
+npx clarityc introspect --types      # built-in types
 ```
 
 ### Other commands
 ```bash
-npx tsx src/index.ts compile myfile.clarity --check-only   # type-check only
-npx tsx src/index.ts compile myfile.clarity --emit-wat      # show WASM text format
-npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
+npx clarityc compile myfile.clarity --check-only   # type-check only
+npx clarityc compile myfile.clarity --emit-wat      # show WASM text format
+npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 ```
 
 ### Run compiler tests
@@ -304,7 +304,7 @@ Compile: npx tsx /path/to/clarity/src/index.ts compile <file>
 Then just describe what you want. Claude will write Clarity.
 
 ### With any LLM
-Include the [language spec](docs/language-spec.md) in your system prompt or context, then ask the LLM to generate Clarity code. The spec is designed to be compact enough to fit in a single context window.
+Include the [quick reference](docs/clarity-quickref.md) in your system prompt or context, then ask the LLM to generate Clarity code. The quickref is ~100 lines and designed for minimal token usage. For the full formal spec, see [language-spec.md](docs/language-spec.md).
 
 ### Extending Clarity (for LLMs)
 Clarity is designed to be extended by LLMs. The `introspect` command lets any LLM discover current capabilities as JSON, and the [contributor protocol in CLAUDE.md](CLAUDE.md#extending-the-compiler) describes how to add new built-in functions (2-file edit) or new effects. All built-in functions and effects are defined in a single registry (`src/registry/builtins-registry.ts`).

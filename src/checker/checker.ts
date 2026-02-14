@@ -192,6 +192,8 @@ export class Checker {
 
       case "TypeRef":
         return this.resolveTypeRef(expr);
+      default:
+        return null;
     }
   }
 

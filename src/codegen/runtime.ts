@@ -24,6 +24,13 @@ export interface RuntimeConfig {
   };
 }
 
+export interface AssertionFailure {
+  kind: string;
+  actual: string;
+  expected: string;
+  testFunction: string;
+}
+
 export function createRuntime(config: RuntimeConfig = {}) {
   // Memory is set after instantiation via bindMemory()
   let memory: WebAssembly.Memory = null!;
@@ -65,13 +72,6 @@ export function createRuntime(config: RuntimeConfig = {}) {
   }
 
   // --- Test state (used by assertion functions and test runner) ---
-  interface AssertionFailure {
-    kind: string;
-    actual: string;
-    expected: string;
-    testFunction: string;
-  }
-
   let currentTestFunction = "";
   let assertionFailures: AssertionFailure[] = [];
   let assertionCount = 0;
