@@ -215,6 +215,7 @@ export interface MatchExpr extends BaseNode {
 export interface MatchArm extends BaseNode {
   kind: "MatchArm";
   pattern: Pattern;
+  guard?: Expr;
   body: Expr;
 }
 

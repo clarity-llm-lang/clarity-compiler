@@ -489,4 +489,153 @@ describe("Checker", () => {
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe("named argument checking", () => {
+    it("accepts correct named arguments", () => {
+      const { errors } = check(`
+        module Test
+        function sub(a: Int64, b: Int64) -> Int64 { a - b }
+        function main() -> Int64 { sub(a: 10, b: 3) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts named arguments in different order", () => {
+      const { errors } = check(`
+        module Test
+        function sub(a: Int64, b: Int64) -> Int64 { a - b }
+        function main() -> Int64 { sub(b: 3, a: 10) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects unknown parameter name", () => {
+      const { errors } = check(`
+        module Test
+        function sub(a: Int64, b: Int64) -> Int64 { a - b }
+        function main() -> Int64 { sub(x: 10, b: 3) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Unknown parameter name 'x'");
+    });
+
+    it("rejects mixed named and positional arguments", () => {
+      const { errors } = check(`
+        module Test
+        function sub(a: Int64, b: Int64) -> Int64 { a - b }
+        function main() -> Int64 { sub(10, b: 3) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Cannot mix named and positional");
+    });
+
+    it("rejects duplicate named argument", () => {
+      const { errors } = check(`
+        module Test
+        function sub(a: Int64, b: Int64) -> Int64 { a - b }
+        function main() -> Int64 { sub(a: 10, a: 3) }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Duplicate named argument");
+    });
+
+    it("validates named argument types after reordering", () => {
+      const { errors } = check(`
+        module Test
+        function greet(name: String, times: Int64) -> String { name }
+        function main() -> String { greet(times: 5, name: "hi") }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("catches type errors with named arguments", () => {
+      const { errors } = check(`
+        module Test
+        function greet(name: String, times: Int64) -> String { name }
+        function main() -> String { greet(times: "oops", name: "hi") }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("expected Int64");
+    });
+
+    it("supports named arguments on union variant constructors", () => {
+      const { errors } = check(`
+        module Test
+        type Result = | Ok(value: Int64) | Error(reason: String)
+        function main() -> Result { Ok(value: 42) }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe("Pattern Guards", () => {
+    it("accepts Bool guard on Bool match", () => {
+      const { errors } = check(`
+        module Test
+        function sign(n: Int64) -> String {
+          match n > 0 {
+            True if n < 100 -> "small positive",
+            True -> "large positive",
+            False -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on wildcard pattern", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            _ if n > 0 -> "positive",
+            _ -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on binding pattern", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            x if x > 0 -> "positive",
+            x -> "non-positive"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts guard on union constructor pattern", () => {
+      const { errors } = check(`
+        module Test
+        type Option = | Some(value: Int64) | None
+        function filter_large(opt: Option) -> String {
+          match opt {
+            Some(x) if x > 100 -> "large",
+            Some(x) -> "small",
+            None -> "none"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects non-Bool guard", () => {
+      const { errors } = check(`
+        module Test
+        function bad(n: Int64) -> String {
+          match n {
+            x if x -> "oops",
+            _ -> "other"
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Pattern guard must be Bool");
+    });
+  });
 });

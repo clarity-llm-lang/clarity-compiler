@@ -33,6 +33,8 @@ export interface ClarityBuiltin {
   name: string;
   /** Clarity parameter types */
   params: ClarityType[];
+  /** Clarity parameter names (must match params array length) */
+  paramNames: string[];
   /** Clarity return type */
   returnType: ClarityType;
   /** Required effects (empty array = pure function) */
@@ -84,6 +86,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "print_string",
     params: [STRING],
+    paramNames: ["value"],
     returnType: UNIT,
     effects: ["Log"],
     doc: "Print a string to stdout followed by a newline.",
@@ -92,6 +95,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "print_int",
     params: [INT64],
+    paramNames: ["value"],
     returnType: UNIT,
     effects: ["Log"],
     doc: "Print an integer to stdout followed by a newline.",
@@ -100,6 +104,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "print_float",
     params: [FLOAT64],
+    paramNames: ["value"],
     returnType: UNIT,
     effects: ["Log"],
     doc: "Print a float to stdout followed by a newline.",
@@ -108,6 +113,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "log_info",
     params: [STRING],
+    paramNames: ["message"],
     returnType: UNIT,
     effects: ["Log"],
     doc: "Log an informational message to stderr.",
@@ -116,6 +122,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "log_warn",
     params: [STRING],
+    paramNames: ["message"],
     returnType: UNIT,
     effects: ["Log"],
     doc: "Log a warning message to stderr.",
@@ -126,6 +133,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "string_concat",
     params: [STRING, STRING],
+    paramNames: ["a", "b"],
     returnType: STRING,
     effects: [],
     doc: "Concatenate two strings. Prefer the ++ operator for literals.",
@@ -134,6 +142,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "string_eq",
     params: [STRING, STRING],
+    paramNames: ["a", "b"],
     returnType: BOOL,
     effects: [],
     doc: "Compare two strings for equality. Returns True if equal.",
@@ -142,6 +151,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "string_length",
     params: [STRING],
+    paramNames: ["s"],
     returnType: INT64,
     effects: [],
     doc: "Return the length of a string in bytes (UTF-8).",
@@ -150,6 +160,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "substring",
     params: [STRING, INT64, INT64],
+    paramNames: ["s", "start", "end"],
     returnType: STRING,
     effects: [],
     doc: "Extract a substring from start index to end index (exclusive).",
@@ -158,9 +169,46 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "char_at",
     params: [STRING, INT64],
+    paramNames: ["s", "index"],
     returnType: STRING,
     effects: [],
     doc: "Return the character at the given index as a single-character string.",
+    category: "string",
+  },
+  {
+    name: "contains",
+    params: [STRING, STRING],
+    paramNames: ["haystack", "needle"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if the string contains the given substring.",
+    category: "string",
+  },
+  {
+    name: "index_of",
+    params: [STRING, STRING],
+    paramNames: ["haystack", "needle"],
+    returnType: INT64,
+    effects: [],
+    doc: "Return the index of the first occurrence of needle in haystack, or -1 if not found.",
+    category: "string",
+  },
+  {
+    name: "trim",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Remove leading and trailing whitespace from a string.",
+    category: "string",
+  },
+  {
+    name: "split",
+    params: [STRING, STRING],
+    paramNames: ["s", "delimiter"],
+    returnType: LIST_STRING,
+    effects: [],
+    doc: "Split a string by a delimiter, returning a list of substrings.",
     category: "string",
   },
 
@@ -168,6 +216,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "int_to_float",
     params: [INT64],
+    paramNames: ["value"],
     returnType: FLOAT64,
     effects: [],
     doc: "Convert an Int64 to Float64.",
@@ -176,6 +225,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "float_to_int",
     params: [FLOAT64],
+    paramNames: ["value"],
     returnType: INT64,
     effects: [],
     doc: "Convert a Float64 to Int64 by truncation.",
@@ -184,6 +234,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "int_to_string",
     params: [INT64],
+    paramNames: ["value"],
     returnType: STRING,
     effects: [],
     doc: "Convert an Int64 to its decimal string representation.",
@@ -192,6 +243,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "float_to_string",
     params: [FLOAT64],
+    paramNames: ["value"],
     returnType: STRING,
     effects: [],
     doc: "Convert a Float64 to its string representation.",
@@ -200,6 +252,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "string_to_int",
     params: [STRING],
+    paramNames: ["s"],
     returnType: INT64,
     effects: [],
     doc: "Parse a string as Int64. Returns 0 on failure. (Proper Option<Int64> return deferred to Phase 2.)",
@@ -208,6 +261,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "string_to_float",
     params: [STRING],
+    paramNames: ["s"],
     returnType: FLOAT64,
     effects: [],
     doc: "Parse a string as Float64. Returns 0.0 on failure. (Proper Option<Float64> return deferred to Phase 2.)",
@@ -218,6 +272,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "abs_int",
     params: [INT64],
+    paramNames: ["n"],
     returnType: INT64,
     effects: [],
     doc: "Return the absolute value of an integer.",
@@ -226,6 +281,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "min_int",
     params: [INT64, INT64],
+    paramNames: ["a", "b"],
     returnType: INT64,
     effects: [],
     doc: "Return the smaller of two integers.",
@@ -234,6 +290,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "max_int",
     params: [INT64, INT64],
+    paramNames: ["a", "b"],
     returnType: INT64,
     effects: [],
     doc: "Return the larger of two integers.",
@@ -242,6 +299,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "sqrt",
     params: [FLOAT64],
+    paramNames: ["x"],
     returnType: FLOAT64,
     effects: [],
     doc: "Return the square root of a float.",
@@ -250,6 +308,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "pow",
     params: [FLOAT64, FLOAT64],
+    paramNames: ["base", "exponent"],
     returnType: FLOAT64,
     effects: [],
     doc: "Return base raised to the power of exponent.",
@@ -258,6 +317,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "floor",
     params: [FLOAT64],
+    paramNames: ["x"],
     returnType: FLOAT64,
     effects: [],
     doc: "Round a float down to the nearest integer value.",
@@ -266,6 +326,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "ceil",
     params: [FLOAT64],
+    paramNames: ["x"],
     returnType: FLOAT64,
     effects: [],
     doc: "Round a float up to the nearest integer value.",
@@ -276,6 +337,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "list_length",
     params: [LIST_T],
+    paramNames: ["list"],
     returnType: INT64,
     effects: [],
     doc: "Return the number of elements in a list.",
@@ -284,6 +346,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "length",
     params: [LIST_T],
+    paramNames: ["list"],
     returnType: INT64,
     effects: [],
     doc: "Return the number of elements in a list (alias for list_length).",
@@ -292,6 +355,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "head",
     params: [LIST_T],
+    paramNames: ["list"],
     returnType: T,
     effects: [],
     doc: "Return the first element of a list. Traps on empty list.",
@@ -300,6 +364,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "tail",
     params: [LIST_T],
+    paramNames: ["list"],
     returnType: LIST_T,
     effects: [],
     doc: "Return a list without its first element.",
@@ -308,6 +373,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "append",
     params: [LIST_T, T],
+    paramNames: ["list", "element"],
     returnType: LIST_T,
     effects: [],
     doc: "Append an element to the end of a list.",
@@ -316,6 +382,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "concat",
     params: [LIST_T, LIST_T],
+    paramNames: ["a", "b"],
     returnType: LIST_T,
     effects: [],
     doc: "Concatenate two lists.",
@@ -324,9 +391,28 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "reverse",
     params: [LIST_T],
+    paramNames: ["list"],
     returnType: LIST_T,
     effects: [],
     doc: "Reverse a list.",
+    category: "list",
+  },
+  {
+    name: "is_empty",
+    params: [LIST_T],
+    paramNames: ["list"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if the list has no elements.",
+    category: "list",
+  },
+  {
+    name: "nth",
+    params: [LIST_T, INT64],
+    paramNames: ["list", "index"],
+    returnType: T,
+    effects: [],
+    doc: "Return the element at the given index (0-based). Traps if index is out of bounds.",
     category: "list",
   },
 
@@ -334,6 +420,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "read_line",
     params: [],
+    paramNames: [],
     returnType: STRING,
     effects: ["FileSystem"],
     doc: "Read one line from stdin (up to newline).",
@@ -342,6 +429,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "read_all_stdin",
     params: [],
+    paramNames: [],
     returnType: STRING,
     effects: ["FileSystem"],
     doc: "Read all remaining input from stdin.",
@@ -350,6 +438,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "read_file",
     params: [STRING],
+    paramNames: ["path"],
     returnType: STRING,
     effects: ["FileSystem"],
     doc: "Read the entire contents of a file as a string.",
@@ -358,6 +447,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "write_file",
     params: [STRING, STRING],
+    paramNames: ["path", "content"],
     returnType: UNIT,
     effects: ["FileSystem"],
     doc: "Write a string to a file, replacing existing contents.",
@@ -366,6 +456,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "get_args",
     params: [],
+    paramNames: [],
     returnType: LIST_STRING,
     effects: ["FileSystem"],
     doc: "Return command-line arguments as a list of strings.",
@@ -374,6 +465,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "exit",
     params: [INT64],
+    paramNames: ["code"],
     returnType: UNIT,
     effects: ["FileSystem"],
     doc: "Exit the process with the given status code.",
@@ -384,6 +476,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "assert_eq",
     params: [INT64, INT64],
+    paramNames: ["actual", "expected"],
     returnType: UNIT,
     effects: ["Test"],
     doc: "Assert two Int64 values are equal.",
@@ -392,6 +485,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "assert_eq_float",
     params: [FLOAT64, FLOAT64],
+    paramNames: ["actual", "expected"],
     returnType: UNIT,
     effects: ["Test"],
     doc: "Assert two Float64 values are equal (epsilon 1e-9).",
@@ -400,6 +494,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "assert_eq_string",
     params: [STRING, STRING],
+    paramNames: ["actual", "expected"],
     returnType: UNIT,
     effects: ["Test"],
     doc: "Assert two String values are equal.",
@@ -408,6 +503,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "assert_true",
     params: [BOOL],
+    paramNames: ["condition"],
     returnType: UNIT,
     effects: ["Test"],
     doc: "Assert a condition is True.",
@@ -416,6 +512,7 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   {
     name: "assert_false",
     params: [BOOL],
+    paramNames: ["condition"],
     returnType: UNIT,
     effects: ["Test"],
     doc: "Assert a condition is False.",

@@ -125,6 +125,36 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(i >= 0 && i < s.length ? s[i] : "");
       },
 
+      contains(haystackPtr: number, needlePtr: number): number {
+        return readString(haystackPtr).includes(readString(needlePtr)) ? 1 : 0;
+      },
+
+      index_of(haystackPtr: number, needlePtr: number): bigint {
+        return BigInt(readString(haystackPtr).indexOf(readString(needlePtr)));
+      },
+
+      trim(ptr: number): number {
+        return writeString(readString(ptr).trim());
+      },
+
+      split(sPtr: number, delimPtr: number): number {
+        const parts = readString(sPtr).split(readString(delimPtr));
+        // Build a List<String> in memory: [length: i32][ptr0: i32][ptr1: i32]...
+        const ptrs = parts.map(p => writeString(p));
+        const listSize = 4 + ptrs.length * 4;
+        const listPtr = heapPtr;
+        heapPtr = (heapPtr + listSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const view = new DataView(memory.buffer);
+        view.setInt32(listPtr, ptrs.length, true);
+        for (let i = 0; i < ptrs.length; i++) {
+          view.setInt32(listPtr + 4 + i * 4, ptrs[i], true);
+        }
+        return listPtr;
+      },
+
       // --- Type conversions ---
       int_to_float(value: bigint): number {
         return Number(value);
@@ -283,6 +313,25 @@ export function createRuntime(config: RuntimeConfig = {}) {
         );
         // Append new element
         newView.setBigInt64(newPtr + 4 + len * 8, value, true);
+        return newPtr;
+      },
+
+      list_append_i32(ptr: number, value: number): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getInt32(ptr, true);
+        const newLen = len + 1;
+        const newSize = 4 + newLen * 4;
+        const newPtr = heapPtr;
+        heapPtr = (heapPtr + newSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const newView = new DataView(memory.buffer);
+        newView.setInt32(newPtr, newLen, true);
+        new Uint8Array(memory.buffer, newPtr + 4, len * 4).set(
+          new Uint8Array(memory.buffer, ptr + 4, len * 4),
+        );
+        newView.setInt32(newPtr + 4 + len * 4, value, true);
         return newPtr;
       },
 

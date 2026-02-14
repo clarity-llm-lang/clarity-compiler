@@ -361,10 +361,10 @@ match result {
 ### 5.5 Function Call
 ```
 function_name(arg1, arg2)
-function_name(named_arg: value, arg2)
+function_name(name: value, other_name: value)
 ```
 
-Positional and named arguments are supported.
+Positional and named arguments are supported. Named arguments are validated against parameter names and reordered to match the function's parameter order. All arguments must be either positional or named — mixing is not allowed.
 
 ### 5.6 Member Access
 ```
@@ -581,6 +581,10 @@ effect[FileSystem, Log] function main() -> Unit {
 | `string_length(s)` | `String -> Int64` | Length in characters |
 | `substring(s, start, len)` | `String, Int64, Int64 -> String` | Extract substring |
 | `char_at(s, i)` | `String, Int64 -> String` | Character at index |
+| `contains(haystack, needle)` | `String, String -> Bool` | Check substring presence |
+| `index_of(haystack, needle)` | `String, String -> Int64` | First index of substring (-1 if not found) |
+| `trim(s)` | `String -> String` | Remove leading/trailing whitespace |
+| `split(s, delimiter)` | `String, String -> List<String>` | Split string by delimiter |
 
 ### 11.4 Type Conversions
 
@@ -615,6 +619,8 @@ effect[FileSystem, Log] function main() -> Unit {
 | `append(list, elem)` | `List<T>, T -> List<T>` | Add element to end |
 | `concat(a, b)` | `List<T>, List<T> -> List<T>` | Concatenate two lists |
 | `reverse(list)` | `List<T> -> List<T>` | Reverse a list |
+| `is_empty(list)` | `List<T> -> Bool` | True if list has no elements |
+| `nth(list, index)` | `List<T>, Int64 -> T` | Element at index (0-based) |
 
 ---
 

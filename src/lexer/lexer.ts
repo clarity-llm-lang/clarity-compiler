@@ -99,7 +99,18 @@ export class Lexer {
     const startLine = this.line;
     const startCol = this.col;
 
-    this.advance(); // skip opening "
+    this.advance(); // skip first "
+
+    // Check for triple-quote """
+    if (
+      this.pos < this.source.length && this.source[this.pos] === '"' &&
+      this.pos + 1 < this.source.length && this.source[this.pos + 1] === '"'
+    ) {
+      this.advance(); // skip second "
+      this.advance(); // skip third "
+      return this.readTripleQuoteString(startPos, startLine, startCol);
+    }
+
     let value = "";
 
     while (this.pos < this.source.length && this.source[this.pos] !== '"') {
@@ -129,6 +140,56 @@ export class Lexer {
 
     this.advance(); // skip closing "
     return this.makeToken(TokenKind.StringLiteral, value, startPos, startLine, startCol);
+  }
+
+  private readTripleQuoteString(startPos: number, startLine: number, startCol: number): Token {
+    let value = "";
+
+    // Skip the first newline after opening """ if present
+    if (this.pos < this.source.length && this.source[this.pos] === "\n") {
+      this.advance();
+    } else if (
+      this.pos + 1 < this.source.length &&
+      this.source[this.pos] === "\r" && this.source[this.pos + 1] === "\n"
+    ) {
+      this.advance();
+      this.advance();
+    }
+
+    while (this.pos < this.source.length) {
+      // Check for closing """
+      if (
+        this.source[this.pos] === '"' &&
+        this.pos + 1 < this.source.length && this.source[this.pos + 1] === '"' &&
+        this.pos + 2 < this.source.length && this.source[this.pos + 2] === '"'
+      ) {
+        this.advance(); // skip first "
+        this.advance(); // skip second "
+        this.advance(); // skip third "
+        return this.makeToken(TokenKind.StringLiteral, value, startPos, startLine, startCol);
+      }
+
+      if (this.source[this.pos] === "\\") {
+        this.advance(); // skip backslash
+        if (this.pos < this.source.length) {
+          const escaped = this.source[this.pos];
+          switch (escaped) {
+            case "n": value += "\n"; break;
+            case "t": value += "\t"; break;
+            case "\\": value += "\\"; break;
+            case '"': value += '"'; break;
+            default:
+              value += "\\" + escaped;
+          }
+          this.advance();
+        }
+      } else {
+        value += this.source[this.pos];
+        this.advance();
+      }
+    }
+
+    return this.makeToken(TokenKind.Error, "Unterminated multi-line string literal", startPos, startLine, startCol);
   }
 
   private readPunctuation(): Token {

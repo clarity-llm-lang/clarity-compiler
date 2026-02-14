@@ -449,11 +449,17 @@ export class Parser {
     while (this.peek().kind !== TokenKind.RBrace && !this.isAtEnd()) {
       const armStart = this.peek();
       const pattern = this.parsePattern();
+      let guard: Expr | undefined;
+      if (this.peek().kind === TokenKind.If) {
+        this.advance(); // skip 'if'
+        guard = this.parseExpr();
+      }
       this.expect(TokenKind.Arrow);
       const body = this.parseExpr();
       arms.push({
         kind: "MatchArm",
         pattern,
+        guard,
         body,
         span: this.spanFrom(armStart),
       });
