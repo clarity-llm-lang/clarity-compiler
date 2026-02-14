@@ -1,7 +1,7 @@
 # Clarity Quick Reference
 
 Compact syntax reference for writing Clarity code. For the full spec see `language-spec.md`.
-For the complete list of built-in functions, run: `npx tsx src/index.ts introspect --builtins`
+For the complete list of built-in functions, run: `npx clarityc introspect --builtins`
 
 ## Module declaration
 Every file starts with:
@@ -95,7 +95,7 @@ a + b                // last expression = return value
 | `append(list, elem)` | `List<T>, T -> List<T>` | — |
 | `length(list)` | `List<T> -> Int64` | — |
 
-Run `npx tsx src/index.ts introspect --builtins` for the full list (string ops, math, conversions, etc).
+Run `npx clarityc introspect --builtins` for the full list (string ops, math, conversions, etc).
 
 ## What Clarity does NOT have
 No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions, no lambdas/closures (pass named functions only), no imports/modules (single file only).

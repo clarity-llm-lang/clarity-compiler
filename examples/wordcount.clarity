@@ -4,7 +4,7 @@ module WordCount
 // Demonstrates: read_all_stdin, string operations, recursion, effects.
 //
 // Usage:
-//   echo "hello world foo bar" | npx tsx src/index.ts run examples/wordcount.clarity -f count_words
+//   echo "hello world foo bar" | npx clarityc run examples/wordcount.clarity -f count_words
 
 // Count whitespace characters (space or newline) to estimate word count
 function count_separators(s: String, i: Int64, acc: Int64) -> Int64 {

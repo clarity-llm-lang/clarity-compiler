@@ -254,34 +254,34 @@ npm install
 
 ### Compile a `.clarity` file
 ```bash
-npx tsx src/index.ts compile myfile.clarity
+npx clarityc compile myfile.clarity
 ```
 
 ### Compile and run
 ```bash
-npx tsx src/index.ts run myfile.clarity -f function_name -a arg1 arg2
+npx clarityc run myfile.clarity -f function_name -a arg1 arg2
 ```
 
 ### Run inline tests (self-healing test runner)
 ```bash
-npx tsx src/index.ts test myfile.clarity            # run test functions
-npx tsx src/index.ts test myfile.clarity --json      # machine-readable output
-npx tsx src/index.ts test myfile.clarity --fail-fast  # stop on first failure
+npx clarityc test myfile.clarity            # run test functions
+npx clarityc test myfile.clarity --json      # machine-readable output
+npx clarityc test myfile.clarity --fail-fast  # stop on first failure
 ```
 
 ### Introspect language capabilities (for LLM consumption)
 ```bash
-npx tsx src/index.ts introspect              # full JSON: builtins, effects, types
-npx tsx src/index.ts introspect --builtins   # built-in functions with signatures and docs
-npx tsx src/index.ts introspect --effects    # effects with their function lists
-npx tsx src/index.ts introspect --types      # built-in types
+npx clarityc introspect              # full JSON: builtins, effects, types
+npx clarityc introspect --builtins   # built-in functions with signatures and docs
+npx clarityc introspect --effects    # effects with their function lists
+npx clarityc introspect --types      # built-in types
 ```
 
 ### Other commands
 ```bash
-npx tsx src/index.ts compile myfile.clarity --check-only   # type-check only
-npx tsx src/index.ts compile myfile.clarity --emit-wat      # show WASM text format
-npx tsx src/index.ts compile myfile.clarity --emit-ast      # show AST as JSON
+npx clarityc compile myfile.clarity --check-only   # type-check only
+npx clarityc compile myfile.clarity --emit-wat      # show WASM text format
+npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 ```
 
 ### Run compiler tests

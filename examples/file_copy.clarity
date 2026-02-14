@@ -4,7 +4,7 @@ module FileCopy
 // Demonstrates: get_args, read_file, write_file, pattern matching on lists.
 //
 // Usage:
-//   npx tsx src/index.ts run examples/file_copy.clarity -f main -a '"source.txt"' '"dest.txt"'
+//   npx clarityc run examples/file_copy.clarity -f main -a '"source.txt"' '"dest.txt"'
 
 effect[FileSystem, Log] function copy(src: String, dst: String) -> Unit {
   let content = read_file(src);
