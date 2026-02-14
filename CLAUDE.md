@@ -15,31 +15,31 @@ See `docs/language-spec.md` for the full formal specification.
 ## Compiler commands
 ```bash
 # Compile to WASM
-npx tsx src/index.ts compile file.clarity -o output.wasm
+npx clarityc compile file.clarity -o output.wasm
 
 # Compile and run
-npx tsx src/index.ts run file.clarity -f function_name -a arg1 arg2
+npx clarityc run file.clarity -f function_name -a arg1 arg2
 
 # Type-check only
-npx tsx src/index.ts compile file.clarity --check-only
+npx clarityc compile file.clarity --check-only
 
 # Show WASM text format / AST
-npx tsx src/index.ts compile file.clarity --emit-wat
-npx tsx src/index.ts compile file.clarity --emit-ast
+npx clarityc compile file.clarity --emit-wat
+npx clarityc compile file.clarity --emit-ast
 
 # Run compiler tests
 npm test
 
 # Run Clarity test functions (self-healing test runner)
-npx tsx src/index.ts test file.clarity
-npx tsx src/index.ts test file.clarity --json      # machine-readable output
-npx tsx src/index.ts test file.clarity --fail-fast  # stop on first failure
+npx clarityc test file.clarity
+npx clarityc test file.clarity --json      # machine-readable output
+npx clarityc test file.clarity --fail-fast  # stop on first failure
 
 # Introspect language capabilities (JSON output for LLM consumption)
-npx tsx src/index.ts introspect              # all capabilities
-npx tsx src/index.ts introspect --builtins   # built-in functions only
-npx tsx src/index.ts introspect --effects    # effects only
-npx tsx src/index.ts introspect --types      # built-in types only
+npx clarityc introspect              # all capabilities
+npx clarityc introspect --builtins   # built-in functions only
+npx clarityc introspect --effects    # effects only
+npx clarityc introspect --types      # built-in types only
 ```
 
 ## Self-healing test system
@@ -90,8 +90,8 @@ After every implementation task, check and update these files if affected:
 ### Discovering current capabilities
 Before adding features, query what already exists:
 ```bash
-npx tsx src/index.ts introspect --builtins   # all built-in functions with signatures and docs
-npx tsx src/index.ts introspect --effects    # all effects with their function lists
+npx clarityc introspect --builtins   # all built-in functions with signatures and docs
+npx clarityc introspect --effects    # all effects with their function lists
 ```
 
 ### Adding a new built-in function
@@ -104,7 +104,7 @@ npx tsx src/index.ts introspect --effects    # all effects with their function l
 3. **WASM import** (only if new parameter shape) — Add to `src/codegen/builtins.ts`
    - Most functions follow existing patterns; only needed for novel param/result combos
 4. **Test** — Add an e2e test in `tests/`
-5. **Verify** — `npm test` and `npx tsx src/index.ts introspect --builtins`
+5. **Verify** — `npm test` and `npx clarityc introspect --builtins`
 
 ### Adding a new effect
 1. Add to `EFFECT_DEFINITIONS` in `src/registry/builtins-registry.ts`

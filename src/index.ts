@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 import { readFile, writeFile } from "node:fs/promises";
 import { compile } from "./compiler.js";
@@ -89,7 +90,7 @@ program
       // Pass CLI args through so Clarity programs can access them via get_args()
       const cliArgs = (opts.args as string[]) ?? [];
       const runtime = createRuntime({ argv: cliArgs });
-      const { instance } = await WebAssembly.instantiate(result.wasm, runtime.imports);
+      const { instance } = await WebAssembly.instantiate(result.wasm! as BufferSource, runtime.imports);
 
       // Bind to the WASM module's exported memory
       const exportedMemory = instance.exports.memory as WebAssembly.Memory;
@@ -122,7 +123,7 @@ program
         return BigInt(a);
       });
 
-      const resultValue = fn(...args);
+      const resultValue = (fn as Function)(...args);
 
       // Don't print undefined/void results (Unit return type)
       if (resultValue === undefined) return;
@@ -165,7 +166,7 @@ program
               message: e.message,
               line: e.span.start.line,
               column: e.span.start.column,
-              hint: e.hint ?? null,
+              hint: e.help ?? null,
             })),
           }, null, 2));
         } else {
@@ -181,7 +182,7 @@ program
 
       // Create runtime and instantiate
       const runtime = createRuntime();
-      const { instance } = await WebAssembly.instantiate(result.wasm, runtime.imports);
+      const { instance } = await WebAssembly.instantiate(result.wasm! as BufferSource, runtime.imports);
 
       const exportedMemory = instance.exports.memory as WebAssembly.Memory;
       if (exportedMemory) {
@@ -194,7 +195,7 @@ program
 
       // Discover test functions: must have test_ prefix, effect[Test], and zero params
       const testFunctions: { name: string; line: number }[] = [];
-      for (const decl of result.ast.declarations) {
+      for (const decl of result.ast!.declarations) {
         if (
           decl.kind === "FunctionDecl" &&
           decl.name.startsWith("test_") &&
