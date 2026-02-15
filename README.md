@@ -286,7 +286,7 @@ npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 187 tests across lexer, parser, type checker, and end-to-end
+npm test    # 196 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 187 tests
+└── tests/                  # 196 tests
 ```
 
 ---
@@ -420,7 +420,8 @@ Make programs viable for real workloads.
 - String interning
 
 ### Phase 5 — Language Completeness (v0.6+)
-- Pattern guards and range patterns
+- ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
+- ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
 - Bytes and Timestamp runtime support
 - REPL / browser playground

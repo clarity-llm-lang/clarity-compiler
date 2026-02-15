@@ -52,6 +52,7 @@ export enum TokenKind {
   Colon = ":",
   Semicolon = ";",
   Dot = ".",
+  DotDot = "..",
   Eq = "=",
   Underscore = "_",
 

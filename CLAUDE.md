@@ -76,6 +76,16 @@ function classify(n: Int64) -> String {
     _ -> "non-positive"
   }
 }
+
+// Range patterns — match Int64 values in a range (inclusive)
+function grade(score: Int64) -> String {
+  match score {
+    90..100 -> "A",
+    80..89 -> "B",
+    70..79 -> "C",
+    _ -> "F"
+  }
+}
 ```
 
 ### Let bindings and assignment
@@ -278,11 +288,11 @@ Make programs viable beyond demos.
 4. **String interning** — Deduplicate runtime-created strings.
 
 ### Phase 5 — Language Completeness (v0.6+)
-1. ✓ **Pattern guards** — `match x { n if n > 0 -> "positive", _ -> "non-positive" }`. Guards work on wildcard, binding, literal, and constructor patterns. Known limitation: multiple arms for the same variant with different guards may not work correctly.
+1. ✓ **Pattern guards** — `match x { n if n > 0 -> "positive", _ -> "non-positive" }`. Guards work on wildcard, binding, literal, and constructor patterns including multiple arms for the same variant with different guards.
 2. ✓ **Named argument semantic checking** — Named args validated and reordered to match parameter order.
 3. ✓ **Multi-line string literals** — Triple-quote `"""..."""` strings with optional leading newline stripping.
 4. **Bytes and Timestamp runtime support** — Currently declared but unusable.
-5. **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`.
+5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
 - `string_to_int`/`string_to_float` return raw values (0 on failure) instead of `Option<T>`
 - No module system — single file at a time, no import/export

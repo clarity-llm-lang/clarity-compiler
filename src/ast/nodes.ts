@@ -246,6 +246,7 @@ export interface BlockExpr extends BaseNode {
 export type Pattern =
   | WildcardPattern
   | LiteralPattern
+  | RangePattern
   | ConstructorPattern
   | BindingPattern;
 
@@ -256,6 +257,12 @@ export interface WildcardPattern extends BaseNode {
 export interface LiteralPattern extends BaseNode {
   kind: "LiteralPattern";
   value: IntLiteral | FloatLiteral | StringLiteral | BoolLiteral;
+}
+
+export interface RangePattern extends BaseNode {
+  kind: "RangePattern";
+  start: IntLiteral;
+  end: IntLiteral;
 }
 
 export interface ConstructorPattern extends BaseNode {

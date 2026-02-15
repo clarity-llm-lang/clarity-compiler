@@ -738,6 +738,9 @@ export class CodeGenerator {
       } else if (arm.pattern.kind === "LiteralPattern") {
         const cond = this.generatePatternCondition(getTemp(), arm.pattern, scrutineeType);
         result = this.mod.if(cond, body, result);
+      } else if (arm.pattern.kind === "RangePattern") {
+        const cond = this.generateRangePatternCondition(getTemp, arm.pattern);
+        result = this.mod.if(cond, body, result);
       }
     }
 
@@ -1477,6 +1480,20 @@ export class CodeGenerator {
     const setTag = this.mod.local.set(tagLocal, this.mod.i32.load(0, 4, getPtr()));
     const getTag = () => this.mod.local.get(tagLocal, binaryen.i32);
 
+    // For guarded arms, we need a result local to avoid sharing binaryen expression refs
+    // (binaryen IR is a tree, not a DAG — each node can only have one parent)
+    const hasGuards = arms.some(a => a.guard);
+    const matchResultWasmType = expectedType ? clarityTypeToWasm(expectedType) : binaryen.i32;
+    let resultLocal: number | undefined;
+    let getResult: (() => binaryen.ExpressionRef) | undefined;
+    let setResult: ((val: binaryen.ExpressionRef) => binaryen.ExpressionRef) | undefined;
+    if (hasGuards) {
+      resultLocal = this.localIndex++;
+      this.additionalLocals.push(matchResultWasmType);
+      getResult = () => this.mod.local.get(resultLocal!, matchResultWasmType);
+      setResult = (val: binaryen.ExpressionRef) => this.mod.local.set(resultLocal!, val);
+    }
+
     // Build if-else chain: if (tag == 0) ... else if (tag == 1) ... else ...
     let result: binaryen.ExpressionRef = this.mod.unreachable();
 
@@ -1499,8 +1516,8 @@ export class CodeGenerator {
           if (arm.guard) {
             const guardCond = this.generateExpr(arm.guard);
             const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
-            const guardedResult = this.mod.if(guardCond, bodyExpr, result);
-            result = this.mod.block(null, [bindStmt, guardedResult], bodyResultType);
+            const guardedResult = this.mod.if(guardCond, bodyExpr, getResult!());
+            result = this.mod.block(null, [setResult!(result), bindStmt, guardedResult], bodyResultType);
           } else {
             const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
             result = this.mod.block(null, [bindStmt, bodyExpr], bodyResultType);
@@ -1509,7 +1526,11 @@ export class CodeGenerator {
           const bodyExpr = this.generateExpr(arm.body, expectedType);
           if (arm.guard) {
             const guardCond = this.generateExpr(arm.guard);
-            result = this.mod.if(guardCond, bodyExpr, result);
+            const bodyResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
+            result = this.mod.block(null, [
+              setResult!(result),
+              this.mod.if(guardCond, bodyExpr, getResult!()),
+            ], bodyResultType);
           } else {
             result = bodyExpr;
           }
@@ -1559,20 +1580,26 @@ export class CodeGenerator {
 
         let armResult: binaryen.ExpressionRef;
         if (arm.guard) {
-          // Load fields, check guard, then execute body or fallthrough
+          // Store result in local first, then load fields, check guard
           const guardCond = this.generateExpr(arm.guard);
-          const guardedBody = this.mod.if(guardCond, bodyExpr, result);
+          const guardedBody = this.mod.if(guardCond, bodyExpr, getResult!());
           bodyStmts.push(guardedBody);
           armResult = this.mod.block(null, bodyStmts, bodyResultType);
+          // Wrap in block that sets result local and does the tag check
+          const cond = this.mod.i32.eq(getTag(), this.mod.i32.const(variantIndex));
+          result = this.mod.block(null, [
+            setResult!(result),
+            this.mod.if(cond, armResult, getResult!()),
+          ], bodyResultType);
         } else {
           bodyStmts.push(bodyExpr);
           armResult = bodyStmts.length === 1
             ? bodyStmts[0]
             : this.mod.block(null, bodyStmts, bodyResultType);
-        }
 
-        const cond = this.mod.i32.eq(getTag(), this.mod.i32.const(variantIndex));
-        result = this.mod.if(cond, armResult, result);
+          const cond = this.mod.i32.eq(getTag(), this.mod.i32.const(variantIndex));
+          result = this.mod.if(cond, armResult, result);
+        }
 
         // Restore locals (pattern vars are scoped to the arm)
         // (We don't actually need to remove them since they won't conflict in WASM locals)
@@ -1637,6 +1664,13 @@ export class CodeGenerator {
           cond = this.mod.i32.and(cond, guardCond);
         }
         result = this.mod.if(cond, body, result);
+      } else if (arm.pattern.kind === "RangePattern") {
+        let cond = this.generateRangePatternCondition(getTemp, arm.pattern);
+        if (arm.guard) {
+          const guardCond = this.generateExpr(arm.guard);
+          cond = this.mod.i32.and(cond, guardCond);
+        }
+        result = this.mod.if(cond, body, result);
       }
     }
 
@@ -1663,6 +1697,23 @@ export class CodeGenerator {
       return this.mod.call("string_eq", [scrutinee, this.mod.i32.const(ptr)], binaryen.i32);
     }
     return this.mod.i32.const(1);
+  }
+
+  private generateRangePatternCondition(
+    getScrutinee: () => binaryen.ExpressionRef,
+    pattern: import("../ast/nodes.js").RangePattern,
+  ): binaryen.ExpressionRef {
+    const startVal = pattern.start.value;
+    const endVal = pattern.end.value;
+    const startLow = Number(startVal & BigInt(0xFFFFFFFF));
+    const startHigh = Number((startVal >> BigInt(32)) & BigInt(0xFFFFFFFF));
+    const endLow = Number(endVal & BigInt(0xFFFFFFFF));
+    const endHigh = Number((endVal >> BigInt(32)) & BigInt(0xFFFFFFFF));
+    // scrutinee >= start AND scrutinee <= end (signed)
+    // Use separate getScrutinee() calls to create fresh expression refs (binaryen tree invariant)
+    const gteStart = this.mod.i64.ge_s(getScrutinee(), this.mod.i64.const(startLow, startHigh));
+    const lteEnd = this.mod.i64.le_s(getScrutinee(), this.mod.i64.const(endLow, endHigh));
+    return this.mod.i32.and(gteStart, lteEnd);
   }
 
   // ============================================================

@@ -60,8 +60,9 @@ Block           <- '{' Statement* Expression? '}'
 Statement       <- LetExpr ';' / AssignmentExpr ';' / Expression ';'
 
 # === Patterns ===
-Pattern         <- WildcardPat / LiteralPat / ConstructorPat / BindingPat
+Pattern         <- WildcardPat / RangePat / LiteralPat / ConstructorPat / BindingPat
 WildcardPat     <- '_'
+RangePat        <- IntLiteral '..' IntLiteral
 LiteralPat      <- IntLiteral / FloatLiteral / StringLiteral / 'True' / 'False'
 ConstructorPat  <- Identifier ('(' PatternFieldList ')')?
 PatternFieldList <- PatternField (',' PatternField)*

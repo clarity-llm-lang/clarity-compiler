@@ -896,6 +896,26 @@ export class Checker {
         break;
       }
 
+      case "RangePattern": {
+        if (expectedType.kind !== "Int64") {
+          this.diagnostics.push(
+            error(
+              `Range patterns only work on Int64, got ${typeToString(expectedType)}`,
+              pattern.span,
+            ),
+          );
+        }
+        if (pattern.start.value >= pattern.end.value) {
+          this.diagnostics.push(
+            error(
+              `Invalid range pattern: start (${pattern.start.value}) must be less than end (${pattern.end.value})`,
+              pattern.span,
+            ),
+          );
+        }
+        break;
+      }
+
       case "ConstructorPattern": {
         if (expectedType.kind === "Union") {
           const variant = expectedType.variants.find((v) => v.name === pattern.name);
