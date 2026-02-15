@@ -616,6 +616,21 @@ export class Parser {
 
     if (tok.kind === TokenKind.IntLiteral) {
       this.advance();
+      // Check for range pattern: 1..10
+      if (this.peek().kind === TokenKind.DotDot) {
+        this.advance(); // skip '..'
+        const endTok = this.peek();
+        if (endTok.kind === TokenKind.IntLiteral) {
+          this.advance();
+          return {
+            kind: "RangePattern",
+            start: { kind: "IntLiteral", value: BigInt(tok.value), span: tok.span },
+            end: { kind: "IntLiteral", value: BigInt(endTok.value), span: endTok.span },
+            span: this.spanFrom(tok),
+          } as import("../ast/nodes.js").RangePattern;
+        }
+        this.errors.push(unexpectedToken(endTok, "an integer literal after '..'"));
+      }
       return {
         kind: "LiteralPattern",
         value: { kind: "IntLiteral", value: BigInt(tok.value), span: tok.span },

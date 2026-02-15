@@ -1409,4 +1409,161 @@ world${'"""'};
     expect(test_low()).toBe(0);   // False
     expect(test_inactive()).toBe(0);  // False
   });
+
+  it("pattern guards work with multiple arms for same variant", async () => {
+    const source = `
+      module Test
+      type MyResult = | Success(value: Int64) | Failure | Pending
+      function describe(res: MyResult) -> Int64 {
+        match res {
+          Success(x) if x > 100 -> 1,
+          Failure -> 2,
+          _ -> 0
+        }
+      }
+      function test_big() -> Int64 { describe(Success(200)) }
+      function test_small() -> Int64 { describe(Success(50)) }
+      function test_fail() -> Int64 { describe(Failure) }
+      function test_pend() -> Int64 { describe(Pending) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_big = instance.exports.test_big as () => bigint;
+    const test_small = instance.exports.test_small as () => bigint;
+    const test_fail = instance.exports.test_fail as () => bigint;
+    const test_pend = instance.exports.test_pend as () => bigint;
+
+    expect(test_big()).toBe(1n);   // Success(200), guard passes
+    expect(test_small()).toBe(0n); // Success(50), guard fails -> wildcard
+    expect(test_fail()).toBe(2n);  // Failure arm (was broken before fix)
+    expect(test_pend()).toBe(0n);  // Pending -> wildcard
+  });
+
+  it("pattern guards work with string return on union match", async () => {
+    const source = `
+      module Test
+      type MyResult = | Success(value: Int64) | Failure | Pending
+      function describe(res: MyResult) -> String {
+        match res {
+          Success(x) if x > 100 -> "big win",
+          Failure -> "failure",
+          _ -> "other"
+        }
+      }
+      function test_big() -> String { describe(Success(200)) }
+      function test_fail() -> String { describe(Failure) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_big = instance.exports.test_big as () => number;
+    const test_fail = instance.exports.test_fail as () => number;
+
+    expect(runtime.readString(test_big())).toBe("big win");
+    expect(runtime.readString(test_fail())).toBe("failure");
+  });
+});
+
+describe("Range patterns", () => {
+  it("range patterns on Int64 match", async () => {
+    const source = `
+      module Test
+      function classify(n: Int64) -> Int64 {
+        match n {
+          1..10 -> 1,
+          11..100 -> 2,
+          _ -> 0
+        }
+      }
+      function test_small() -> Int64 { classify(5) }
+      function test_medium() -> Int64 { classify(50) }
+      function test_boundary_low() -> Int64 { classify(1) }
+      function test_boundary_high() -> Int64 { classify(100) }
+      function test_outside() -> Int64 { classify(200) }
+      function test_zero() -> Int64 { classify(0) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_small = instance.exports.test_small as () => bigint;
+    const test_medium = instance.exports.test_medium as () => bigint;
+    const test_boundary_low = instance.exports.test_boundary_low as () => bigint;
+    const test_boundary_high = instance.exports.test_boundary_high as () => bigint;
+    const test_outside = instance.exports.test_outside as () => bigint;
+    const test_zero = instance.exports.test_zero as () => bigint;
+
+    expect(test_small()).toBe(1n);          // 5 in 1..10
+    expect(test_medium()).toBe(2n);         // 50 in 11..100
+    expect(test_boundary_low()).toBe(1n);   // 1 in 1..10 (inclusive)
+    expect(test_boundary_high()).toBe(2n);  // 100 in 11..100 (inclusive)
+    expect(test_outside()).toBe(0n);        // 200 -> wildcard
+    expect(test_zero()).toBe(0n);           // 0 -> wildcard
+  });
+
+  it("range patterns with string return", async () => {
+    const source = `
+      module Test
+      function grade(score: Int64) -> String {
+        match score {
+          90..100 -> "A",
+          80..89 -> "B",
+          70..79 -> "C",
+          _ -> "F"
+        }
+      }
+      function test_a() -> String { grade(95) }
+      function test_b() -> String { grade(85) }
+      function test_c() -> String { grade(75) }
+      function test_f() -> String { grade(50) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_a = instance.exports.test_a as () => number;
+    const test_b = instance.exports.test_b as () => number;
+    const test_c = instance.exports.test_c as () => number;
+    const test_f = instance.exports.test_f as () => number;
+
+    expect(runtime.readString(test_a())).toBe("A");
+    expect(runtime.readString(test_b())).toBe("B");
+    expect(runtime.readString(test_c())).toBe("C");
+    expect(runtime.readString(test_f())).toBe("F");
+  });
+
+  it("range patterns with guards", async () => {
+    const source = `
+      module Test
+      function check(n: Int64) -> Int64 {
+        match n {
+          1..10 if n > 5 -> 1,
+          1..10 -> 2,
+          _ -> 0
+        }
+      }
+      function test_high() -> Int64 { check(8) }
+      function test_low() -> Int64 { check(3) }
+      function test_out() -> Int64 { check(20) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_high = instance.exports.test_high as () => bigint;
+    const test_low = instance.exports.test_low as () => bigint;
+    const test_out = instance.exports.test_out as () => bigint;
+
+    expect(test_high()).toBe(1n);  // 8 in 1..10 and > 5
+    expect(test_low()).toBe(2n);   // 3 in 1..10 but not > 5
+    expect(test_out()).toBe(0n);   // 20 -> wildcard
+  });
 });

@@ -398,4 +398,25 @@ describe("Parser", () => {
       expect(td.typeParams).toEqual(["T"]);
     });
   });
+
+  describe("range patterns", () => {
+    it("parses range pattern in match arm", () => {
+      const { module, errors } = parse(`
+        module Test
+        function classify(n: Int64) -> Int64 {
+          match n {
+            1..10 -> 1,
+            _ -> 0
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0] as any;
+      const matchExpr = fn.body.result || fn.body.statements[0];
+      expect(matchExpr.kind).toBe("MatchExpr");
+      expect(matchExpr.arms[0].pattern.kind).toBe("RangePattern");
+      expect(matchExpr.arms[0].pattern.start.value).toBe(1n);
+      expect(matchExpr.arms[0].pattern.end.value).toBe(10n);
+    });
+  });
 });

@@ -338,8 +338,27 @@ match scrutinee {
 | Wildcard | `_` | Anything (discards value) |
 | Binding | `name` (lowercase) | Anything (binds to name) |
 | Literal | `42`, `"hi"`, `True` | Exact value |
+| Range | `1..10` | Int64 value in range (inclusive both ends) |
 | Constructor | `VariantName(field1, field2)` | Union variant, binding fields |
 | Constructor (unit) | `VariantName` (uppercase, no parens) | Unit variant |
+
+Any pattern can have a **guard** — an `if` condition that must also be true:
+```
+match n {
+  x if x > 100 -> "large",
+  x if x > 0 -> "small",
+  _ -> "non-positive"
+}
+```
+
+Range patterns match Int64 values within inclusive bounds:
+```
+match score {
+  90..100 -> "A",
+  80..89 -> "B",
+  _ -> "F"
+}
+```
 
 Constructor patterns destructure union variants:
 ```

@@ -638,4 +638,47 @@ describe("Checker", () => {
       expect(errors[0].message).toContain("Pattern guard must be Bool");
     });
   });
+
+  describe("range patterns", () => {
+    it("accepts range pattern on Int64", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> Int64 {
+          match n {
+            1..10 -> 1,
+            _ -> 0
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects range pattern on non-Int64 type", () => {
+      const { errors } = check(`
+        module Test
+        function classify(s: String) -> Int64 {
+          match s {
+            1..10 -> 1,
+            _ -> 0
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("Range patterns only work on Int64");
+    });
+
+    it("rejects range pattern with start >= end", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> Int64 {
+          match n {
+            10..1 -> 1,
+            _ -> 0
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain("start (10) must be less than end (1)");
+    });
+  });
 });

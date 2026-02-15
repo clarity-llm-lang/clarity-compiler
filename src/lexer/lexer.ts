@@ -207,6 +207,7 @@ export class Lexer {
       case "!=": this.advance(); this.advance(); return this.makeToken(TokenKind.NotEq, "!=", startPos, startLine, startCol);
       case "<=": this.advance(); this.advance(); return this.makeToken(TokenKind.LtEq, "<=", startPos, startLine, startCol);
       case ">=": this.advance(); this.advance(); return this.makeToken(TokenKind.GtEq, ">=", startPos, startLine, startCol);
+      case "..": this.advance(); this.advance(); return this.makeToken(TokenKind.DotDot, "..", startPos, startLine, startCol);
     }
 
     // Single-character tokens
