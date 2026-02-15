@@ -172,17 +172,51 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(value.toString());
       },
 
-      string_to_int(ptr: number): bigint {
+      // string_to_int returns Option<Int64> as heap-allocated union pointer.
+      // Layout: [tag:i32][value:i64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
+      string_to_int(ptr: number): number {
         const s = readString(ptr);
         const n = parseInt(s, 10);
-        // Returns the value directly — Option encoding TBD
-        return isNaN(n) ? BigInt(0) : BigInt(n);
+        const size = 12;
+        // Allocate via bump allocator (same logic as __alloc)
+        heapPtr = (heapPtr + 3) & ~3;
+        const unionPtr = heapPtr;
+        const needed = unionPtr + size;
+        if (needed > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((needed - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = unionPtr + size;
+        const view = new DataView(memory.buffer);
+        if (isNaN(n)) {
+          view.setInt32(unionPtr, 1, true); // None: tag = 1
+        } else {
+          view.setInt32(unionPtr, 0, true); // Some: tag = 0
+          view.setBigInt64(unionPtr + 4, BigInt(n), true);
+        }
+        return unionPtr;
       },
 
+      // string_to_float returns Option<Float64> as heap-allocated union pointer.
+      // Layout: [tag:i32][value:f64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
       string_to_float(ptr: number): number {
         const s = readString(ptr);
         const n = parseFloat(s);
-        return isNaN(n) ? 0.0 : n;
+        const size = 12;
+        heapPtr = (heapPtr + 3) & ~3;
+        const unionPtr = heapPtr;
+        const needed = unionPtr + size;
+        if (needed > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((needed - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = unionPtr + size;
+        const view = new DataView(memory.buffer);
+        if (isNaN(n)) {
+          view.setInt32(unionPtr, 1, true); // None: tag = 1
+        } else {
+          view.setInt32(unionPtr, 0, true); // Some: tag = 0
+          view.setFloat64(unionPtr + 4, n, true);
+        }
+        return unionPtr;
       },
 
       // --- Math builtins ---

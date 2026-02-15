@@ -248,10 +248,6 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 
 ## Known gaps / missing features
 
-### string_to_int / string_to_float return raw values
-These functions return `Int64` / `Float64` (0 on parse failure) instead of `Option<T>`. Proper Option return types require generics (Phase 2).
-
-
 ### No lambdas or closures
 Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
 
@@ -264,7 +260,7 @@ The runtime uses a bump allocator that never frees memory. Every string concaten
 Make what exists actually correct.
 1. ✓ **AST type annotations** — Checker attaches resolved `ClarityType` to AST nodes. Codegen uses these instead of its own `inferExprType()`.
 2. ✓ **Fix Option<T> polymorphism** — `Some`/`None` constructors are parameterized per instantiation so `Option<Int64>` and `Option<String>` don't collide.
-3. ✓ **Fix `string_to_int`/`string_to_float`** — Changed to return raw Int64/Float64 (0 on failure). Proper Option return deferred to Phase 2 (requires generics).
+3. ✓ **Fix `string_to_int`/`string_to_float`** — Return `Option<Int64>` / `Option<Float64>`. `Some(value)` on success, `None` on failure. Pattern match to extract.
 4. ✓ **Fix record type ambiguity** — Match record literals by field names AND field types for disambiguation.
 5. ✓ **Float64 modulo** — Delegates to JS runtime `f64_rem` since WASM has no `f64.rem`.
 6. ✓ **Mutable reassignment** — `let mut x = 1; x = x + 1;` now works. Parser, checker (mutability + type validation), and codegen all implemented.
@@ -306,7 +302,6 @@ Make programs viable beyond demos.
 4. **Bytes and Timestamp runtime support** — Currently declared but unusable.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
-- `string_to_int`/`string_to_float` return raw values (0 on failure) instead of `Option<T>`
 - Named arguments are not semantically checked — positional only
 - No lambdas or closures — pass named functions only
 - No garbage collection — bump allocator, programs leak memory over time

@@ -152,10 +152,16 @@ export class Checker {
       });
     }
 
-    // Note on Option<T>: Option<T> is a built-in union with Some(value: T) and None.
-    // Since Clarity doesn't have parametric polymorphism in the checker yet,
-    // concrete Option types (Option<Int64>, Option<String>, etc.) are created
-    // by resolveTypeRef when it encounters Option<SomeType>.
+    // Register Option<T> types used by builtins (e.g. string_to_int returns Option<Int64>).
+    // This ensures codegen can find these types via getOptionTypes().
+    for (const builtin of CLARITY_BUILTINS) {
+      if (builtin.returnType.kind === "Union" && builtin.returnType.name.startsWith("Option<")) {
+        const key = builtin.returnType.name.replace("Option<", "").replace(">", "");
+        if (!this.optionTypes.has(key)) {
+          this.optionTypes.set(key, builtin.returnType);
+        }
+      }
+    }
   }
 
   // ============================================================

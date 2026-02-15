@@ -2066,7 +2066,8 @@ export class CodeGenerator {
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
-      string_to_int: INT64, string_to_float: FLOAT64,
+      string_to_int: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      string_to_float: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Math
       abs_int: INT64, min_int: INT64, max_int: INT64,
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,

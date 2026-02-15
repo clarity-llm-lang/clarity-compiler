@@ -215,7 +215,7 @@ function skip_whitespace(p: Parser) -> Parser {
 - ❌ `char_code` for `is_digit`, `is_whitespace` (CRITICAL)
 - ❌ `Map<K, V>` for JSON objects (CRITICAL)
 - ⚠️ Better error types with source locations (DESIRABLE)
-- ⚠️ `string_to_float` with error handling (current version returns 0 on failure)
+- ✅ `string_to_float` returns `Option<Float64>` (Some/None)
 
 ## Related Examples
 
