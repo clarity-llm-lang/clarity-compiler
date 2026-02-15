@@ -80,6 +80,48 @@ export class CodeGenerator {
     return this.mod.emitText();
   }
 
+  /** Generate WASM binary from multiple modules merged into one */
+  generateMulti(allModules: ModuleDecl[], entryModule: ModuleDecl, checker: Checker): Uint8Array {
+    this.mod = new binaryen.Module();
+    this.checker = checker;
+    this.stringLiterals = new Map();
+    this.dataSegmentOffset = 0;
+    this.dataSegments = [];
+    this.allFunctions = new Map();
+    this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
+    this.generatedMonomorphs = new Set();
+
+    this.setupModuleMulti(allModules, entryModule);
+
+    if (!this.mod.validate()) {
+      throw new Error("Generated invalid WASM module");
+    }
+
+    this.mod.optimize();
+    return this.mod.emitBinary();
+  }
+
+  /** Generate WAT text from multiple modules merged into one */
+  generateTextMulti(allModules: ModuleDecl[], entryModule: ModuleDecl, checker: Checker): string {
+    this.mod = new binaryen.Module();
+    this.checker = checker;
+    this.stringLiterals = new Map();
+    this.dataSegmentOffset = 0;
+    this.dataSegments = [];
+    this.allFunctions = new Map();
+    this.allTypeDecls = new Map();
+    this.functionTableNames = [];
+    this.functionTableIndices = new Map();
+    this.generatedMonomorphs = new Set();
+
+    this.setupModuleMulti(allModules, entryModule);
+
+    this.mod.validate();
+    return this.mod.emitText();
+  }
+
   private setupModule(module: ModuleDecl): void {
     // Memory is owned by the WASM module and exported.
     // The runtime reads/writes to the exported memory.
@@ -194,6 +236,119 @@ export class CodeGenerator {
     }
 
     // Export the heap base so the runtime knows where dynamic allocation starts
+    this.mod.addGlobal("__heap_base", binaryen.i32, false, this.mod.i32.const(this.dataSegmentOffset || 1024));
+    this.mod.addGlobalExport("__heap_base", "__heap_base");
+  }
+
+  /**
+   * Set up WASM module from multiple Clarity modules merged into one.
+   * All modules' declarations are compiled. Only the entry module's exported
+   * functions are WASM-exported.
+   */
+  private setupModuleMulti(allModules: ModuleDecl[], entryModule: ModuleDecl): void {
+    // Register built-in function imports
+    for (const builtin of getBuiltins()) {
+      this.mod.addFunctionImport(
+        builtin.name,
+        builtin.importModule,
+        builtin.importName,
+        builtin.params,
+        builtin.result,
+      );
+    }
+
+    this.mod.addFunctionImport("__alloc", "env", "__alloc", binaryen.i32, binaryen.i32);
+
+    // Collect all declarations across all modules
+    const allDecls = allModules.flatMap(m => m.declarations);
+
+    // Collect all type declarations
+    for (const decl of allDecls) {
+      if (decl.kind === "TypeDecl") {
+        const resolved = this.checker.resolveTypeRef({
+          kind: "TypeRef", name: decl.name, typeArgs: [],
+          span: decl.span,
+        });
+        if (resolved) {
+          this.allTypeDecls.set(decl.name, resolved);
+        }
+      }
+    }
+
+    // Collect all function declarations
+    for (const decl of allDecls) {
+      if (decl.kind === "FunctionDecl") {
+        this.allFunctions.set(decl.name, decl);
+      }
+    }
+
+    // Scan function signatures for built-in union types
+    for (const decl of allDecls) {
+      if (decl.kind === "FunctionDecl") {
+        const allTypeNodes = [...decl.params.map(p => p.typeAnnotation), decl.returnType];
+        for (const typeNode of allTypeNodes) {
+          const resolved = this.checker.resolveTypeRef(typeNode);
+          if (resolved && resolved.kind === "Union" && !this.allTypeDecls.has(resolved.name)) {
+            this.allTypeDecls.set(resolved.name, resolved);
+          }
+        }
+      }
+    }
+
+    // Register Option<T> and Result<T, E> types
+    for (const [name, type] of this.checker.getOptionTypes()) {
+      if (!this.allTypeDecls.has(name)) this.allTypeDecls.set(name, type);
+    }
+    for (const [, type] of this.checker.getResultTypes()) {
+      if (type.kind === "Union" && !this.allTypeDecls.has(type.name)) {
+        this.allTypeDecls.set(type.name, type);
+      }
+    }
+
+    // Pre-scan ALL modules for string literals
+    for (const mod of allModules) {
+      this.prescanStringLiterals(mod);
+    }
+
+    // Set memory
+    const segments = this.dataSegments.map((seg) => ({
+      name: `str_${seg.offset}`,
+      offset: this.mod.i32.const(seg.offset),
+      data: seg.data,
+      passive: false,
+    }));
+    this.mod.setMemory(1, 256, "memory", segments);
+
+    // Build function table (all non-generic functions from all modules)
+    for (const decl of allDecls) {
+      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
+        this.functionTableIndices.set(decl.name, this.functionTableNames.length);
+        this.functionTableNames.push(decl.name);
+      }
+    }
+
+    // Track which functions belong to the entry module for WASM export
+    const entryFunctionNames = new Set<string>();
+    for (const decl of entryModule.declarations) {
+      if (decl.kind === "FunctionDecl") {
+        entryFunctionNames.add(decl.name);
+      }
+    }
+
+    // Generate all non-generic functions from all modules
+    for (const decl of allDecls) {
+      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
+        this.generateFunctionMulti(decl, entryFunctionNames);
+      }
+    }
+
+    // Set up function table
+    if (this.functionTableNames.length > 0) {
+      this.mod.addTable("0", this.functionTableNames.length, this.functionTableNames.length);
+      this.mod.addActiveElementSegment("0", "funcs", this.functionTableNames, this.mod.i32.const(0));
+    }
+
+    // Export heap base
     this.mod.addGlobal("__heap_base", binaryen.i32, false, this.mod.i32.const(this.dataSegmentOffset || 1024));
     this.mod.addGlobalExport("__heap_base", "__heap_base");
   }
@@ -434,6 +589,51 @@ export class CodeGenerator {
       body,
     );
     this.mod.addFunctionExport(decl.name, decl.name);
+  }
+
+  /**
+   * Generate a function for multi-module compilation.
+   * Only WASM-exports functions that belong to the entry module.
+   */
+  private generateFunctionMulti(decl: FunctionDecl, entryFunctionNames: Set<string>): void {
+    this.currentFunction = decl;
+    this.locals = new Map();
+    this.localIndex = 0;
+    this.additionalLocals = [];
+
+    const paramWasmTypes: binaryen.Type[] = [];
+    for (const param of decl.params) {
+      const clarityType = this.checker.resolveTypeRef(param.typeAnnotation);
+      const ct = clarityType ?? INT64;
+      const wasmType = clarityTypeToWasm(ct);
+      this.locals.set(param.name, {
+        index: this.localIndex,
+        wasmType,
+        clarityType: ct,
+      });
+      paramWasmTypes.push(wasmType);
+      this.localIndex++;
+    }
+
+    const returnClarityType = this.checker.resolveTypeRef(decl.returnType) ?? UNIT;
+    const returnWasmType = clarityTypeToWasm(returnClarityType);
+    const paramsType = binaryen.createType(paramWasmTypes);
+
+    const isTailRec = this.isTailRecursive(decl.body, decl.name);
+
+    let body: binaryen.ExpressionRef;
+    if (isTailRec) {
+      body = this.generateTailRecursiveBody(decl, returnClarityType, returnWasmType);
+    } else {
+      body = this.generateExpr(decl.body, returnClarityType);
+    }
+
+    this.mod.addFunction(decl.name, paramsType, returnWasmType, this.additionalLocals, body);
+
+    // Only WASM-export functions from the entry module
+    if (entryFunctionNames.has(decl.name)) {
+      this.mod.addFunctionExport(decl.name, decl.name);
+    }
   }
 
   // ============================================================

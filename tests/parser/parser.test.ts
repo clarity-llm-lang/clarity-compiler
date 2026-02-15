@@ -419,4 +419,54 @@ describe("Parser", () => {
       expect(matchExpr.arms[0].pattern.end.value).toBe(10n);
     });
   });
+
+  describe("import/export", () => {
+    it("parses import declaration", () => {
+      const { module, errors } = parse(`
+        module Test
+        import { add, multiply } from "math"
+        function use() -> Int64 { add(1, 2) }
+      `);
+      expect(errors).toHaveLength(0);
+      const importDecl = module.declarations[0] as any;
+      expect(importDecl.kind).toBe("ImportDecl");
+      expect(importDecl.names).toEqual(["add", "multiply"]);
+      expect(importDecl.from).toBe("math");
+    });
+
+    it("parses export function", () => {
+      const { module, errors } = parse(`
+        module Test
+        export function add(a: Int64, b: Int64) -> Int64 { a + b }
+      `);
+      expect(errors).toHaveLength(0);
+      const fn = module.declarations[0] as any;
+      expect(fn.kind).toBe("FunctionDecl");
+      expect(fn.name).toBe("add");
+      expect(fn.exported).toBe(true);
+    });
+
+    it("parses export type", () => {
+      const { module, errors } = parse(`
+        module Test
+        export type Color = | Red | Green | Blue
+      `);
+      expect(errors).toHaveLength(0);
+      const td = module.declarations[0] as any;
+      expect(td.kind).toBe("TypeDecl");
+      expect(td.name).toBe("Color");
+      expect(td.exported).toBe(true);
+    });
+
+    it("non-exported declarations have exported=false", () => {
+      const { module, errors } = parse(`
+        module Test
+        function add(a: Int64, b: Int64) -> Int64 { a + b }
+        type X = Int64
+      `);
+      expect(errors).toHaveLength(0);
+      expect((module.declarations[0] as any).exported).toBe(false);
+      expect((module.declarations[1] as any).exported).toBe(false);
+    });
+  });
 });

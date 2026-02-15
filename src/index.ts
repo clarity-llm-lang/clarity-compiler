@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { readFile, writeFile } from "node:fs/promises";
-import { compile } from "./compiler.js";
+import { compile, compileFile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
 import { createRuntime } from "./codegen/runtime.js";
 import { CLARITY_BUILTINS, EFFECT_DEFINITIONS } from "./registry/builtins-registry.js";
@@ -22,13 +22,18 @@ program
   .option("--check-only", "Type-check without generating WASM")
   .action(async (file: string, opts: Record<string, unknown>) => {
     try {
-      const source = await readFile(file, "utf-8");
-      const result = compile(source, file, {
+      const options = {
         emitAst: !!opts.emitAst,
         emitTokens: !!opts.emitTokens,
         emitWat: !!opts.emitWat,
         checkOnly: !!opts.checkOnly,
-      });
+      };
+
+      // Use compileFile for file-based compilation (supports imports)
+      const source = await readFile(file, "utf-8");
+      const result = opts.emitTokens
+        ? compile(source, file, options)
+        : compileFile(file, options);
 
       if (result.errors.length > 0) {
         console.error(formatDiagnostics(source, result.errors));
@@ -74,7 +79,7 @@ program
   .action(async (file: string, opts: Record<string, unknown>) => {
     try {
       const source = await readFile(file, "utf-8");
-      const result = compile(source, file);
+      const result = compileFile(file);
 
       if (result.errors.length > 0) {
         console.error(formatDiagnostics(source, result.errors));
@@ -155,7 +160,7 @@ program
   .action(async (file: string, opts: Record<string, unknown>) => {
     try {
       const source = await readFile(file, "utf-8");
-      const result = compile(source, file);
+      const result = compileFile(file);
 
       if (result.errors.length > 0) {
         if (opts.json) {

@@ -3,9 +3,11 @@
 
 # === Top Level ===
 Module          <- 'module' Identifier ModuleBody
-ModuleBody      <- (TypeDecl / FunctionDecl / ConstDecl)*
+ModuleBody      <- (ImportDecl / ExportDecl / TypeDecl / FunctionDecl / ConstDecl)*
 
 # === Declarations ===
+ImportDecl      <- 'import' '{' Identifier (',' Identifier)* '}' 'from' StringLiteral
+ExportDecl      <- 'export' (TypeDecl / FunctionDecl / ConstDecl)
 TypeDecl        <- 'type' Identifier TypeParams? '=' TypeExpr
 FunctionDecl    <- EffectAnnotation? 'function' Identifier TypeParams? '(' ParamList ')' '->' TypeRef Block
 TypeParams      <- '<' Identifier (',' Identifier)* '>'

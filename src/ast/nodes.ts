@@ -25,13 +25,20 @@ export interface ModuleDecl extends BaseNode {
 // Declarations
 // ============================================================
 
-export type Declaration = TypeDecl | FunctionDecl | ConstDecl;
+export type Declaration = ImportDecl | TypeDecl | FunctionDecl | ConstDecl;
+
+export interface ImportDecl extends BaseNode {
+  kind: "ImportDecl";
+  names: string[];
+  from: string;
+}
 
 export interface TypeDecl extends BaseNode {
   kind: "TypeDecl";
   name: string;
   typeParams: string[];
   typeExpr: TypeExpr;
+  exported: boolean;
 }
 
 export interface FunctionDecl extends BaseNode {
@@ -42,6 +49,7 @@ export interface FunctionDecl extends BaseNode {
   params: Parameter[];
   returnType: TypeNode;
   body: BlockExpr;
+  exported: boolean;
 }
 
 export interface ConstDecl extends BaseNode {
@@ -49,6 +57,7 @@ export interface ConstDecl extends BaseNode {
   name: string;
   typeAnnotation: TypeNode;
   value: Expr;
+  exported: boolean;
 }
 
 export interface Parameter extends BaseNode {
