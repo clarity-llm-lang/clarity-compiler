@@ -655,11 +655,20 @@ describe("end-to-end compilation", () => {
     expect(get_y(p)).toBe(20n);
   });
 
-  it("compiles string_to_int returning raw Int64", async () => {
+  it("compiles string_to_int returning Option<Int64>", async () => {
     const source = `
       module Test
-      function parse(s: String) -> Int64 {
-        string_to_int(s)
+      function parse_valid(s: String) -> Int64 {
+        match string_to_int(s) {
+          Some(value) -> value,
+          None -> 0 - 1
+        }
+      }
+      function parse_invalid(s: String) -> Int64 {
+        match string_to_int(s) {
+          Some(value) -> value,
+          None -> 0 - 1
+        }
       }
     `;
     const result = compile(source, "test.clarity");
@@ -667,9 +676,37 @@ describe("end-to-end compilation", () => {
     expect(result.wasm).toBeDefined();
 
     const { instance, runtime } = await instantiate(result.wasm!);
-    const parse = instance.exports.parse as (ptr: number) => bigint;
-    expect(parse(runtime.writeString("42"))).toBe(42n);
-    expect(parse(runtime.writeString("not_a_number"))).toBe(0n);
+    const parse_valid = instance.exports.parse_valid as (ptr: number) => bigint;
+    const parse_invalid = instance.exports.parse_invalid as (ptr: number) => bigint;
+    expect(parse_valid(runtime.writeString("42"))).toBe(42n);
+    expect(parse_invalid(runtime.writeString("not_a_number"))).toBe(-1n);
+  });
+
+  it("compiles string_to_float returning Option<Float64>", async () => {
+    const source = `
+      module Test
+      function parse_float_valid(s: String) -> Float64 {
+        match string_to_float(s) {
+          Some(value) -> value,
+          None -> 0.0 - 1.0
+        }
+      }
+      function parse_float_invalid(s: String) -> Float64 {
+        match string_to_float(s) {
+          Some(value) -> value,
+          None -> 0.0 - 1.0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const parse_valid = instance.exports.parse_float_valid as (ptr: number) => number;
+    const parse_invalid = instance.exports.parse_float_invalid as (ptr: number) => number;
+    expect(parse_valid(runtime.writeString("3.14"))).toBeCloseTo(3.14, 5);
+    expect(parse_invalid(runtime.writeString("xyz"))).toBeCloseTo(-1.0, 5);
   });
 
   it("checker annotates resolved types on AST nodes", () => {

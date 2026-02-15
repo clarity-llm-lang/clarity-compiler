@@ -645,8 +645,8 @@ effect[FileSystem, Log] function main() -> Unit {
 | `float_to_int(n)` | `Float64 -> Int64` | Float to integer (truncates) |
 | `int_to_string(n)` | `Int64 -> String` | Integer to string |
 | `float_to_string(n)` | `Float64 -> String` | Float to string |
-| `string_to_int(s)` | `String -> Int64` | Parse string to integer (0 on failure) |
-| `string_to_float(s)` | `String -> Float64` | Parse string to float (0.0 on failure) |
+| `string_to_int(s)` | `String -> Option<Int64>` | Parse string to integer. `Some(value)` on success, `None` on failure |
+| `string_to_float(s)` | `String -> Option<Float64>` | Parse string to float. `Some(value)` on success, `None` on failure |
 
 ### 11.5 Math
 

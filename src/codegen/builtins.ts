@@ -44,10 +44,9 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "float_to_int", importModule: "env", importName: "float_to_int", params: f64, result: i64 },
     { name: "int_to_string", importModule: "env", importName: "int_to_string", params: i64, result: i32 },
     { name: "float_to_string", importModule: "env", importName: "float_to_string", params: f64, result: i32 },
-    // string_to_int/string_to_float return raw values (0 on failure).
-    // Proper Option<T> return requires generics (Phase 2).
-    { name: "string_to_int", importModule: "env", importName: "string_to_int", params: i32, result: i64 },
-    { name: "string_to_float", importModule: "env", importName: "string_to_float", params: i32, result: f64 },
+    // string_to_int/string_to_float return Option<T> as heap-allocated union (i32 pointer).
+    { name: "string_to_int", importModule: "env", importName: "string_to_int", params: i32, result: i32 },
+    { name: "string_to_float", importModule: "env", importName: "string_to_float", params: i32, result: i32 },
 
     // --- Math builtins ---
     { name: "abs_int", importModule: "env", importName: "abs_int", params: i64, result: i64 },

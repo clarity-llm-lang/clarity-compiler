@@ -101,12 +101,11 @@ match array_get(grid2, 42) {
 ### Additional: Better Parsing
 
 ```clarity
-// Current: string_to_int returns 0 on parse failure (ambiguous!)
-let num = string_to_int("xyz")  // Returns 0 - but "0" also returns 0!
-
-// NEEDED: Result type for error handling
-function parse_int(s: String) -> Result<Int64, String> {
-  // Returns Ok(num) or Err("Invalid integer: xyz")
+// string_to_int returns Option<Int64>: Some(value) or None on failure
+let result = string_to_int("xyz")  // Returns None
+let num = match string_to_int("42") {
+  Some(n) -> n,     // 42
+  None -> 0 - 1     // parse failure
 }
 
 // Usage:

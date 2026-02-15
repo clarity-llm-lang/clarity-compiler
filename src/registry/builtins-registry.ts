@@ -253,18 +253,32 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     name: "string_to_int",
     params: [STRING],
     paramNames: ["s"],
-    returnType: INT64,
+    returnType: {
+      kind: "Union",
+      name: "Option<Int64>",
+      variants: [
+        { name: "Some", fields: new Map([["value", INT64]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
     effects: [],
-    doc: "Parse a string as Int64. Returns 0 on failure. (Proper Option<Int64> return deferred to Phase 2.)",
+    doc: "Parse a string as Int64. Returns Some(value) on success, None on failure.",
     category: "conversion",
   },
   {
     name: "string_to_float",
     params: [STRING],
     paramNames: ["s"],
-    returnType: FLOAT64,
+    returnType: {
+      kind: "Union",
+      name: "Option<Float64>",
+      variants: [
+        { name: "Some", fields: new Map([["value", FLOAT64]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
     effects: [],
-    doc: "Parse a string as Float64. Returns 0.0 on failure. (Proper Option<Float64> return deferred to Phase 2.)",
+    doc: "Parse a string as Float64. Returns Some(value) on success, None on failure.",
     category: "conversion",
   },
 
