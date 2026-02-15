@@ -3,7 +3,7 @@ import type { Diagnostic, Span } from "../errors/diagnostic.js";
 import { error } from "../errors/diagnostic.js";
 import { unexpectedToken, clarityHint } from "./errors.js";
 import type {
-  ModuleDecl, Declaration, TypeDecl, FunctionDecl, ConstDecl,
+  ModuleDecl, Declaration, ImportDecl, TypeDecl, FunctionDecl, ConstDecl,
   Parameter, TypeNode, TypeExpr, RecordType, UnionType, VariantDef, FieldDef,
   FunctionTypeNode,
   Expr, BinaryOp, UnaryOp, CallArg, MatchArm,
@@ -70,28 +70,65 @@ export class Parser {
       return null;
     }
 
-    if (tok.kind === TokenKind.Type) return this.parseTypeDecl();
-    if (tok.kind === TokenKind.Function) return this.parseFunctionDecl();
-    if (tok.kind === TokenKind.Effect) return this.parseFunctionDecl();
-    if (tok.kind === TokenKind.Const) return this.parseConstDecl();
+    if (tok.kind === TokenKind.Import) return this.parseImportDecl();
+    if (tok.kind === TokenKind.Export) return this.parseExportedDecl();
+    if (tok.kind === TokenKind.Type) return this.parseTypeDecl(false);
+    if (tok.kind === TokenKind.Function) return this.parseFunctionDecl(false);
+    if (tok.kind === TokenKind.Effect) return this.parseFunctionDecl(false);
+    if (tok.kind === TokenKind.Const) return this.parseConstDecl(false);
 
-    this.errors.push(unexpectedToken(tok, "a declaration (type, function, const)"));
+    this.errors.push(unexpectedToken(tok, "a declaration (import, export, type, function, const)"));
     this.advance();
     this.synchronize();
     return null;
   }
 
-  private parseTypeDecl(): TypeDecl {
+  private parseImportDecl(): ImportDecl {
+    const start = this.peek();
+    this.expect(TokenKind.Import);
+    this.expect(TokenKind.LBrace);
+    const names: string[] = [];
+    names.push(this.expectIdent());
+    while (this.peek().kind === TokenKind.Comma) {
+      this.advance();
+      if (this.peek().kind === TokenKind.RBrace) break;
+      names.push(this.expectIdent());
+    }
+    this.expect(TokenKind.RBrace);
+    this.expect(TokenKind.From);
+    const fromTok = this.peek();
+    if (fromTok.kind !== TokenKind.StringLiteral) {
+      this.errors.push(unexpectedToken(fromTok, "a string literal module path"));
+    }
+    const from = fromTok.value;
+    this.advance();
+    return { kind: "ImportDecl", names, from, span: this.spanFrom(start) };
+  }
+
+  private parseExportedDecl(): Declaration | null {
+    this.advance(); // skip 'export'
+    const tok = this.peek();
+    if (tok.kind === TokenKind.Type) return this.parseTypeDecl(true);
+    if (tok.kind === TokenKind.Function) return this.parseFunctionDecl(true);
+    if (tok.kind === TokenKind.Effect) return this.parseFunctionDecl(true);
+    if (tok.kind === TokenKind.Const) return this.parseConstDecl(true);
+    this.errors.push(unexpectedToken(tok, "a declaration after 'export' (type, function, const)"));
+    this.advance();
+    this.synchronize();
+    return null;
+  }
+
+  private parseTypeDecl(exported: boolean): TypeDecl {
     const start = this.peek();
     this.expect(TokenKind.Type);
     const name = this.expectIdent();
     const typeParams = this.parseOptionalTypeParams();
     this.expect(TokenKind.Eq);
     const typeExpr = this.parseTypeExpr();
-    return { kind: "TypeDecl", name, typeParams, typeExpr, span: this.spanFrom(start) };
+    return { kind: "TypeDecl", name, typeParams, typeExpr, exported, span: this.spanFrom(start) };
   }
 
-  private parseFunctionDecl(): FunctionDecl {
+  private parseFunctionDecl(exported: boolean): FunctionDecl {
     const start = this.peek();
     const effects = this.parseOptionalEffects();
     this.expect(TokenKind.Function);
@@ -111,11 +148,12 @@ export class Parser {
       params,
       returnType,
       body,
+      exported,
       span: this.spanFrom(start),
     };
   }
 
-  private parseConstDecl(): ConstDecl {
+  private parseConstDecl(exported: boolean): ConstDecl {
     const start = this.peek();
     this.expect(TokenKind.Const);
     const name = this.expectIdent();
@@ -124,7 +162,7 @@ export class Parser {
     this.expect(TokenKind.Eq);
     const value = this.parseExpr();
     this.expect(TokenKind.Semicolon);
-    return { kind: "ConstDecl", name, typeAnnotation, value, span: this.spanFrom(start) };
+    return { kind: "ConstDecl", name, typeAnnotation, value, exported, span: this.spanFrom(start) };
   }
 
   private parseOptionalTypeParams(): string[] {

@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { compile } from "../../src/compiler.js";
+import { compile, compileFile } from "../../src/compiler.js";
 import { createRuntime, type RuntimeConfig } from "../../src/codegen/runtime.js";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 function makeRuntime(config?: RuntimeConfig) {
   return createRuntime(config);
@@ -1565,5 +1568,153 @@ describe("Range patterns", () => {
     expect(test_high()).toBe(1n);  // 8 in 1..10 and > 5
     expect(test_low()).toBe(2n);   // 3 in 1..10 but not > 5
     expect(test_out()).toBe(0n);   // 20 -> wildcard
+  });
+});
+
+describe("Module system (import/export)", () => {
+  function setupModuleTest(files: Record<string, string>): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-test-"));
+    for (const [name, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(dir, name), content);
+    }
+    return dir;
+  }
+
+  it("imports exported functions from another module", async () => {
+    const dir = setupModuleTest({
+      "math.clarity": `
+        module Math
+        export function add(a: Int64, b: Int64) -> Int64 { a + b }
+        export function mul(a: Int64, b: Int64) -> Int64 { a * b }
+      `,
+      "main.clarity": `
+        module Main
+        import { add, mul } from "math"
+        function compute() -> Int64 { add(mul(3, 4), 5) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const compute = instance.exports.compute as () => bigint;
+    expect(compute()).toBe(17n);
+  });
+
+  it("imports exported union types and constructors", async () => {
+    const dir = setupModuleTest({
+      "types.clarity": `
+        module Types
+        export type Color = | Red | Green | Blue
+        export function color_value(c: Color) -> Int64 {
+          match c { Red -> 1, Green -> 2, Blue -> 3 }
+        }
+      `,
+      "main.clarity": `
+        module Main
+        import { Color, Red, Blue, color_value } from "types"
+        function test_red() -> Int64 { color_value(Red) }
+        function test_blue() -> Int64 { color_value(Blue) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_red = instance.exports.test_red as () => bigint;
+    const test_blue = instance.exports.test_blue as () => bigint;
+    expect(test_red()).toBe(1n);
+    expect(test_blue()).toBe(3n);
+  });
+
+  it("supports transitive imports (A imports B imports C)", async () => {
+    const dir = setupModuleTest({
+      "base.clarity": `
+        module Base
+        export function double(x: Int64) -> Int64 { x * 2 }
+      `,
+      "mid.clarity": `
+        module Mid
+        import { double } from "base"
+        export function quadruple(x: Int64) -> Int64 { double(double(x)) }
+      `,
+      "top.clarity": `
+        module Top
+        import { quadruple } from "mid"
+        function test() -> Int64 { quadruple(5) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "top.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test = instance.exports.test as () => bigint;
+    expect(test()).toBe(20n);
+  });
+
+  it("rejects importing non-exported symbols", () => {
+    const dir = setupModuleTest({
+      "lib.clarity": `
+        module Lib
+        function secret(x: Int64) -> Int64 { x }
+        export function public_fn(x: Int64) -> Int64 { x + 1 }
+      `,
+      "main.clarity": `
+        module Main
+        import { secret } from "lib"
+        function test() -> Int64 { secret(5) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("not exported");
+  });
+
+  it("rejects importing from non-existent module", () => {
+    const dir = setupModuleTest({
+      "main.clarity": `
+        module Main
+        import { foo } from "nonexistent"
+        function test() -> Int64 { foo(5) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Cannot find module");
+  });
+
+  it("only exports entry module functions as WASM exports", async () => {
+    const dir = setupModuleTest({
+      "lib.clarity": `
+        module Lib
+        export function helper(x: Int64) -> Int64 { x + 10 }
+      `,
+      "main.clarity": `
+        module Main
+        import { helper } from "lib"
+        function use_helper() -> Int64 { helper(5) }
+      `,
+    });
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    // Entry module function is exported
+    expect(instance.exports.use_helper).toBeDefined();
+    // Library function is NOT a WASM export (it's internal)
+    expect(instance.exports.helper).toBeUndefined();
+
+    const use_helper = instance.exports.use_helper as () => bigint;
+    expect(use_helper()).toBe(15n);
   });
 });

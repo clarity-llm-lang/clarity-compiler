@@ -9,6 +9,13 @@ Every file starts with:
 module ModuleName
 ```
 
+## Imports and exports
+```
+import { add, User } from "math"      // imports math.clarity from same directory
+export function add(a: Int64, b: Int64) -> Int64 { a + b }
+export type Color = | Red | Green | Blue
+```
+
 ## Types
 ```
 // Primitives: Int64, Float64, String, Bool, Unit
@@ -98,7 +105,7 @@ a + b                // last expression = return value
 Run `npx clarityc introspect --builtins` for the full list (string ops, math, conversions, etc).
 
 ## What Clarity does NOT have
-No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions, no lambdas/closures (pass named functions only), no imports/modules (single file only).
+No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions, no lambdas/closures (pass named functions only).
 
 ## Comments
 ```

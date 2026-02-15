@@ -519,7 +519,39 @@ All top-level functions are exported from the WASM module and can be called from
 
 ---
 
-## 10. Error Model
+## 10. Module System
+
+### 10.1 Import Declarations
+```
+import { add, multiply } from "math"
+import { User, save_user } from "./db/models"
+```
+
+- Module paths are resolved relative to the importing file
+- `"math"` resolves to `math.clarity` in the same directory
+- `"./db/models"` resolves to `db/models.clarity` relative to the importing file
+- Imported names must be explicitly exported by the target module
+
+### 10.2 Export Declarations
+```
+export function add(a: Int64, b: Int64) -> Int64 { a + b }
+export type Color = | Red | Green | Blue
+```
+
+- Only `export`-prefixed declarations are visible to importers
+- Exporting a union type automatically exports its variant constructors
+- Non-exported declarations are module-private
+- All modules are compiled into a single WASM binary (merge compilation)
+
+### 10.3 Compilation Model
+- The compiler resolves all imports transitively, building a dependency graph
+- Modules are checked in dependency order (dependencies before dependents)
+- All modules are merged into a single WASM binary
+- Only the entry module's functions appear as WASM exports
+
+---
+
+## 11. Error Model
 
 Clarity uses **compile-time error detection** wherever possible:
 

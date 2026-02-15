@@ -286,7 +286,7 @@ npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 196 tests across lexer, parser, type checker, and end-to-end
+npm test    # 206 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 196 tests
+└── tests/                  # 206 tests
 ```
 
 ---
@@ -409,8 +409,8 @@ Make the type system robust enough for real programs.
 
 ### Phase 3 — Module System (v0.4)
 Support programs larger than a single file.
-- Import/export syntax
-- File-based module resolution
+- ~~Import/export syntax~~ (done — `import { X } from "module"`, `export function`, `export type`)
+- ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
 - Standard library (`std.string`, `std.math`, `std.list`)
 
 ### Phase 4 — Runtime & Performance (v0.5)

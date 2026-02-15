@@ -26,11 +26,45 @@ export class Checker {
   // Registry of all Result<T, E> instantiations for polymorphic Ok/Err
   private resultTypes: Map<string, ClarityType> = new Map();
 
+  private builtinsRegistered = false;
+
   check(module: ModuleDecl): Diagnostic[] {
+    return this.checkModule(module, [], []);
+  }
+
+  /**
+   * Check a module with optional imported symbols and types.
+   * Used for multi-file compilation where imports are pre-resolved.
+   */
+  checkModule(
+    module: ModuleDecl,
+    importedSymbols: { name: string; type: ClarityType; span: Span }[] = [],
+    importedTypes: { name: string; type: ClarityType }[] = [],
+  ): Diagnostic[] {
     this.diagnostics = [];
 
-    // Register built-in functions and types before user declarations
-    this.registerBuiltins();
+    // Register built-in functions and types (only once)
+    if (!this.builtinsRegistered) {
+      this.registerBuiltins();
+      this.builtinsRegistered = true;
+    }
+
+    // Register imported types
+    for (const { name, type } of importedTypes) {
+      this.env.defineType(name, type);
+      // For union types, register variant constructors
+      if (type.kind === "Union") {
+        for (const variant of type.variants) {
+          this.registerVariantConstructor(variant, type, name);
+        }
+      }
+    }
+
+    // Register imported symbols (functions, constants)
+    const importSpan: Span = { start: { offset: 0, line: 0, column: 0 }, end: { offset: 0, line: 0, column: 0 }, source: "<import>" };
+    for (const { name, type, span } of importedSymbols) {
+      this.env.define(name, { name, type, mutable: false, defined: span ?? importSpan });
+    }
 
     // First pass: register all type declarations
     for (const decl of module.declarations) {
@@ -56,6 +90,39 @@ export class Checker {
     }
 
     return this.diagnostics;
+  }
+
+  /** Register variant constructors for an imported union type */
+  private registerVariantConstructor(
+    variant: ClarityVariant,
+    unionType: ClarityType & { kind: "Union" },
+    typeName: string,
+  ): void {
+    const paramTypes = [...variant.fields.values()];
+    const fnType: ClarityType = {
+      kind: "Function",
+      params: paramTypes,
+      paramNames: [...variant.fields.keys()],
+      returnType: unionType,
+      effects: new Set(),
+    };
+    const importSpan: Span = { start: { offset: 0, line: 0, column: 0 }, end: { offset: 0, line: 0, column: 0 }, source: "<import>" };
+    this.env.define(variant.name, {
+      name: variant.name,
+      type: fnType,
+      mutable: false,
+      defined: importSpan,
+    });
+  }
+
+  /** Look up a symbol by name (for export collection) */
+  lookupSymbol(name: string): import("./environment.js").Symbol | undefined {
+    return this.env.lookup(name);
+  }
+
+  /** Look up a type by name (for export collection) */
+  lookupType(name: string): ClarityType | undefined {
+    return this.env.lookupType(name);
   }
 
   // ============================================================

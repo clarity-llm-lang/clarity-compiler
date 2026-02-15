@@ -9,6 +9,9 @@ export enum TokenKind {
 
   // Keywords
   Module = "module",
+  Import = "import",
+  Export = "export",
+  From = "from",
   Function = "function",
   Type = "type",
   Const = "const",

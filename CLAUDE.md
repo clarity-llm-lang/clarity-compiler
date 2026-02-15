@@ -16,6 +16,20 @@ Every file starts with a module declaration:
 module ModuleName
 ```
 
+### Imports and exports
+```
+// Import from another module (file-based resolution)
+import { add, multiply } from "math"        // imports math.clarity
+import { User, save_user } from "./db/models" // relative path
+
+// Export makes declarations available to importers
+export function add(a: Int64, b: Int64) -> Int64 { a + b }
+export type Color = | Red | Green | Blue
+
+// Non-exported declarations are module-private
+function internal_helper(x: Int64) -> Int64 { x + 1 }
+```
+
 ### Types
 ```
 // Built-in types: Int64, Float64, String, Bool, Bytes, Timestamp, Unit
@@ -237,8 +251,6 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 ### string_to_int / string_to_float return raw values
 These functions return `Int64` / `Float64` (0 on parse failure) instead of `Option<T>`. Proper Option return types require generics (Phase 2).
 
-### No module system (import/export)
-The compiler processes a single file at a time. There are no import/export keywords, no file dependency resolution, and no module linking. Programs cannot span multiple `.clarity` files.
 
 ### No lambdas or closures
 Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
@@ -275,9 +287,9 @@ Make the type system robust enough for real programs.
 
 ### Phase 3 — Module System & Multi-File (v0.4)
 Support programs larger than a single file.
-1. **Import/export syntax** — `import { User } from "models"`, `export function`.
-2. **Module resolution** — File-based or package-based.
-3. **Separate compilation** — Compile to individual WASM modules or merge.
+1. ✓ **Import/export syntax** — `import { User } from "models"`, `export function`, `export type`.
+2. ✓ **Module resolution** — File-based resolution. `"math"` → `math.clarity` relative to importing file.
+3. ✓ **Merge compilation** — All imported modules compiled into a single WASM binary. Entry module's functions exported as WASM exports.
 4. **Standard library** — `std.string`, `std.math`, `std.list`.
 
 ### Phase 4 — Runtime & Performance (v0.5)
@@ -295,7 +307,6 @@ Make programs viable beyond demos.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
 - `string_to_int`/`string_to_float` return raw values (0 on failure) instead of `Option<T>`
-- No module system — single file at a time, no import/export
 - Named arguments are not semantically checked — positional only
 - No lambdas or closures — pass named functions only
 - No garbage collection — bump allocator, programs leak memory over time
