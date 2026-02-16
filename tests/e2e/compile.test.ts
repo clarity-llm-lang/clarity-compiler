@@ -1864,3 +1864,64 @@ describe("String interning", () => {
     expect(a).not.toBe(b);
   });
 });
+
+describe("Bytes and Timestamp builtins", () => {
+  it("creates, reads, and modifies Bytes buffers", async () => {
+    const source = `
+      module Test
+      function test_new_length() -> Int64 {
+        bytes_length(bytes_new(5))
+      }
+      function test_set_get() -> Int64 {
+        let b = bytes_set(bytes_new(3), 0, 65);
+        bytes_get(b, 0)
+      }
+      function test_roundtrip() -> String {
+        bytes_to_string(bytes_from_string("hello"))
+      }
+      function test_concat_length() -> Int64 {
+        let c = bytes_concat(bytes_from_string("hi"), bytes_from_string("bye"));
+        bytes_length(c)
+      }
+      function test_slice() -> String {
+        bytes_to_string(bytes_slice(bytes_from_string("hello world"), 6, 5))
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_new_length as () => bigint)()).toBe(5n);
+    expect((instance.exports.test_set_get as () => bigint)()).toBe(65n);
+    const roundtrip = (instance.exports.test_roundtrip as () => number)();
+    expect(runtime.readString(roundtrip)).toBe("hello");
+    expect((instance.exports.test_concat_length as () => bigint)()).toBe(5n);
+    const slice = (instance.exports.test_slice as () => number)();
+    expect(runtime.readString(slice)).toBe("world");
+  });
+
+  it("performs Timestamp arithmetic and conversion", async () => {
+    const source = `
+      module Test
+      function test_add() -> Int64 {
+        timestamp_to_int(timestamp_add(timestamp_from_int(1000), 500))
+      }
+      function test_diff() -> Int64 {
+        timestamp_diff(timestamp_from_int(5000), timestamp_from_int(3000))
+      }
+      function test_to_string() -> String {
+        timestamp_to_string(timestamp_from_int(0))
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_add as () => bigint)()).toBe(1500n);
+    expect((instance.exports.test_diff as () => bigint)()).toBe(2000n);
+    const ts = (instance.exports.test_to_string as () => number)();
+    expect(runtime.readString(ts)).toBe("1970-01-01T00:00:00.000Z");
+  });
+});

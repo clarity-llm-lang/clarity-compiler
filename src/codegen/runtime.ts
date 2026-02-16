@@ -267,6 +267,156 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return a % b;
       },
 
+      // --- Bytes operations ---
+      // Layout: [length: i32][byte_0, byte_1, ...] — same as String but raw bytes
+      bytes_new(size: bigint): number {
+        const len = Number(size);
+        const totalSize = 4 + len;
+        heapPtr = (heapPtr + 3) & ~3;
+        const ptr = heapPtr;
+        if (ptr + totalSize > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((ptr + totalSize - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = ptr + totalSize;
+        const view = new DataView(memory.buffer);
+        view.setUint32(ptr, len, true);
+        // Zero-fill the bytes
+        new Uint8Array(memory.buffer, ptr + 4, len).fill(0);
+        return ptr;
+      },
+
+      bytes_length(ptr: number): bigint {
+        const view = new DataView(memory.buffer);
+        return BigInt(view.getUint32(ptr, true));
+      },
+
+      bytes_get(ptr: number, index: bigint): bigint {
+        const view = new DataView(memory.buffer);
+        const len = view.getUint32(ptr, true);
+        const i = Number(index);
+        if (i < 0 || i >= len) return 0n;
+        return BigInt(new Uint8Array(memory.buffer, ptr + 4, len)[i]);
+      },
+
+      bytes_set(ptr: number, index: bigint, value: bigint): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getUint32(ptr, true);
+        const i = Number(index);
+        // Create a copy with the modification
+        const totalSize = 4 + len;
+        heapPtr = (heapPtr + 3) & ~3;
+        const newPtr = heapPtr;
+        if (newPtr + totalSize > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = newPtr + totalSize;
+        const newView = new DataView(memory.buffer);
+        newView.setUint32(newPtr, len, true);
+        new Uint8Array(memory.buffer, newPtr + 4, len).set(
+          new Uint8Array(memory.buffer, ptr + 4, len),
+        );
+        if (i >= 0 && i < len) {
+          new Uint8Array(memory.buffer)[newPtr + 4 + i] = Number(value) & 0xff;
+        }
+        return newPtr;
+      },
+
+      bytes_slice(ptr: number, start: bigint, length: bigint): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getUint32(ptr, true);
+        const s = Math.max(0, Math.min(Number(start), len));
+        const l = Math.max(0, Math.min(Number(length), len - s));
+        const totalSize = 4 + l;
+        heapPtr = (heapPtr + 3) & ~3;
+        const newPtr = heapPtr;
+        if (newPtr + totalSize > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = newPtr + totalSize;
+        const newView = new DataView(memory.buffer);
+        newView.setUint32(newPtr, l, true);
+        new Uint8Array(memory.buffer, newPtr + 4, l).set(
+          new Uint8Array(memory.buffer, ptr + 4 + s, l),
+        );
+        return newPtr;
+      },
+
+      bytes_concat(aPtr: number, bPtr: number): number {
+        const view = new DataView(memory.buffer);
+        const aLen = view.getUint32(aPtr, true);
+        const bLen = view.getUint32(bPtr, true);
+        const newLen = aLen + bLen;
+        const totalSize = 4 + newLen;
+        heapPtr = (heapPtr + 3) & ~3;
+        const newPtr = heapPtr;
+        if (newPtr + totalSize > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = newPtr + totalSize;
+        const newView = new DataView(memory.buffer);
+        newView.setUint32(newPtr, newLen, true);
+        new Uint8Array(memory.buffer, newPtr + 4, aLen).set(
+          new Uint8Array(memory.buffer, aPtr + 4, aLen),
+        );
+        new Uint8Array(memory.buffer, newPtr + 4 + aLen, bLen).set(
+          new Uint8Array(memory.buffer, bPtr + 4, bLen),
+        );
+        return newPtr;
+      },
+
+      bytes_from_string(strPtr: number): number {
+        // String and Bytes have the same layout: [length: u32][data]
+        // Just copy the memory block
+        const view = new DataView(memory.buffer);
+        const len = view.getUint32(strPtr, true);
+        const totalSize = 4 + len;
+        heapPtr = (heapPtr + 3) & ~3;
+        const newPtr = heapPtr;
+        if (newPtr + totalSize > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
+        }
+        heapPtr = newPtr + totalSize;
+        new Uint8Array(memory.buffer, newPtr, totalSize).set(
+          new Uint8Array(memory.buffer, strPtr, totalSize),
+        );
+        return newPtr;
+      },
+
+      bytes_to_string(bytesPtr: number): number {
+        // Decode bytes as UTF-8 string
+        const view = new DataView(memory.buffer);
+        const len = view.getUint32(bytesPtr, true);
+        const bytes = new Uint8Array(memory.buffer, bytesPtr + 4, len);
+        const str = new TextDecoder().decode(bytes);
+        return writeString(str);
+      },
+
+      // --- Timestamp operations ---
+      // Timestamp is i64 (milliseconds since Unix epoch)
+      now(): bigint {
+        return BigInt(Date.now());
+      },
+
+      timestamp_to_string(ms: bigint): number {
+        return writeString(new Date(Number(ms)).toISOString());
+      },
+
+      timestamp_to_int(ms: bigint): bigint {
+        return ms;
+      },
+
+      timestamp_from_int(ms: bigint): bigint {
+        return ms;
+      },
+
+      timestamp_add(t: bigint, ms: bigint): bigint {
+        return t + ms;
+      },
+
+      timestamp_diff(a: bigint, b: bigint): bigint {
+        return a - b;
+      },
+
       // --- Memory allocator (bump allocator) ---
       __alloc(size: number): number {
         const align = 4;

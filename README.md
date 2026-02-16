@@ -423,7 +423,7 @@ Make programs viable for real workloads.
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
 - ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
-- Bytes and Timestamp runtime support
+- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string)
 - REPL / browser playground
 
 ---

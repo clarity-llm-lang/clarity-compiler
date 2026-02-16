@@ -706,6 +706,32 @@ effect[FileSystem, Log] function main() -> Unit {
 | `is_empty(list)` | `List<T> -> Bool` | True if list has no elements |
 | `nth(list, index)` | `List<T>, Int64 -> T` | Element at index (0-based) |
 
+### 11.7 Bytes Operations
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `bytes_new(size)` | `Int64 -> Bytes` | Create a zero-filled Bytes buffer |
+| `bytes_length(b)` | `Bytes -> Int64` | Length of a Bytes buffer |
+| `bytes_get(b, index)` | `Bytes, Int64 -> Int64` | Get byte at index (0-255) |
+| `bytes_set(b, index, value)` | `Bytes, Int64, Int64 -> Bytes` | Set byte, returns new Bytes |
+| `bytes_slice(b, start, length)` | `Bytes, Int64, Int64 -> Bytes` | Extract sub-range |
+| `bytes_concat(a, b)` | `Bytes, Bytes -> Bytes` | Concatenate two buffers |
+| `bytes_from_string(s)` | `String -> Bytes` | Encode string as UTF-8 bytes |
+| `bytes_to_string(b)` | `Bytes -> String` | Decode bytes as UTF-8 string |
+
+### 11.8 Timestamp Operations
+
+Timestamp is represented as milliseconds since Unix epoch (i64).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `now()` | `-> Timestamp` | Current time (requires `Time` effect) |
+| `timestamp_to_string(t)` | `Timestamp -> String` | ISO 8601 string |
+| `timestamp_to_int(t)` | `Timestamp -> Int64` | Milliseconds since epoch |
+| `timestamp_from_int(ms)` | `Int64 -> Timestamp` | Create from milliseconds |
+| `timestamp_add(t, ms)` | `Timestamp, Int64 -> Timestamp` | Add milliseconds |
+| `timestamp_diff(a, b)` | `Timestamp, Timestamp -> Int64` | Difference in ms (a - b) |
+
 ---
 
 ## 12. Self-Healing Test System

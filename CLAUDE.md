@@ -303,7 +303,7 @@ Make programs viable beyond demos.
 1. ✓ **Pattern guards** — `match x { n if n > 0 -> "positive", _ -> "non-positive" }`. Guards work on wildcard, binding, literal, and constructor patterns including multiple arms for the same variant with different guards.
 2. ✓ **Named argument semantic checking** — Named args validated and reordered to match parameter order.
 3. ✓ **Multi-line string literals** — Triple-quote `"""..."""` strings with optional leading newline stripping.
-4. **Bytes and Timestamp runtime support** — Currently declared but unusable.
+4. ✓ **Bytes and Timestamp runtime support** — `Bytes` is a heap-allocated byte buffer with create/get/set/slice/concat/encode/decode. `Timestamp` is i64 (ms since epoch) with now/add/diff/to_string/from_int. `now()` requires `Time` effect.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
 - Named arguments are not semantically checked — positional only
