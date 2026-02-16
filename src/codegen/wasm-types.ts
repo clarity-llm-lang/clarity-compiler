@@ -7,7 +7,8 @@ export function clarityTypeToWasm(type: ClarityType): binaryen.Type {
     case "Float64": return binaryen.f64;
     case "Bool": return binaryen.i32;
     case "Unit": return binaryen.none;
-    // Future: records, unions, strings → i32 pointers into linear memory
+    case "Timestamp": return binaryen.i64; // milliseconds since epoch
+    // Pointer types → i32 into linear memory
     case "Record":
     case "Union":
     case "String":

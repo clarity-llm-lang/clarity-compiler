@@ -83,5 +83,23 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "assert_eq_string", importModule: "env", importName: "assert_eq_string", params: pair_i32, result: none },
     { name: "assert_true", importModule: "env", importName: "assert_true", params: i32, result: none },
     { name: "assert_false", importModule: "env", importName: "assert_false", params: i32, result: none },
+
+    // --- Bytes operations ---
+    { name: "bytes_new", importModule: "env", importName: "bytes_new", params: i64, result: i32 },
+    { name: "bytes_length", importModule: "env", importName: "bytes_length", params: i32, result: i64 },
+    { name: "bytes_get", importModule: "env", importName: "bytes_get", params: binaryen.createType([i32, i64]), result: i64 },
+    { name: "bytes_set", importModule: "env", importName: "bytes_set", params: binaryen.createType([i32, i64, i64]), result: i32 },
+    { name: "bytes_slice", importModule: "env", importName: "bytes_slice", params: binaryen.createType([i32, i64, i64]), result: i32 },
+    { name: "bytes_concat", importModule: "env", importName: "bytes_concat", params: pair_i32, result: i32 },
+    { name: "bytes_from_string", importModule: "env", importName: "bytes_from_string", params: i32, result: i32 },
+    { name: "bytes_to_string", importModule: "env", importName: "bytes_to_string", params: i32, result: i32 },
+
+    // --- Timestamp operations ---
+    { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
+    { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },
+    { name: "timestamp_to_int", importModule: "env", importName: "timestamp_to_int", params: i64, result: i64 },
+    { name: "timestamp_from_int", importModule: "env", importName: "timestamp_from_int", params: i64, result: i64 },
+    { name: "timestamp_add", importModule: "env", importName: "timestamp_add", params: binaryen.createType([i64, i64]), result: i64 },
+    { name: "timestamp_diff", importModule: "env", importName: "timestamp_diff", params: binaryen.createType([i64, i64]), result: i64 },
   ];
 }

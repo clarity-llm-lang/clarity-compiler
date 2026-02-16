@@ -3,7 +3,7 @@ import type {
   ModuleDecl, FunctionDecl, Expr, BinaryOp, UnaryOp,
 } from "../ast/nodes.js";
 import type { ClarityType, ClarityVariant } from "../checker/types.js";
-import { INT64, FLOAT64, BOOL, UNIT, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
+import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
 import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
@@ -433,6 +433,7 @@ export class CodeGenerator {
     switch (type.kind) {
       case "Int64": return 8;
       case "Float64": return 8;
+      case "Timestamp": return 8; // i64 ms since epoch
       case "Bool": return 4;
       case "Unit": return 0;
       // Pointer types (i32)
@@ -453,6 +454,7 @@ export class CodeGenerator {
     switch (type.kind) {
       case "Int64": return 8;
       case "Float64": return 8;
+      case "Timestamp": return 8;
       default: return 4;
     }
   }
@@ -2081,6 +2083,14 @@ export class CodeGenerator {
       // Test assertions
       assert_eq: UNIT, assert_eq_float: UNIT, assert_eq_string: UNIT,
       assert_true: UNIT, assert_false: UNIT,
+      // Bytes
+      bytes_new: BYTES, bytes_length: INT64, bytes_get: INT64,
+      bytes_set: BYTES, bytes_slice: BYTES, bytes_concat: BYTES,
+      bytes_from_string: BYTES, bytes_to_string: { kind: "String" } as ClarityType,
+      // Timestamp
+      now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
+      timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
+      timestamp_add: TIMESTAMP, timestamp_diff: INT64,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;
