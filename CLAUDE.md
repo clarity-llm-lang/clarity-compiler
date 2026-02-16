@@ -297,7 +297,7 @@ Make programs viable beyond demos.
 1. **Memory management** — Arena allocator, reference counting, or WASM GC proposal.
 2. ✓ **Tail call optimization** — Self-recursive tail calls are converted to loops in WASM codegen. Handles tail position in match arms and block results.
 3. ✓ **Nested record/list codegen** — `list_append_i32` for pointer-type elements (e.g., List<String>). Supports lists of records, records containing lists.
-4. **String interning** — Deduplicate runtime-created strings.
+4. ✓ **String interning** — Compile-time literals deduplicated in data segments. Runtime strings interned via hash table in `writeString()` — identical values share the same heap allocation.
 
 ### Phase 5 — Language Completeness (v0.6+)
 1. ✓ **Pattern guards** — `match x { n if n > 0 -> "positive", _ -> "non-positive" }`. Guards work on wildcard, binding, literal, and constructor patterns including multiple arms for the same variant with different guards.

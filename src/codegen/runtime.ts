@@ -36,6 +36,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
   let memory: WebAssembly.Memory = null!;
   let heapPtr = 1024; // start heap after data segment area
 
+  // String intern table: maps JS string content → WASM heap pointer.
+  // Avoids duplicate allocations when the same string value is created
+  // multiple times at runtime (e.g., repeated string_concat, int_to_string).
+  const internedStrings = new Map<string, number>();
+
   function readString(ptr: number): string {
     const view = new DataView(memory.buffer);
     const len = view.getUint32(ptr, true); // little-endian
@@ -44,6 +49,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
   }
 
   function writeString(str: string): number {
+    // Check intern table first — reuse existing allocation if available
+    const existing = internedStrings.get(str);
+    if (existing !== undefined) return existing;
+
     const encoded = new TextEncoder().encode(str);
     const ptr = heapPtr;
 
@@ -60,11 +69,17 @@ export function createRuntime(config: RuntimeConfig = {}) {
     heapPtr = ptr + 4 + encoded.length;
     // Align to 4 bytes
     heapPtr = (heapPtr + 3) & ~3;
+
+    // Intern this string for future reuse
+    internedStrings.set(str, ptr);
     return ptr;
   }
 
   function setHeapBase(base: number) {
     heapPtr = base;
+    // Clear intern table since data segment strings occupy lower addresses
+    // and runtime strings should start fresh from the new heap base
+    internedStrings.clear();
   }
 
   function bindMemory(mem: WebAssembly.Memory) {

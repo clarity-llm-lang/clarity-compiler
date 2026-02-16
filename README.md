@@ -417,7 +417,7 @@ Support programs larger than a single file.
 Make programs viable for real workloads.
 - Memory management (arena, refcounting, or WASM GC)
 - ~~Tail call optimization~~ (done — self-recursive tail calls converted to loops)
-- String interning
+- ~~String interning~~ (done — runtime deduplicates identical strings via intern table)
 
 ### Phase 5 — Language Completeness (v0.6+)
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
