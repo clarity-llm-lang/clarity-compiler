@@ -411,7 +411,7 @@ Make the type system robust enough for real programs.
 Support programs larger than a single file.
 - ~~Import/export syntax~~ (done — `import { X } from "module"`, `export function`, `export type`)
 - ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
-- Standard library (`std.string`, `std.math`, `std.list`)
+- ~~Standard library~~ (done — `std/math` and `std/string` modules; `std/list` deferred until cross-module generics)
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable for real workloads.

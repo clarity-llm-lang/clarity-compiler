@@ -530,7 +530,9 @@ import { User, save_user } from "./db/models"
 - Module paths are resolved relative to the importing file
 - `"math"` resolves to `math.clarity` in the same directory
 - `"./db/models"` resolves to `db/models.clarity` relative to the importing file
+- `"std/math"` resolves to the compiler's bundled standard library
 - Imported names must be explicitly exported by the target module
+- Imported names shadow builtins with the same name
 
 ### 10.2 Export Declarations
 ```
@@ -548,6 +550,37 @@ export type Color = | Red | Green | Blue
 - Modules are checked in dependency order (dependencies before dependents)
 - All modules are merged into a single WASM binary
 - Only the entry module's functions appear as WASM exports
+
+### 10.4 Standard Library
+
+The compiler ships with a standard library accessible via `"std/..."` imports:
+
+**std/math** — Numeric utilities
+- `abs(n: Int64) -> Int64` — Absolute value
+- `min(a: Int64, b: Int64) -> Int64` — Minimum
+- `max(a: Int64, b: Int64) -> Int64` — Maximum
+- `clamp(n: Int64, lo: Int64, hi: Int64) -> Int64` — Clamp to range
+- `sign(n: Int64) -> Int64` — Sign (-1, 0, or 1)
+- `is_even(n: Int64) -> Bool` — Even check
+- `is_odd(n: Int64) -> Bool` — Odd check
+- `square_root(x: Float64) -> Float64` — Square root
+- `power(base: Float64, exp: Float64) -> Float64` — Exponentiation
+- `floor_f(x: Float64) -> Float64` — Floor
+- `ceil_f(x: Float64) -> Float64` — Ceiling
+
+**std/string** — String utilities
+- `length(s: String) -> Int64` — String length
+- `concat(a: String, b: String) -> String` — Concatenation
+- `has(haystack: String, needle: String) -> Bool` — Contains check
+- `find(haystack: String, needle: String) -> Int64` — Index of substring
+- `strip(s: String) -> String` — Trim whitespace
+- `slice(s: String, start: Int64, len: Int64) -> String` — Substring
+- `at(s: String, index: Int64) -> String` — Character at index
+- `split_by(s: String, delim: String) -> List<String>` — Split by delimiter
+- `is_blank(s: String) -> Bool` — Empty string check
+- `repeat(s: String, n: Int64) -> String` — Repeat n times
+- `to_int(s: String) -> Option<Int64>` — Parse to integer
+- `to_float(s: String) -> Option<Float64>` — Parse to float
 
 ---
 

@@ -60,10 +60,11 @@ export class Checker {
       }
     }
 
-    // Register imported symbols (functions, constants)
+    // Register imported symbols (functions, constants).
+    // Imports shadow builtins, so we use redefine() to overwrite existing entries.
     const importSpan: Span = { start: { offset: 0, line: 0, column: 0 }, end: { offset: 0, line: 0, column: 0 }, source: "<import>" };
     for (const { name, type, span } of importedSymbols) {
-      this.env.define(name, { name, type, mutable: false, defined: span ?? importSpan });
+      this.env.redefine(name, { name, type, mutable: false, defined: span ?? importSpan });
     }
 
     // First pass: register all type declarations
@@ -435,12 +436,10 @@ export class Checker {
       (fnType as any).__typeParams = decl.typeParams;
     }
 
-    this.env.define(decl.name, {
-      name: decl.name,
-      type: fnType,
-      mutable: false,
-      defined: decl.span,
-    });
+    // User-defined functions shadow builtins with the same name
+    if (!this.env.define(decl.name, { name: decl.name, type: fnType, mutable: false, defined: decl.span })) {
+      this.env.redefine(decl.name, { name: decl.name, type: fnType, mutable: false, defined: decl.span });
+    }
   }
 
   private checkFunctionBody(decl: FunctionDecl): void {

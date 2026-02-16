@@ -29,6 +29,12 @@ export class Environment {
     return true;
   }
 
+  /** Like define, but overwrites if already defined in the current scope. */
+  redefine(name: string, sym: Symbol): void {
+    const current = this.scopes[this.scopes.length - 1];
+    current.set(name, sym);
+  }
+
   lookup(name: string): Symbol | undefined {
     for (let i = this.scopes.length - 1; i >= 0; i--) {
       const sym = this.scopes[i].get(name);
