@@ -669,6 +669,8 @@ effect[FileSystem, Log] function main() -> Unit {
 | `index_of(haystack, needle)` | `String, String -> Int64` | First index of substring (-1 if not found) |
 | `trim(s)` | `String -> String` | Remove leading/trailing whitespace |
 | `split(s, delimiter)` | `String, String -> List<String>` | Split string by delimiter |
+| `char_code(s)` | `String -> Int64` | Unicode code point of first character (0 for empty) |
+| `char_from_code(code)` | `Int64 -> String` | Single-character string from Unicode code point |
 
 ### 11.4 Type Conversions
 

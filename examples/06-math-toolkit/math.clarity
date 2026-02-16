@@ -1,0 +1,224 @@
+module MathToolkit
+
+// =============================================================================
+// Integer Mathematics
+// =============================================================================
+
+// Factorial: n! = n * (n-1) * ... * 2 * 1
+function factorial(n: Int64) -> Int64 {
+  match n <= 1 {
+    True -> 1,
+    False -> n * factorial(n - 1)
+  }
+}
+
+// Greatest Common Divisor (Euclidean algorithm)
+function gcd(a: Int64, b: Int64) -> Int64 {
+  match b == 0 {
+    True -> a,
+    False -> gcd(b, a % b)
+  }
+}
+
+// Least Common Multiple
+function lcm(a: Int64, b: Int64) -> Int64 {
+  (a * b) / gcd(a, b)
+}
+
+// Check if n is prime (trial division)
+function is_prime(n: Int64) -> Bool {
+  match n <= 1 {
+    True -> False,
+    False -> match n <= 3 {
+      True -> True,
+      False -> is_prime_helper(n, 2)
+    }
+  }
+}
+
+function is_prime_helper(n: Int64, divisor: Int64) -> Bool {
+  match divisor * divisor > n {
+    True -> True,
+    False -> match n % divisor == 0 {
+      True -> False,
+      False -> is_prime_helper(n, divisor + 1)
+    }
+  }
+}
+
+// Integer exponentiation: base^exp
+function power(base: Int64, exp: Int64) -> Int64 {
+  match exp <= 0 {
+    True -> 1,
+    False -> base * power(base, exp - 1)
+  }
+}
+
+// Naive Fibonacci (exponential time)
+function nth_fibonacci(n: Int64) -> Int64 {
+  match n <= 1 {
+    True -> n,
+    False -> nth_fibonacci(n - 1) + nth_fibonacci(n - 2)
+  }
+}
+
+// Efficient tail-recursive Fibonacci (linear time, gets TCO)
+function fib_fast(n: Int64) -> Int64 {
+  fib_helper(n, 0, 1)
+}
+
+function fib_helper(n: Int64, a: Int64, b: Int64) -> Int64 {
+  match n == 0 {
+    True -> a,
+    False -> fib_helper(n - 1, b, a + b)
+  }
+}
+
+// =============================================================================
+// Float Mathematics
+// =============================================================================
+
+// Euclidean distance between two points
+function distance(x1: Float64, y1: Float64, x2: Float64, y2: Float64) -> Float64 {
+  let dx = x2 - x1;
+  let dy = y2 - y1;
+  sqrt(dx * dx + dy * dy)
+}
+
+// Hypotenuse of right triangle
+function hypotenuse(a: Float64, b: Float64) -> Float64 {
+  sqrt(a * a + b * b)
+}
+
+// Area of circle: pi * r^2
+function circle_area(radius: Float64) -> Float64 {
+  let pi = 3.141592653589793;
+  pi * radius * radius
+}
+
+// Area of triangle using Heron's formula
+function triangle_area(a: Float64, b: Float64, c: Float64) -> Float64 {
+  let s = (a + b + c) / 2.0;
+  sqrt(s * (s - a) * (s - b) * (s - c))
+}
+
+// =============================================================================
+// List Operations
+// =============================================================================
+
+// Sum of a list (tail-recursive)
+function sum_list(values: List<Int64>) -> Int64 {
+  sum_helper(values, 0)
+}
+
+function sum_helper(values: List<Int64>, acc: Int64) -> Int64 {
+  match is_empty(values) {
+    True -> acc,
+    False -> {
+      let first = head(values);
+      let rest = tail(values);
+      sum_helper(rest, acc + first)
+    }
+  }
+}
+
+// Product of a list (tail-recursive)
+function product_list(values: List<Int64>) -> Int64 {
+  product_helper(values, 1)
+}
+
+function product_helper(values: List<Int64>, acc: Int64) -> Int64 {
+  match is_empty(values) {
+    True -> acc,
+    False -> {
+      let first = head(values);
+      let rest = tail(values);
+      product_helper(rest, acc * first)
+    }
+  }
+}
+
+// Mean (average) of a list
+function mean(values: List<Int64>) -> Float64 {
+  let s = sum_list(values);
+  let count = length(values);
+  int_to_float(s) / int_to_float(count)
+}
+
+// =============================================================================
+// Test Suite
+// =============================================================================
+
+effect[Test] function test_factorial() -> Unit {
+  assert_eq(factorial(0), 1);
+  assert_eq(factorial(1), 1);
+  assert_eq(factorial(5), 120);
+  assert_eq(factorial(10), 3628800)
+}
+
+effect[Test] function test_gcd() -> Unit {
+  assert_eq(gcd(48, 18), 6);
+  assert_eq(gcd(100, 50), 50);
+  assert_eq(gcd(17, 13), 1)
+}
+
+effect[Test] function test_lcm() -> Unit {
+  assert_eq(lcm(4, 6), 12);
+  assert_eq(lcm(21, 6), 42)
+}
+
+effect[Test] function test_is_prime() -> Unit {
+  assert_false(is_prime(1));
+  assert_true(is_prime(2));
+  assert_true(is_prime(17));
+  assert_false(is_prime(18));
+  assert_true(is_prime(97));
+  assert_false(is_prime(100))
+}
+
+effect[Test] function test_power() -> Unit {
+  assert_eq(power(2, 0), 1);
+  assert_eq(power(2, 10), 1024);
+  assert_eq(power(5, 3), 125)
+}
+
+effect[Test] function test_fibonacci() -> Unit {
+  assert_eq(nth_fibonacci(0), 0);
+  assert_eq(nth_fibonacci(1), 1);
+  assert_eq(nth_fibonacci(10), 55);
+  assert_eq(fib_fast(0), 0);
+  assert_eq(fib_fast(1), 1);
+  assert_eq(fib_fast(10), 55);
+  assert_eq(fib_fast(20), 6765)
+}
+
+effect[Test] function test_distance() -> Unit {
+  assert_eq_float(distance(0.0, 0.0, 3.0, 4.0), 5.0);
+  assert_eq_float(distance(1.0, 1.0, 4.0, 5.0), 5.0)
+}
+
+effect[Test] function test_circle_area() -> Unit {
+  let pi = 3.141592653589793;
+  assert_eq_float(circle_area(1.0), pi);
+  assert_eq_float(circle_area(2.0), pi * 4.0)
+}
+
+effect[Test] function test_triangle_area() -> Unit {
+  // 3-4-5 right triangle has area = 6
+  assert_eq_float(triangle_area(3.0, 4.0, 5.0), 6.0)
+}
+
+effect[Test] function test_sum_list() -> Unit {
+  let nums = [1, 2, 3, 4, 5];
+  assert_eq(sum_list(nums), 15)
+}
+
+effect[Test] function test_product_list() -> Unit {
+  let nums = [1, 2, 3, 4, 5];
+  assert_eq(product_list(nums), 120)
+}
+
+effect[Test] function test_mean() -> Unit {
+  let nums = [2, 4, 6, 8, 10];
+  assert_eq_float(mean(nums), 6.0)
+}

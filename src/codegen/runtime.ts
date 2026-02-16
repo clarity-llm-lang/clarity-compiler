@@ -170,6 +170,16 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return listPtr;
       },
 
+      char_code(ptr: number): bigint {
+        const s = readString(ptr);
+        if (s.length === 0) return 0n;
+        return BigInt(s.codePointAt(0)!);
+      },
+
+      char_from_code(code: bigint): number {
+        return writeString(String.fromCodePoint(Number(code)));
+      },
+
       // --- Type conversions ---
       int_to_float(value: bigint): number {
         return Number(value);

@@ -39,6 +39,9 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "trim", importModule: "env", importName: "trim", params: i32, result: i32 },
     { name: "split", importModule: "env", importName: "split", params: pair_i32, result: i32 },
 
+    { name: "char_code", importModule: "env", importName: "char_code", params: i32, result: i64 },
+    { name: "char_from_code", importModule: "env", importName: "char_from_code", params: i64, result: i32 },
+
     // --- Type conversions ---
     { name: "int_to_float", importModule: "env", importName: "int_to_float", params: i64, result: f64 },
     { name: "float_to_int", importModule: "env", importName: "float_to_int", params: f64, result: i64 },

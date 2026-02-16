@@ -363,7 +363,7 @@ clarity/
 - Result<T, E> as built-in (Ok/Err with polymorphic type inference)
 - Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
-- String literals, concatenation, equality, length, substring, char_at, contains, index_of, trim, split
+- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
