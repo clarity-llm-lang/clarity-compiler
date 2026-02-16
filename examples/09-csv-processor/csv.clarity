@@ -1,0 +1,273 @@
+module CSVProcessor
+
+// =============================================================================
+// List Higher-Order Functions (Library implementations)
+// =============================================================================
+
+// Map: apply function to each element
+function map_int_to_int(list: List<Int64>, f: (Int64) -> Int64) -> List<Int64> {
+  map_int_to_int_helper(list, f, [])
+}
+
+function map_int_to_int_helper(list: List<Int64>, f: (Int64) -> Int64, acc: List<Int64>) -> List<Int64> {
+  match is_empty(list) {
+    True -> acc,
+    False -> {
+      let first = head(list);
+      let rest = tail(list);
+      let result = f(first);
+      map_int_to_int_helper(rest, f, append(acc, result))
+    }
+  }
+}
+
+// Filter: keep elements matching predicate
+function filter_int(list: List<Int64>, predicate: (Int64) -> Bool) -> List<Int64> {
+  filter_int_helper(list, predicate, [])
+}
+
+function filter_int_helper(list: List<Int64>, predicate: (Int64) -> Bool, acc: List<Int64>) -> List<Int64> {
+  match is_empty(list) {
+    True -> acc,
+    False -> {
+      let first = head(list);
+      let rest = tail(list);
+      let new_acc = match predicate(first) {
+        True -> append(acc, first),
+        False -> acc
+      };
+      filter_int_helper(rest, predicate, new_acc)
+    }
+  }
+}
+
+// Reduce: fold list with accumulator
+function reduce_int(list: List<Int64>, init: Int64, f: (Int64, Int64) -> Int64) -> Int64 {
+  match is_empty(list) {
+    True -> init,
+    False -> {
+      let first = head(list);
+      let rest = tail(list);
+      let new_acc = f(init, first);
+      reduce_int(rest, new_acc, f)
+    }
+  }
+}
+
+// =============================================================================
+// CSV Parsing
+// =============================================================================
+
+type Person = { name: String, age: Int64, city: String }
+
+// Helper to parse int with default fallback
+function parse_int_or_zero(s: String) -> Int64 {
+  parse_int_or_zero_helper(string_to_int(s))
+}
+
+function parse_int_or_zero_helper(opt: Option<Int64>) -> Int64 {
+  match opt {
+    Some(value) -> value,
+    None -> 0
+  }
+}
+
+// Parse a CSV line into a Person record
+function parse_csv_row(line: String) -> Person {
+  let fields = split(line, ",");
+  let name = nth(fields, 0);
+  let age_str = nth(fields, 1);
+  let city = nth(fields, 2);
+  let age = parse_int_or_zero(age_str);
+  { name: name, age: age, city: city }
+}
+
+// Parse all CSV lines into a list of Person records
+function parse_csv(content: String) -> List<Person> {
+  let lines = split(content, "\n");
+  parse_csv_lines(lines, [])
+}
+
+function parse_csv_lines(lines: List<String>, acc: List<Person>) -> List<Person> {
+  match is_empty(lines) {
+    True -> acc,
+    False -> {
+      let line = head(lines);
+      let rest = tail(lines);
+      let person = parse_csv_row(line);
+      parse_csv_lines(rest, append(acc, person))
+    }
+  }
+}
+
+// =============================================================================
+// Data Processing
+// =============================================================================
+
+// Filter people by age threshold
+function filter_adults(people: List<Person>, min_age: Int64) -> List<Person> {
+  filter_adults_helper(people, min_age, [])
+}
+
+function filter_adults_helper(people: List<Person>, min_age: Int64, acc: List<Person>) -> List<Person> {
+  match is_empty(people) {
+    True -> acc,
+    False -> {
+      let person = head(people);
+      let rest = tail(people);
+      let new_acc = match person.age >= min_age {
+        True -> append(acc, person),
+        False -> acc
+      };
+      filter_adults_helper(rest, min_age, new_acc)
+    }
+  }
+}
+
+// Extract ages from list of people
+function extract_ages(people: List<Person>) -> List<Int64> {
+  extract_ages_helper(people, [])
+}
+
+function extract_ages_helper(people: List<Person>, acc: List<Int64>) -> List<Int64> {
+  match is_empty(people) {
+    True -> acc,
+    False -> {
+      let person = head(people);
+      let rest = tail(people);
+      extract_ages_helper(rest, append(acc, person.age))
+    }
+  }
+}
+
+// Sum a list of integers
+function sum_ages(ages: List<Int64>) -> Int64 {
+  sum_ages_helper(ages, 0)
+}
+
+function sum_ages_helper(ages: List<Int64>, acc: Int64) -> Int64 {
+  match is_empty(ages) {
+    True -> acc,
+    False -> {
+      let first = head(ages);
+      let rest = tail(ages);
+      sum_ages_helper(rest, acc + first)
+    }
+  }
+}
+
+// Calculate average age
+function average_age(people: List<Person>) -> Int64 {
+  let ages = extract_ages(people);
+  let total = sum_ages(ages);
+  let count = length(ages);
+  match count == 0 {
+    True -> 0,
+    False -> total / count
+  }
+}
+
+// =============================================================================
+// Higher-order function examples
+// =============================================================================
+
+// Predicates for filter_int
+function is_positive(n: Int64) -> Bool {
+  n > 0
+}
+
+function is_even(n: Int64) -> Bool {
+  n % 2 == 0
+}
+
+// Transformations for map_int_to_int
+function double(n: Int64) -> Int64 {
+  n * 2
+}
+
+function square(n: Int64) -> Int64 {
+  n * n
+}
+
+// Binary operations for reduce_int
+function add(a: Int64, b: Int64) -> Int64 {
+  a + b
+}
+
+function multiply(a: Int64, b: Int64) -> Int64 {
+  a * b
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_parse_csv_row() -> Unit {
+  let person = parse_csv_row("Alice,30,NYC");
+  assert_eq_string(person.name, "Alice");
+  assert_eq(person.age, 30);
+  assert_eq_string(person.city, "NYC")
+}
+
+effect[Test] function test_filter_adults() -> Unit {
+  let alice = { name: "Alice", age: 30, city: "NYC" };
+  let bob = { name: "Bob", age: 25, city: "LA" };
+  let charlie = { name: "Charlie", age: 35, city: "SF" };
+  let people = [alice, bob, charlie];
+  let adults = filter_adults(people, 30);
+  assert_eq(length(adults), 2)
+}
+
+effect[Test] function test_extract_ages() -> Unit {
+  let alice = { name: "Alice", age: 30, city: "NYC" };
+  let bob = { name: "Bob", age: 25, city: "LA" };
+  let people = [alice, bob];
+  let ages = extract_ages(people);
+  assert_eq(length(ages), 2);
+  assert_eq(nth(ages, 0), 30);
+  assert_eq(nth(ages, 1), 25)
+}
+
+effect[Test] function test_average_age() -> Unit {
+  let alice = { name: "Alice", age: 30, city: "NYC" };
+  let bob = { name: "Bob", age: 20, city: "LA" };
+  let charlie = { name: "Charlie", age: 40, city: "SF" };
+  let people = [alice, bob, charlie];
+  assert_eq(average_age(people), 30)
+}
+
+effect[Test] function test_map_double() -> Unit {
+  let nums = [1, 2, 3, 4];
+  let doubled = map_int_to_int(nums, double);
+  assert_eq(length(doubled), 4);
+  assert_eq(nth(doubled, 0), 2);
+  assert_eq(nth(doubled, 3), 8)
+}
+
+effect[Test] function test_filter_positive() -> Unit {
+  let nums = [0 - 1, 2, 0 - 3, 4, 0 - 5];
+  let positive = filter_int(nums, is_positive);
+  assert_eq(length(positive), 2);
+  assert_eq(nth(positive, 0), 2);
+  assert_eq(nth(positive, 1), 4)
+}
+
+effect[Test] function test_filter_even() -> Unit {
+  let nums = [1, 2, 3, 4, 5, 6];
+  let evens = filter_int(nums, is_even);
+  assert_eq(length(evens), 3);
+  assert_eq(nth(evens, 0), 2);
+  assert_eq(nth(evens, 2), 6)
+}
+
+effect[Test] function test_reduce_sum() -> Unit {
+  let nums = [1, 2, 3, 4];
+  let total = reduce_int(nums, 0, add);
+  assert_eq(total, 10)
+}
+
+effect[Test] function test_reduce_product() -> Unit {
+  let nums = [2, 3, 4];
+  let product = reduce_int(nums, 1, multiply);
+  assert_eq(product, 24)
+}
