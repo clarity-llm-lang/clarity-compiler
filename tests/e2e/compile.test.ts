@@ -1924,4 +1924,56 @@ describe("Bytes and Timestamp builtins", () => {
     const ts = (instance.exports.test_to_string as () => number)();
     expect(runtime.readString(ts)).toBe("1970-01-01T00:00:00.000Z");
   });
+
+  it("char_code returns Unicode code point of first character", async () => {
+    const source = `
+      module Test
+      function test_a() -> Int64 { char_code("A") }
+      function test_zero() -> Int64 { char_code("0") }
+      function test_empty() -> Int64 { char_code("") }
+      function test_hello() -> Int64 { char_code("hello") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_a as () => bigint)()).toBe(65n);
+    expect((instance.exports.test_zero as () => bigint)()).toBe(48n);
+    expect((instance.exports.test_empty as () => bigint)()).toBe(0n);
+    expect((instance.exports.test_hello as () => bigint)()).toBe(104n); // 'h'
+  });
+
+  it("char_from_code returns string from Unicode code point", async () => {
+    const source = `
+      module Test
+      function test_a() -> String { char_from_code(65) }
+      function test_zero() -> String { char_from_code(48) }
+      function test_space() -> String { char_from_code(32) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_a as () => number)())).toBe("A");
+    expect(runtime.readString((instance.exports.test_zero as () => number)())).toBe("0");
+    expect(runtime.readString((instance.exports.test_space as () => number)())).toBe(" ");
+  });
+
+  it("char_code and char_from_code round-trip", async () => {
+    const source = `
+      module Test
+      function test() -> String {
+        let code = char_code("Z");
+        char_from_code(code)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe("Z");
+  });
 });

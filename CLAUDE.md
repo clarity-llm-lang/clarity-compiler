@@ -306,7 +306,6 @@ Make programs viable beyond demos.
 4. ✓ **Bytes and Timestamp runtime support** — `Bytes` is a heap-allocated byte buffer with create/get/set/slice/concat/encode/decode. `Timestamp` is i64 (ms since epoch) with now/add/diff/to_string/from_int. `now()` requires `Time` effect.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
-- Named arguments are not semantically checked — positional only
 - No lambdas or closures — pass named functions only
 - No garbage collection — bump allocator, programs leak memory over time
 

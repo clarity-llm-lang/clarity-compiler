@@ -214,6 +214,25 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "string",
   },
 
+  {
+    name: "char_code",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: INT64,
+    effects: [],
+    doc: "Return the Unicode code point of the first character in the string. Returns 0 for empty strings.",
+    category: "string",
+  },
+  {
+    name: "char_from_code",
+    params: [INT64],
+    paramNames: ["code"],
+    returnType: STRING,
+    effects: [],
+    doc: "Return a single-character string from a Unicode code point.",
+    category: "string",
+  },
+
   // --- Type conversions ---
   {
     name: "int_to_float",

@@ -99,6 +99,8 @@ a + b                // last expression = return value
 | `exit(code)` | `Int64 -> Unit` | FileSystem |
 | `int_to_string(n)` | `Int64 -> String` | — |
 | `string_length(s)` | `String -> Int64` | — |
+| `char_code(s)` | `String -> Int64` | — |
+| `char_from_code(code)` | `Int64 -> String` | — |
 | `head(list)` | `List<T> -> T` | — |
 | `tail(list)` | `List<T> -> List<T>` | — |
 | `append(list, elem)` | `List<T>, T -> List<T>` | — |

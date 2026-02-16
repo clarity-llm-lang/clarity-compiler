@@ -1,0 +1,313 @@
+module ExprEvaluator
+
+// =============================================================================
+// Expression Evaluator
+// =============================================================================
+//
+// A simple arithmetic evaluator for expressions like "2 + 3 * 5".
+// Uses a flat node pool (arena) since Clarity doesn't yet support
+// recursive union types.
+//
+// Demonstrates: lexing, parsing, AST construction, evaluation, pattern matching
+
+// =============================================================================
+// Tokens — represented as records with a tag
+// =============================================================================
+// tag: 0=Num, 1=Plus, 2=Minus, 3=Star, 4=Slash, 5=LParen, 6=RParen, 7=EOF
+
+type Token = { tag: Int64, value: Float64 }
+
+function mk_num(v: Float64) -> Token { { tag: 0, value: v } }
+function mk_plus() -> Token { { tag: 1, value: 0.0 } }
+function mk_minus() -> Token { { tag: 2, value: 0.0 } }
+function mk_star() -> Token { { tag: 3, value: 0.0 } }
+function mk_slash() -> Token { { tag: 4, value: 0.0 } }
+function mk_lparen() -> Token { { tag: 5, value: 0.0 } }
+function mk_rparen() -> Token { { tag: 6, value: 0.0 } }
+function mk_eof() -> Token { { tag: 7, value: 0.0 } }
+
+// =============================================================================
+// AST Nodes (flat arena representation)
+// =============================================================================
+// tag: 0=Num, 1=Add, 2=Sub, 3=Mul, 4=Div
+// For Num: value holds the number, left/right unused
+// For binary ops: left/right hold indices into the pool
+
+type Node = { tag: Int64, value: Float64, left: Int64, right: Int64 }
+
+function mk_nnum(v: Float64) -> Node { { tag: 0, value: v, left: 0, right: 0 } }
+function mk_nadd(l: Int64, r: Int64) -> Node { { tag: 1, value: 0.0, left: l, right: r } }
+function mk_nsub(l: Int64, r: Int64) -> Node { { tag: 2, value: 0.0, left: l, right: r } }
+function mk_nmul(l: Int64, r: Int64) -> Node { { tag: 3, value: 0.0, left: l, right: r } }
+function mk_ndiv(l: Int64, r: Int64) -> Node { { tag: 4, value: 0.0, left: l, right: r } }
+
+// =============================================================================
+// Lexer
+// =============================================================================
+
+function is_digit_code(code: Int64) -> Bool {
+  code >= 48 and code <= 57
+}
+
+function is_ws_code(code: Int64) -> Bool {
+  code == 32 or code == 9 or code == 10 or code == 13
+}
+
+// Skip whitespace starting from pos
+function skip_ws(input: String, pos: Int64) -> Int64 {
+  match pos >= string_length(input) {
+    True -> pos,
+    False -> {
+      let code = char_code(char_at(input, pos));
+      match is_ws_code(code) {
+        True -> skip_ws(input, pos + 1),
+        False -> pos
+      }
+    }
+  }
+}
+
+// Read consecutive digit/dot characters into a string
+function read_num_str(input: String, pos: Int64, acc: String) -> String {
+  match pos >= string_length(input) {
+    True -> acc,
+    False -> {
+      let c = char_at(input, pos);
+      let code = char_code(c);
+      match is_digit_code(code) or code == 46 {
+        True -> read_num_str(input, pos + 1, acc ++ c),
+        False -> acc
+      }
+    }
+  }
+}
+
+// Parse a float from string, returning 0.0 on failure
+function parse_float(s: String) -> Float64 {
+  let result = string_to_float(s);
+  match result {
+    Some(v) -> v,
+    None -> 0.0
+  }
+}
+
+// Tokenize: convert input string to list of tokens
+function tokenize(input: String) -> List<Token> {
+  tokenize_loop(input, 0, [])
+}
+
+function tokenize_loop(input: String, pos: Int64, acc: List<Token>) -> List<Token> {
+  let p = skip_ws(input, pos);
+  match p >= string_length(input) {
+    True -> append(acc, mk_eof()),
+    False -> {
+      let code = char_code(char_at(input, p));
+      match code == 43 {
+        // '+'
+        True -> tokenize_loop(input, p + 1, append(acc, mk_plus())),
+        False -> match code == 45 {
+          // '-'
+          True -> tokenize_loop(input, p + 1, append(acc, mk_minus())),
+          False -> match code == 42 {
+            // '*'
+            True -> tokenize_loop(input, p + 1, append(acc, mk_star())),
+            False -> match code == 47 {
+              // '/'
+              True -> tokenize_loop(input, p + 1, append(acc, mk_slash())),
+              False -> match code == 40 {
+                // '('
+                True -> tokenize_loop(input, p + 1, append(acc, mk_lparen())),
+                False -> match code == 41 {
+                  // ')'
+                  True -> tokenize_loop(input, p + 1, append(acc, mk_rparen())),
+                  False -> match is_digit_code(code) {
+                    True -> {
+                      let num_str = read_num_str(input, p, "");
+                      let new_pos = p + string_length(num_str);
+                      let value = parse_float(num_str);
+                      tokenize_loop(input, new_pos, append(acc, mk_num(value)))
+                    },
+                    False -> tokenize_loop(input, p + 1, acc)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Parser (recursive descent with operator precedence)
+// =============================================================================
+
+type ParseResult = { pool: List<Node>, pos: Int64, idx: Int64 }
+
+function tok_at(tokens: List<Token>, pos: Int64) -> Token {
+  match pos >= length(tokens) {
+    True -> mk_eof(),
+    False -> nth(tokens, pos)
+  }
+}
+
+// Parse expression: term (('+' | '-') term)*
+function parse_expr(tokens: List<Token>, pool: List<Node>, pos: Int64) -> ParseResult {
+  let left = parse_term(tokens, pool, pos);
+  parse_expr_rest(tokens, left.pool, left.pos, left.idx)
+}
+
+function parse_expr_rest(tokens: List<Token>, pool: List<Node>, pos: Int64, left_idx: Int64) -> ParseResult {
+  let tok = tok_at(tokens, pos);
+  match tok.tag == 1 {
+    // Plus
+    True -> {
+      let right = parse_term(tokens, pool, pos + 1);
+      let new_pool = append(right.pool, mk_nadd(left_idx, right.idx));
+      let new_idx = length(new_pool) - 1;
+      parse_expr_rest(tokens, new_pool, right.pos, new_idx)
+    },
+    False -> match tok.tag == 2 {
+      // Minus
+      True -> {
+        let right = parse_term(tokens, pool, pos + 1);
+        let new_pool = append(right.pool, mk_nsub(left_idx, right.idx));
+        let new_idx = length(new_pool) - 1;
+        parse_expr_rest(tokens, new_pool, right.pos, new_idx)
+      },
+      False -> { pool: pool, pos: pos, idx: left_idx }
+    }
+  }
+}
+
+// Parse term: factor (('*' | '/') factor)*
+function parse_term(tokens: List<Token>, pool: List<Node>, pos: Int64) -> ParseResult {
+  let left = parse_factor(tokens, pool, pos);
+  parse_term_rest(tokens, left.pool, left.pos, left.idx)
+}
+
+function parse_term_rest(tokens: List<Token>, pool: List<Node>, pos: Int64, left_idx: Int64) -> ParseResult {
+  let tok = tok_at(tokens, pos);
+  match tok.tag == 3 {
+    // Star
+    True -> {
+      let right = parse_factor(tokens, pool, pos + 1);
+      let new_pool = append(right.pool, mk_nmul(left_idx, right.idx));
+      let new_idx = length(new_pool) - 1;
+      parse_term_rest(tokens, new_pool, right.pos, new_idx)
+    },
+    False -> match tok.tag == 4 {
+      // Slash
+      True -> {
+        let right = parse_factor(tokens, pool, pos + 1);
+        let new_pool = append(right.pool, mk_ndiv(left_idx, right.idx));
+        let new_idx = length(new_pool) - 1;
+        parse_term_rest(tokens, new_pool, right.pos, new_idx)
+      },
+      False -> { pool: pool, pos: pos, idx: left_idx }
+    }
+  }
+}
+
+// Parse factor: number | '(' expression ')'
+function parse_factor(tokens: List<Token>, pool: List<Node>, pos: Int64) -> ParseResult {
+  let tok = tok_at(tokens, pos);
+  match tok.tag == 0 {
+    // Number
+    True -> {
+      let new_pool = append(pool, mk_nnum(tok.value));
+      let idx = length(new_pool) - 1;
+      { pool: new_pool, pos: pos + 1, idx: idx }
+    },
+    False -> match tok.tag == 5 {
+      // LParen
+      True -> {
+        let inner = parse_expr(tokens, pool, pos + 1);
+        // Skip closing paren
+        { pool: inner.pool, pos: inner.pos + 1, idx: inner.idx }
+      },
+      // Error recovery: return 0
+      False -> {
+        let new_pool = append(pool, mk_nnum(0.0));
+        let idx = length(new_pool) - 1;
+        { pool: new_pool, pos: pos, idx: idx }
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Evaluator
+// =============================================================================
+
+function eval_node(pool: List<Node>, idx: Int64) -> Float64 {
+  let node = nth(pool, idx);
+  match node.tag == 0 {
+    True -> node.value,
+    False -> {
+      let left_val = eval_node(pool, node.left);
+      let right_val = eval_node(pool, node.right);
+      match node.tag == 1 {
+        True -> left_val + right_val,
+        False -> match node.tag == 2 {
+          True -> left_val - right_val,
+          False -> match node.tag == 3 {
+            True -> left_val * right_val,
+            False -> left_val / right_val
+          }
+        }
+      }
+    }
+  }
+}
+
+// Convenience: parse and evaluate a string expression
+function evaluate(input: String) -> Float64 {
+  let tokens = tokenize(input);
+  let result = parse_expr(tokens, [], 0);
+  eval_node(result.pool, result.idx)
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_simple_number() -> Unit {
+  assert_eq_float(evaluate("42"), 42.0)
+}
+
+effect[Test] function test_addition() -> Unit {
+  assert_eq_float(evaluate("2 + 3"), 5.0)
+}
+
+effect[Test] function test_subtraction() -> Unit {
+  assert_eq_float(evaluate("10 - 4"), 6.0)
+}
+
+effect[Test] function test_multiplication() -> Unit {
+  assert_eq_float(evaluate("3 * 7"), 21.0)
+}
+
+effect[Test] function test_division() -> Unit {
+  assert_eq_float(evaluate("15 / 3"), 5.0)
+}
+
+effect[Test] function test_precedence() -> Unit {
+  // 2 + 3 * 5 = 2 + 15 = 17 (not 25)
+  assert_eq_float(evaluate("2 + 3 * 5"), 17.0)
+}
+
+effect[Test] function test_parentheses() -> Unit {
+  // (2 + 3) * 5 = 25
+  assert_eq_float(evaluate("(2 + 3) * 5"), 25.0)
+}
+
+effect[Test] function test_complex_expr() -> Unit {
+  // (10 - 2) * (3 + 1) / 4 = 8 * 4 / 4 = 8
+  assert_eq_float(evaluate("(10 - 2) * (3 + 1) / 4"), 8.0)
+}
+
+effect[Test] function test_decimal() -> Unit {
+  assert_eq_float(evaluate("3.14"), 3.14)
+}

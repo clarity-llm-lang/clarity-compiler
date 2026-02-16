@@ -2064,6 +2064,7 @@ export class CodeGenerator {
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
       contains: BOOL, index_of: INT64, trim: { kind: "String" },
+      char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
       split: { kind: "List", element: { kind: "String" } } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
