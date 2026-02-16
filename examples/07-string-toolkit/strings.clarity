@@ -1,0 +1,316 @@
+module StringToolkit
+
+// =============================================================================
+// Character Classification
+// =============================================================================
+
+function is_uppercase(ch: String) -> Bool {
+  let code = char_code(ch);
+  code >= 65 and code <= 90
+}
+
+function is_lowercase(ch: String) -> Bool {
+  let code = char_code(ch);
+  code >= 97 and code <= 122
+}
+
+function is_alphabetic(ch: String) -> Bool {
+  is_uppercase(ch) or is_lowercase(ch)
+}
+
+function is_digit(ch: String) -> Bool {
+  let code = char_code(ch);
+  code >= 48 and code <= 57
+}
+
+function is_whitespace(ch: String) -> Bool {
+  let code = char_code(ch);
+  code == 32 or code == 9 or code == 10 or code == 13
+}
+
+function is_alphanumeric(ch: String) -> Bool {
+  is_alphabetic(ch) or is_digit(ch)
+}
+
+// =============================================================================
+// Case Conversion
+// =============================================================================
+
+function to_uppercase_char(ch: String) -> String {
+  let code = char_code(ch);
+  match code >= 97 and code <= 122 {
+    True -> char_from_code(code - 32),
+    False -> ch
+  }
+}
+
+function to_lowercase_char(ch: String) -> String {
+  let code = char_code(ch);
+  match code >= 65 and code <= 90 {
+    True -> char_from_code(code + 32),
+    False -> ch
+  }
+}
+
+function to_uppercase(s: String) -> String {
+  to_uppercase_helper(s, 0, "")
+}
+
+function to_uppercase_helper(s: String, idx: Int64, acc: String) -> String {
+  match idx >= string_length(s) {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, idx);
+      let upper = to_uppercase_char(ch);
+      to_uppercase_helper(s, idx + 1, acc ++ upper)
+    }
+  }
+}
+
+function to_lowercase(s: String) -> String {
+  to_lowercase_helper(s, 0, "")
+}
+
+function to_lowercase_helper(s: String, idx: Int64, acc: String) -> String {
+  match idx >= string_length(s) {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, idx);
+      let lower = to_lowercase_char(ch);
+      to_lowercase_helper(s, idx + 1, acc ++ lower)
+    }
+  }
+}
+
+// =============================================================================
+// String Transformations
+// =============================================================================
+
+function reverse_string(s: String) -> String {
+  reverse_helper(s, string_length(s) - 1, "")
+}
+
+function reverse_helper(s: String, idx: Int64, acc: String) -> String {
+  match idx < 0 {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, idx);
+      reverse_helper(s, idx - 1, acc ++ ch)
+    }
+  }
+}
+
+function repeat(s: String, n: Int64) -> String {
+  match n <= 0 {
+    True -> "",
+    False -> s ++ repeat(s, n - 1)
+  }
+}
+
+// =============================================================================
+// String Validation
+// =============================================================================
+
+function is_palindrome(s: String) -> Bool {
+  is_palindrome_helper(s, 0, string_length(s) - 1)
+}
+
+function is_palindrome_helper(s: String, left: Int64, right: Int64) -> Bool {
+  match left >= right {
+    True -> True,
+    False -> {
+      let ch_left = char_at(s, left);
+      let ch_right = char_at(s, right);
+      match string_eq(ch_left, ch_right) {
+        False -> False,
+        True -> is_palindrome_helper(s, left + 1, right - 1)
+      }
+    }
+  }
+}
+
+function starts_with(s: String, prefix: String) -> Bool {
+  let s_len = string_length(s);
+  let p_len = string_length(prefix);
+  match p_len > s_len {
+    True -> False,
+    False -> string_eq(substring(s, 0, p_len), prefix)
+  }
+}
+
+function ends_with(s: String, suffix: String) -> Bool {
+  let s_len = string_length(s);
+  let suf_len = string_length(suffix);
+  match suf_len > s_len {
+    True -> False,
+    False -> string_eq(substring(s, s_len - suf_len, s_len), suffix)
+  }
+}
+
+// =============================================================================
+// String Analysis
+// =============================================================================
+
+function count_char(s: String, target: String) -> Int64 {
+  count_char_helper(s, target, 0, 0)
+}
+
+function count_char_helper(s: String, target: String, idx: Int64, acc: Int64) -> Int64 {
+  match idx >= string_length(s) {
+    True -> acc,
+    False -> {
+      let ch = char_at(s, idx);
+      let next = match string_eq(ch, target) {
+        True -> acc + 1,
+        False -> acc
+      };
+      count_char_helper(s, target, idx + 1, next)
+    }
+  }
+}
+
+function find_char(s: String, target: String) -> Int64 {
+  find_char_helper(s, target, 0)
+}
+
+function find_char_helper(s: String, target: String, idx: Int64) -> Int64 {
+  match idx >= string_length(s) {
+    True -> 0 - 1,
+    False -> {
+      let ch = char_at(s, idx);
+      match string_eq(ch, target) {
+        True -> idx,
+        False -> find_char_helper(s, target, idx + 1)
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Whitespace Operations
+// =============================================================================
+
+function trim_left(s: String) -> String {
+  trim_left_helper(s, 0)
+}
+
+function trim_left_helper(s: String, idx: Int64) -> String {
+  match idx >= string_length(s) {
+    True -> "",
+    False -> {
+      let ch = char_at(s, idx);
+      match is_whitespace(ch) {
+        True -> trim_left_helper(s, idx + 1),
+        False -> substring(s, idx, string_length(s))
+      }
+    }
+  }
+}
+
+function trim_right(s: String) -> String {
+  trim_right_helper(s, string_length(s) - 1)
+}
+
+function trim_right_helper(s: String, idx: Int64) -> String {
+  match idx < 0 {
+    True -> "",
+    False -> {
+      let ch = char_at(s, idx);
+      match is_whitespace(ch) {
+        True -> trim_right_helper(s, idx - 1),
+        False -> substring(s, 0, idx + 1)
+      }
+    }
+  }
+}
+
+function trim_both(s: String) -> String {
+  trim_left(trim_right(s))
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_reverse() -> Unit {
+  assert_eq_string(reverse_string("hello"), "olleh");
+  assert_eq_string(reverse_string(""), "");
+  assert_eq_string(reverse_string("a"), "a")
+}
+
+effect[Test] function test_palindrome() -> Unit {
+  assert_true(is_palindrome("racecar"));
+  assert_true(is_palindrome("abba"));
+  assert_true(is_palindrome("a"));
+  assert_false(is_palindrome("hello"));
+  assert_true(is_palindrome(""))
+}
+
+effect[Test] function test_uppercase() -> Unit {
+  assert_eq_string(to_uppercase("hello"), "HELLO");
+  assert_eq_string(to_uppercase("Hello123"), "HELLO123");
+  assert_eq_string(to_uppercase("ALREADY"), "ALREADY")
+}
+
+effect[Test] function test_lowercase() -> Unit {
+  assert_eq_string(to_lowercase("HELLO"), "hello");
+  assert_eq_string(to_lowercase("Hello123"), "hello123");
+  assert_eq_string(to_lowercase("already"), "already")
+}
+
+effect[Test] function test_contains_builtin() -> Unit {
+  assert_true(contains("hello world", "world"));
+  assert_true(contains("foobar", "foo"));
+  assert_false(contains("hello", "bye"));
+  assert_true(contains("same", "same"))
+}
+
+effect[Test] function test_count_char() -> Unit {
+  assert_eq(count_char("hello", "l"), 2);
+  assert_eq(count_char("mississippi", "i"), 4);
+  assert_eq(count_char("foo", "x"), 0)
+}
+
+effect[Test] function test_is_alphabetic() -> Unit {
+  assert_true(is_alphabetic("a"));
+  assert_true(is_alphabetic("Z"));
+  assert_false(is_alphabetic("5"));
+  assert_false(is_alphabetic(" "))
+}
+
+effect[Test] function test_is_digit() -> Unit {
+  assert_true(is_digit("0"));
+  assert_true(is_digit("9"));
+  assert_false(is_digit("a"));
+  assert_false(is_digit(" "))
+}
+
+effect[Test] function test_starts_with() -> Unit {
+  assert_true(starts_with("hello world", "hello"));
+  assert_false(starts_with("hello world", "world"));
+  assert_true(starts_with("same", "same"))
+}
+
+effect[Test] function test_ends_with() -> Unit {
+  assert_true(ends_with("hello world", "world"));
+  assert_false(ends_with("hello world", "hello"));
+  assert_true(ends_with("same", "same"))
+}
+
+effect[Test] function test_repeat() -> Unit {
+  assert_eq_string(repeat("ab", 3), "ababab");
+  assert_eq_string(repeat("x", 0), "");
+  assert_eq_string(repeat("hello", 1), "hello")
+}
+
+effect[Test] function test_trim() -> Unit {
+  assert_eq_string(trim_both("  hello  "), "hello");
+  assert_eq_string(trim_left("  hello"), "hello");
+  assert_eq_string(trim_right("hello  "), "hello");
+  assert_eq_string(trim_both("no-ws"), "no-ws")
+}
+
+effect[Test] function test_find_char() -> Unit {
+  assert_eq(find_char("hello", "e"), 1);
+  assert_eq(find_char("hello", "x"), 0 - 1)
+}
