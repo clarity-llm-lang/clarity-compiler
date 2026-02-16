@@ -22,6 +22,10 @@ module ModuleName
 import { add, multiply } from "math"        // imports math.clarity
 import { User, save_user } from "./db/models" // relative path
 
+// Import from the standard library
+import { abs, clamp, sign } from "std/math"
+import { length, repeat, to_int } from "std/string"
+
 // Export makes declarations available to importers
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
 export type Color = | Red | Green | Blue
@@ -286,7 +290,7 @@ Support programs larger than a single file.
 1. ✓ **Import/export syntax** — `import { User } from "models"`, `export function`, `export type`.
 2. ✓ **Module resolution** — File-based resolution. `"math"` → `math.clarity` relative to importing file.
 3. ✓ **Merge compilation** — All imported modules compiled into a single WASM binary. Entry module's functions exported as WASM exports.
-4. **Standard library** — `std.string`, `std.math`, `std.list`.
+4. ✓ **Standard library** — `std/math` (abs, min, max, clamp, sign, is_even, is_odd), `std/string` (length, repeat, strip, to_int, to_float, etc.). `std/list` deferred until cross-module generics work.
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable beyond demos.
@@ -357,6 +361,7 @@ npx clarityc introspect --effects    # all effects with their function lists
 - `src/registry/builtins-registry.ts` — Single source of truth for built-in functions and effects
 - `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
 - `src/codegen/builtins.ts` — WASM import declarations (codegen internals)
+- `std/` — Standard library (Clarity source files: `math.clarity`, `string.clarity`)
 - `examples/` — Example Clarity programs
 - `tests/` — Test suite
 - `docs/grammar.peg` — Formal grammar

@@ -1,0 +1,62 @@
+module Math
+
+// Absolute value of an integer
+export function abs(n: Int64) -> Int64 {
+  abs_int(n)
+}
+
+// Minimum of two integers
+export function min(a: Int64, b: Int64) -> Int64 {
+  min_int(a, b)
+}
+
+// Maximum of two integers
+export function max(a: Int64, b: Int64) -> Int64 {
+  max_int(a, b)
+}
+
+// Square root (Float64)
+export function square_root(x: Float64) -> Float64 {
+  sqrt(x)
+}
+
+// Power (Float64)
+export function power(base: Float64, exp: Float64) -> Float64 {
+  pow(base, exp)
+}
+
+// Floor (Float64 -> Float64)
+export function floor_f(x: Float64) -> Float64 {
+  floor(x)
+}
+
+// Ceiling (Float64 -> Float64)
+export function ceil_f(x: Float64) -> Float64 {
+  ceil(x)
+}
+
+// Clamp an integer to a range [lo, hi]
+export function clamp(n: Int64, lo: Int64, hi: Int64) -> Int64 {
+  min_int(max_int(n, lo), hi)
+}
+
+// Sign of an integer: -1, 0, or 1
+export function sign(n: Int64) -> Int64 {
+  match n > 0 {
+    True -> 1,
+    False -> match n < 0 {
+      True -> 0 - 1,
+      False -> 0
+    }
+  }
+}
+
+// Check if an integer is even
+export function is_even(n: Int64) -> Bool {
+  n % 2 == 0
+}
+
+// Check if an integer is odd
+export function is_odd(n: Int64) -> Bool {
+  n % 2 != 0
+}

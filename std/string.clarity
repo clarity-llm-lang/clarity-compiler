@@ -1,0 +1,68 @@
+module StdString
+
+// String length
+export function length(s: String) -> Int64 {
+  string_length(s)
+}
+
+// Concatenate two strings
+export function concat(a: String, b: String) -> String {
+  a ++ b
+}
+
+// Check if a string contains a substring
+export function has(haystack: String, needle: String) -> Bool {
+  contains(haystack, needle)
+}
+
+// Find index of substring (-1 if not found)
+export function find(haystack: String, needle: String) -> Int64 {
+  index_of(haystack, needle)
+}
+
+// Trim whitespace from both ends
+export function strip(s: String) -> String {
+  trim(s)
+}
+
+// Get a substring
+export function slice(s: String, start: Int64, len: Int64) -> String {
+  substring(s, start, len)
+}
+
+// Get character at index (empty string if out of bounds)
+export function at(s: String, index: Int64) -> String {
+  char_at(s, index)
+}
+
+// Split a string by delimiter
+export function split_by(s: String, delim: String) -> List<String> {
+  split(s, delim)
+}
+
+// Check if a string is empty
+export function is_blank(s: String) -> Bool {
+  string_length(s) == 0
+}
+
+// Repeat a string n times
+export function repeat(s: String, n: Int64) -> String {
+  repeat_helper(s, n, "")
+}
+
+function repeat_helper(s: String, remaining: Int64, acc: String) -> String {
+  match remaining <= 0 {
+    True -> acc,
+    False -> repeat_helper(s, remaining - 1, acc ++ s)
+  }
+}
+
+// Parse string to Int64 (returns Option<Int64>)
+export function to_int(s: String) -> Option<Int64> {
+  string_to_int(s)
+}
+
+// Parse string to Float64 (returns Option<Float64>)
+export function to_float(s: String) -> Option<Float64> {
+  string_to_float(s)
+}

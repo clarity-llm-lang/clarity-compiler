@@ -1755,3 +1755,59 @@ describe("Module system (import/export)", () => {
     expect(use_helper()).toBe(15n);
   });
 });
+
+describe("Standard library (std/)", () => {
+  function setupStdTest(mainSource: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-std-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), mainSource);
+    return dir;
+  }
+
+  it("imports std/math functions", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { abs, clamp, sign, is_even } from "std/math"
+      function test_abs() -> Int64 { abs(0 - 5) }
+      function test_clamp() -> Int64 { clamp(15, 0, 10) }
+      function test_sign() -> Int64 { sign(0 - 42) }
+      function test_even() -> Bool { is_even(4) }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_abs as () => bigint)()).toBe(5n);
+    expect((instance.exports.test_clamp as () => bigint)()).toBe(10n);
+    expect((instance.exports.test_sign as () => bigint)()).toBe(-1n);
+    expect((instance.exports.test_even as () => number)()).toBe(1);
+  });
+
+  it("imports std/string functions", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { length, repeat, is_blank, to_int } from "std/string"
+      function test_length() -> Int64 { length("hello") }
+      function test_repeat() -> String { repeat("ab", 3) }
+      function test_blank() -> Bool { is_blank("") }
+      function test_to_int() -> Int64 {
+        match to_int("99") {
+          Some(v) -> v,
+          None -> 0
+        }
+      }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_length as () => bigint)()).toBe(5n);
+    const repeatResult = (instance.exports.test_repeat as () => number)();
+    expect(runtime.readString(repeatResult)).toBe("ababab");
+    expect((instance.exports.test_blank as () => number)()).toBe(1);
+    expect((instance.exports.test_to_int as () => bigint)()).toBe(99n);
+  });
+});

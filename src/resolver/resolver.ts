@@ -1,9 +1,14 @@
 import * as path from "path";
 import * as fs from "fs";
+import { fileURLToPath } from "url";
 import { Lexer } from "../lexer/lexer.js";
 import { Parser } from "../parser/parser.js";
 import type { ModuleDecl } from "../ast/nodes.js";
 import type { Diagnostic } from "../errors/diagnostic.js";
+
+// Directory containing the bundled standard library
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STD_DIR = path.resolve(__dirname, "../../std");
 
 export interface ResolvedModule {
   /** The absolute path to the .clarity file */
@@ -82,8 +87,14 @@ export function resolveModules(
  * Resolve a module path relative to the importing file.
  * "math" → same_dir/math.clarity
  * "./utils/math" → relative_dir/utils/math.clarity
+ * "std/math" → <compiler>/std/math.clarity (standard library)
  */
 export function resolveModulePath(importerPath: string, modulePath: string): string {
+  // Standard library: "std/..." resolves to the compiler's bundled std/ directory
+  if (modulePath.startsWith("std/")) {
+    const withExt = modulePath.endsWith(".clarity") ? modulePath : modulePath + ".clarity";
+    return path.resolve(STD_DIR, withExt.slice(4)); // strip "std/" prefix
+  }
   const dir = path.dirname(importerPath);
   // Add .clarity extension if not present
   const withExt = modulePath.endsWith(".clarity") ? modulePath : modulePath + ".clarity";

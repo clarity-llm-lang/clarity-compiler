@@ -11,7 +11,9 @@ module ModuleName
 
 ## Imports and exports
 ```
-import { add, User } from "math"      // imports math.clarity from same directory
+import { add, User } from "math"           // imports math.clarity from same directory
+import { abs, clamp } from "std/math"      // standard library import
+import { length, repeat } from "std/string"
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
 export type Color = | Red | Green | Blue
 ```
