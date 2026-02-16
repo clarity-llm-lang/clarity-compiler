@@ -1,0 +1,251 @@
+module LinearRegression
+
+// Data point with x and y coordinates
+type Point = {
+  x: Float64,
+  y: Float64
+}
+
+// Linear model: y = slope * x + intercept
+type LinearModel = {
+  slope: Float64,
+  intercept: Float64
+}
+
+// Extract x coordinate from a point
+function get_x(p: Point) -> Float64 {
+  p.x
+}
+
+// Extract y coordinate from a point
+function get_y(p: Point) -> Float64 {
+  p.y
+}
+
+// Sum a specific field across all points using a getter function
+function sum_of(points: List<Point>, getter: (Point) -> Float64) -> Float64 {
+  match is_empty(points) {
+    True -> 0.0,
+    False -> getter(head(points)) + sum_of(tail(points), getter)
+  }
+}
+
+// Sum of x*y products for all points
+function sum_of_products(points: List<Point>) -> Float64 {
+  match is_empty(points) {
+    True -> 0.0,
+    False -> {
+      let p = head(points);
+      p.x * p.y + sum_of_products(tail(points))
+    }
+  }
+}
+
+// Sum of squares of a specific field
+function sum_of_squares(points: List<Point>, getter: (Point) -> Float64) -> Float64 {
+  match is_empty(points) {
+    True -> 0.0,
+    False -> {
+      let val = getter(head(points));
+      val * val + sum_of_squares(tail(points), getter)
+    }
+  }
+}
+
+// Compute linear regression using least squares method
+// Formula:
+//   slope = (n * Σ(xy) - Σx * Σy) / (n * Σ(x²) - (Σx)²)
+//   intercept = (Σy - slope * Σx) / n
+function linear_regression(points: List<Point>) -> LinearModel {
+  let n = int_to_float(length(points));
+  let sum_x = sum_of(points, get_x);
+  let sum_y = sum_of(points, get_y);
+  let sum_xy = sum_of_products(points);
+  let sum_x_squared = sum_of_squares(points, get_x);
+
+  // Calculate slope: m = (n * Σ(xy) - Σx * Σy) / (n * Σ(x²) - (Σx)²)
+  let numerator = n * sum_xy - sum_x * sum_y;
+  let denominator = n * sum_x_squared - sum_x * sum_x;
+  let slope = numerator / denominator;
+
+  // Calculate intercept: b = (Σy - m * Σx) / n
+  let intercept = (sum_y - slope * sum_x) / n;
+
+  { slope: slope, intercept: intercept }
+}
+
+// Predict y value for a given x using the linear model
+function predict(model: LinearModel, x: Float64) -> Float64 {
+  model.slope * x + model.intercept
+}
+
+// Calculate sum of squared errors between actual and predicted values
+function sum_squared_errors(model: LinearModel, points: List<Point>) -> Float64 {
+  match is_empty(points) {
+    True -> 0.0,
+    False -> {
+      let p = head(points);
+      let predicted = predict(model, p.x);
+      let error = p.y - predicted;
+      error * error + sum_squared_errors(model, tail(points))
+    }
+  }
+}
+
+// Calculate mean of y values
+function mean_y(points: List<Point>) -> Float64 {
+  let sum = sum_of(points, get_y);
+  let n = int_to_float(length(points));
+  sum / n
+}
+
+// Calculate sum of squared differences from mean
+function sum_squared_total(points: List<Point>, mean: Float64) -> Float64 {
+  match is_empty(points) {
+    True -> 0.0,
+    False -> {
+      let p = head(points);
+      let diff = p.y - mean;
+      diff * diff + sum_squared_total(tail(points), mean)
+    }
+  }
+}
+
+// Calculate R² (coefficient of determination)
+// R² = 1 - (SS_residual / SS_total)
+// R² close to 1 means good fit, close to 0 means poor fit
+function r_squared(model: LinearModel, points: List<Point>) -> Float64 {
+  let mean = mean_y(points);
+  let ss_total = sum_squared_total(points, mean);
+  let ss_residual = sum_squared_errors(model, points);
+  1.0 - (ss_residual / ss_total)
+}
+
+// Demo: fit a linear model to sample data
+effect[Log] function demo() -> Unit {
+  // Sample data: approximately y = 2x + 1
+  let points = [
+    { x: 1.0, y: 3.1 },
+    { x: 2.0, y: 5.2 },
+    { x: 3.0, y: 6.9 },
+    { x: 4.0, y: 9.1 },
+    { x: 5.0, y: 10.8 }
+  ];
+
+  let model = linear_regression(points);
+
+  print_string("Linear Regression Results:");
+  print_string("Slope (m): " ++ float_to_string(model.slope));
+  print_string("Intercept (b): " ++ float_to_string(model.intercept));
+  print_string("");
+
+  // Make predictions
+  let x_test = 6.0;
+  let prediction = predict(model, x_test);
+  print_string("Prediction for x=" ++ float_to_string(x_test) ++ ": " ++ float_to_string(prediction));
+  print_string("");
+
+  // Calculate goodness of fit
+  let r2 = r_squared(model, points);
+  print_string("R² (coefficient of determination): " ++ float_to_string(r2));
+  print_string("(R² close to 1.0 indicates a good fit)")
+}
+
+// Test cases
+
+effect[Test] function test_perfect_linear_fit() -> Unit {
+  // Perfect line: y = 2x + 1
+  let points = [
+    { x: 1.0, y: 3.0 },
+    { x: 2.0, y: 5.0 },
+    { x: 3.0, y: 7.0 },
+    { x: 4.0, y: 9.0 },
+    { x: 5.0, y: 11.0 }
+  ];
+
+  let model = linear_regression(points);
+
+  // Should recover exact slope and intercept
+  assert_eq_float(model.slope, 2.0);
+  assert_eq_float(model.intercept, 1.0);
+
+  // R² should be 1.0 for perfect fit
+  let r2 = r_squared(model, points);
+  assert_eq_float(r2, 1.0)
+}
+
+effect[Test] function test_horizontal_line() -> Unit {
+  // Horizontal line: y = 5 (slope = 0)
+  let points = [
+    { x: 1.0, y: 5.0 },
+    { x: 2.0, y: 5.0 },
+    { x: 3.0, y: 5.0 },
+    { x: 4.0, y: 5.0 }
+  ];
+
+  let model = linear_regression(points);
+
+  assert_eq_float(model.slope, 0.0);
+  assert_eq_float(model.intercept, 5.0)
+}
+
+effect[Test] function test_negative_slope() -> Unit {
+  // Line: y = -1.5x + 10
+  let points = [
+    { x: 0.0, y: 10.0 },
+    { x: 2.0, y: 7.0 },
+    { x: 4.0, y: 4.0 },
+    { x: 6.0, y: 1.0 }
+  ];
+
+  let model = linear_regression(points);
+
+  assert_eq_float(model.slope, 0.0 - 1.5);
+  assert_eq_float(model.intercept, 10.0)
+}
+
+effect[Test] function test_prediction() -> Unit {
+  // Line: y = 3x + 2
+  let points = [
+    { x: 1.0, y: 5.0 },
+    { x: 2.0, y: 8.0 },
+    { x: 3.0, y: 11.0 }
+  ];
+
+  let model = linear_regression(points);
+
+  // Predict for x = 4 (should be 14.0)
+  let pred = predict(model, 4.0);
+  assert_eq_float(pred, 14.0);
+
+  // Predict for x = 0 (should be intercept: 2.0)
+  let pred0 = predict(model, 0.0);
+  assert_eq_float(pred0, 2.0)
+}
+
+effect[Test] function test_two_points() -> Unit {
+  // Two points define a line exactly
+  let points = [
+    { x: 0.0, y: 1.0 },
+    { x: 1.0, y: 3.0 }
+  ];
+
+  let model = linear_regression(points);
+
+  assert_eq_float(model.slope, 2.0);
+  assert_eq_float(model.intercept, 1.0)
+}
+
+effect[Test] function test_r_squared_perfect_fit() -> Unit {
+  // Perfect fit should have R² = 1.0
+  let points = [
+    { x: 1.0, y: 2.0 },
+    { x: 2.0, y: 4.0 },
+    { x: 3.0, y: 6.0 }
+  ];
+
+  let model = linear_regression(points);
+  let r2 = r_squared(model, points);
+
+  assert_eq_float(r2, 1.0)
+}
