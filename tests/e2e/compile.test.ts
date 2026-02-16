@@ -1811,3 +1811,56 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_to_int as () => bigint)()).toBe(99n);
   });
 });
+
+describe("String interning", () => {
+  it("deduplicates identical runtime strings (int_to_string)", async () => {
+    const source = `
+      module Test
+      function make_str_a() -> String { int_to_string(42) }
+      function make_str_b() -> String { int_to_string(42) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const a = (instance.exports.make_str_a as () => number)();
+    const b = (instance.exports.make_str_b as () => number)();
+    // Same value → same interned pointer
+    expect(a).toBe(b);
+  });
+
+  it("deduplicates identical concat results", async () => {
+    const source = `
+      module Test
+      function greet_a() -> String { "hello" ++ " world" }
+      function greet_b() -> String { "hello" ++ " world" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const a = (instance.exports.greet_a as () => number)();
+    const b = (instance.exports.greet_b as () => number)();
+    expect(runtime.readString(a)).toBe("hello world");
+    // Same concat result → same interned pointer
+    expect(a).toBe(b);
+  });
+
+  it("different strings get different pointers", async () => {
+    const source = `
+      module Test
+      function str_a() -> String { int_to_string(1) }
+      function str_b() -> String { int_to_string(2) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const a = (instance.exports.str_a as () => number)();
+    const b = (instance.exports.str_b as () => number)();
+    expect(a).not.toBe(b);
+  });
+});
