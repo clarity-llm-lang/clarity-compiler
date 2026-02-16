@@ -325,6 +325,111 @@ function generateFixHint(failure: { kind: string; actual: string; expected: stri
 }
 
 program
+  .command("repl")
+  .description("Start an interactive Clarity REPL")
+  .action(async () => {
+    const readline = await import("node:readline");
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    // Accumulated declarations for the REPL session
+    const declarations: string[] = [];
+    let evalCounter = 0;
+
+    console.log("Clarity REPL v0.2.1 — Type expressions or declarations. Ctrl+D to exit.");
+
+    const prompt = () => new Promise<string | null>((resolve) => {
+      rl.question("clarity> ", (answer) => resolve(answer));
+      rl.once("close", () => resolve(null));
+    });
+
+    while (true) {
+      const line = await prompt();
+      if (line === null) { console.log("\nBye!"); break; }
+      const input = line.trim();
+      if (!input) continue;
+
+      // Determine if input is a declaration or an expression
+      const isDecl = /^(export\s+)?(function|type|effect\[)/.test(input);
+
+      if (isDecl) {
+        declarations.push(input);
+        const moduleSource = `module REPL\n${declarations.join("\n")}\n`;
+        const checkResult = compile(moduleSource, "<repl>", { checkOnly: true });
+        if (checkResult.errors.length > 0) {
+          declarations.pop();
+          for (const err of checkResult.errors) {
+            console.error(`error: ${err.message}`);
+          }
+        } else {
+          console.log("(defined)");
+        }
+      } else {
+        // Treat as expression — wrap in a temporary eval function
+        const evalFnName = `__repl_eval_${evalCounter++}`;
+
+        // Try common return types until one compiles
+        let compiled = false;
+        for (const retType of ["Int64", "Float64", "String", "Bool", "Timestamp", "Bytes", "Unit"]) {
+          const trySource = `module REPL\n${declarations.join("\n")}\nfunction ${evalFnName}() -> ${retType} {\n  ${input}\n}\n`;
+          const tryResult = compile(trySource, "<repl>");
+          if (tryResult.errors.length === 0 && tryResult.wasm) {
+            await runReplEval(tryResult.wasm, evalFnName);
+            compiled = true;
+            break;
+          }
+        }
+
+        if (!compiled) {
+          const errSource = `module REPL\n${declarations.join("\n")}\nfunction ${evalFnName}() -> Int64 {\n  ${input}\n}\n`;
+          const errResult = compile(errSource, "<repl>");
+          for (const err of errResult.errors) {
+            console.error(`error: ${err.message}`);
+          }
+        }
+      }
+    }
+
+    rl.close();
+    process.exit(0);
+
+    async function runReplEval(wasm: Uint8Array, fnName: string) {
+      try {
+        const runtime = createRuntime();
+        const { instance } = await WebAssembly.instantiate(wasm as BufferSource, runtime.imports);
+        const exportedMemory = instance.exports.memory as WebAssembly.Memory;
+        if (exportedMemory) runtime.bindMemory(exportedMemory);
+        const heapBase = instance.exports.__heap_base;
+        if (heapBase && typeof (heapBase as WebAssembly.Global).value === "number") {
+          runtime.setHeapBase((heapBase as WebAssembly.Global).value);
+        }
+        const fn = instance.exports[fnName] as Function;
+        if (!fn) { console.error("(eval function not found)"); return; }
+        const result = fn();
+        if (result === undefined) return; // Unit
+        if (typeof result === "number" && result > 0 && result < runtime.memory.buffer.byteLength) {
+          try {
+            const str = runtime.readString(result);
+            if (str.length > 0 && str.length < 10000) {
+              console.log(`"${str}"`);
+              return;
+            }
+          } catch { /* not a string pointer */ }
+        }
+        if (typeof result === "bigint") {
+          console.log(result.toString());
+        } else {
+          console.log(result);
+        }
+      } catch (e) {
+        console.error(`runtime error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  });
+
+program
   .command("introspect")
   .description("Output language capabilities as JSON (for LLM consumption)")
   .option("--builtins", "Show only built-in functions")
