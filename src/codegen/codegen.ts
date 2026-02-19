@@ -1286,6 +1286,18 @@ export class CodeGenerator {
         // For pointer types (String, Record, etc.) use i32 getter
         return this.mod.call("list_get_i32", [listArg, indexArg], binaryen.i32);
       }
+      case "list_set": {
+        const listArg = this.generateExpr(expr.args[0].value);
+        const indexArg = this.generateExpr(expr.args[1].value);
+        const valueArg = this.generateExpr(expr.args[2].value);
+        const listType = this.inferExprType(expr.args[0].value);
+        if (listType.kind !== "List") return null;
+        const elemKind = listType.element.kind;
+        if (elemKind === "Int64" || elemKind === "Float64") {
+          return this.mod.call("list_set_i64", [listArg, indexArg, valueArg], binaryen.i32);
+        }
+        return this.mod.call("list_set_i32", [listArg, indexArg, valueArg], binaryen.i32);
+      }
       default:
         return null;
     }
@@ -1980,6 +1992,10 @@ export class CodeGenerator {
                 case "is_empty": return BOOL;
               }
             }
+          }
+          // list_set returns the same list type
+          if (name === "list_set" && expr.args.length > 0) {
+            return this.inferExprType(expr.args[0].value);
           }
           return this.inferFunctionReturnType(name);
         }

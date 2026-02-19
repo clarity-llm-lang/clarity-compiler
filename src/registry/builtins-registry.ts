@@ -450,6 +450,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Return the element at the given index (0-based). Traps if index is out of bounds.",
     category: "list",
   },
+  {
+    name: "list_set",
+    params: [LIST_T, INT64, T],
+    paramNames: ["list", "index", "value"],
+    returnType: LIST_T,
+    effects: [],
+    doc: "Return a new list with the element at the given index replaced (0-based). Traps if index is out of bounds.",
+    category: "list",
+  },
 
   // --- I/O primitives (require FileSystem effect) ---
   {
