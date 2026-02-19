@@ -97,6 +97,9 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "bytes_from_string", importModule: "env", importName: "bytes_from_string", params: i32, result: i32 },
     { name: "bytes_to_string", importModule: "env", importName: "bytes_to_string", params: i32, result: i32 },
 
+    // --- Crypto operations ---
+    { name: "sha256", importModule: "env", importName: "sha256", params: i32, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },

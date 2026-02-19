@@ -628,6 +628,17 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "bytes",
   },
 
+  // --- Crypto builtins ---
+  {
+    name: "sha256",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Compute the SHA-256 hash of a string and return the hex digest (64 lowercase hex chars).",
+    category: "crypto",
+  },
+
   // --- Timestamp builtins ---
   {
     name: "now",

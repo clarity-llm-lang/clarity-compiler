@@ -2092,6 +2092,8 @@ export class CodeGenerator {
       now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
       timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
       timestamp_add: TIMESTAMP, timestamp_diff: INT64,
+      // Crypto
+      sha256: { kind: "String" } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

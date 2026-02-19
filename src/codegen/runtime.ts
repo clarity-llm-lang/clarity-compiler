@@ -5,6 +5,7 @@
 // Strings are stored in WASM linear memory. A string pointer (i32) points to the length prefix.
 
 import * as nodeFs from "node:fs";
+import { createHash } from "node:crypto";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
 
 export interface RuntimeExports {
@@ -399,6 +400,13 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const bytes = new Uint8Array(memory.buffer, bytesPtr + 4, len);
         const str = new TextDecoder().decode(bytes);
         return writeString(str);
+      },
+
+      // --- Crypto operations ---
+      sha256(strPtr: number): number {
+        const str = readString(strPtr);
+        const hex = createHash("sha256").update(str).digest("hex");
+        return writeString(hex);
       },
 
       // --- Timestamp operations ---

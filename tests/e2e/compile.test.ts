@@ -1977,3 +1977,56 @@ describe("Bytes and Timestamp builtins", () => {
     expect(runtime.readString((instance.exports.test as () => number)())).toBe("Z");
   });
 });
+
+describe("Crypto builtins", () => {
+  it("sha256 returns correct hex digest for known inputs", async () => {
+    const source = `
+      module Test
+      function hash_empty() -> String { sha256("") }
+      function hash_hello() -> String { sha256("hello") }
+      function hash_abc() -> String { sha256("abc") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    // Known SHA-256 values
+    expect(runtime.readString((instance.exports.hash_empty as () => number)()))
+      .toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    expect(runtime.readString((instance.exports.hash_hello as () => number)()))
+      .toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    expect(runtime.readString((instance.exports.hash_abc as () => number)()))
+      .toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  });
+
+  it("sha256 output is always 64 hex characters", async () => {
+    const source = `
+      module Test
+      function hash_len() -> Int64 { string_length(sha256("test")) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.hash_len as () => bigint)()).toBe(64n);
+  });
+
+  it("sha256 is deterministic — same input gives same output", async () => {
+    const source = `
+      module Test
+      function both_equal() -> Bool {
+        let h1 = sha256("clarity");
+        let h2 = sha256("clarity");
+        string_eq(h1, h2)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.both_equal as () => number)()).toBe(1);
+  });
+});
