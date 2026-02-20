@@ -412,7 +412,7 @@ Make the type system robust enough for real programs.
 Support programs larger than a single file.
 - ~~Import/export syntax~~ (done — `import { X } from "module"`, `export function`, `export type`)
 - ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
-- ~~Standard library~~ (done — `std/math` and `std/string` modules; `std/list` deferred until cross-module generics)
+- ~~Standard library~~ (done — `std/math`, `std/string`, and `std/list` modules)
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable for real workloads.
@@ -426,6 +426,16 @@ Make programs viable for real workloads.
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
 - ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string)
 - REPL / browser playground
+
+### Phase 6 — Native AI Interop Requirements (v0.7+)
+Make agent ecosystems and model APIs first-class language/runtime capabilities.
+- Add new effects: `A2A`, `MCP`, `Model`, `Secret`
+- Add required std modules: `std/a2a`, `std/mcp`, `std/llm`, `std/secret`
+- Enforce typed protocol errors via `Result<T, InteropError>` across all interop APIs
+- Require streaming + cancellation semantics for model and agent operations
+- Require runtime policy controls (endpoint allowlists, effect-family deny, structured audit logs)
+- Ship provider adapters for at least one OpenAI-compatible API and one local runtime (Ollama)
+- Ship end-to-end examples that compose `std/llm` with `std/mcp` and optional `std/a2a`
 
 ---
 

@@ -1810,6 +1810,35 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_blank as () => number)()).toBe(1);
     expect((instance.exports.test_to_int as () => bigint)()).toBe(99n);
   });
+
+  it("imports std/list functions", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { size_int, first_int, rest_int, push_int, join_int, reversed_int, empty_int, get_int, set_at_int } from "std/list"
+      function test_size() -> Int64 { size_int([1, 2, 3]) }
+      function test_first() -> Int64 { first_int([42, 7]) }
+      function test_rest_head() -> Int64 { first_int(rest_int([9, 8, 7])) }
+      function test_push_get() -> Int64 { get_int(push_int([1, 2], 3), 2) }
+      function test_join_get() -> Int64 { get_int(join_int([1, 2], [3, 4]), 3) }
+      function test_reversed_first() -> Int64 { first_int(reversed_int([1, 2, 3])) }
+      function test_empty() -> Bool { empty_int(rest_int([5])) }
+      function test_set_at() -> Int64 { get_int(set_at_int([1, 2, 3], 1, 99), 1) }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(42n);
+    expect((instance.exports.test_rest_head as () => bigint)()).toBe(8n);
+    expect((instance.exports.test_push_get as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_join_get as () => bigint)()).toBe(4n);
+    expect((instance.exports.test_reversed_first as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_empty as () => number)()).toBe(1);
+    expect((instance.exports.test_set_at as () => bigint)()).toBe(99n);
+  });
 });
 
 describe("String interning", () => {
