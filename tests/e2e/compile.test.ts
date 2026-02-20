@@ -2226,3 +2226,102 @@ describe("Map builtins", () => {
     expect((instance.exports.test_original_unchanged as () => bigint)()).toBe(0n);
   });
 });
+
+// Helper: run all effect[Test] functions exported from a compiled WASM module.
+// Returns the number of assertion failures across all test functions.
+async function runExampleTests(wasmBytes: Uint8Array): Promise<{ passed: number; failed: number; failures: string[] }> {
+  const { instance, runtime } = await instantiate(wasmBytes);
+  const testFns = Object.keys(instance.exports)
+    .filter(name => name.startsWith("test_") && typeof instance.exports[name] === "function");
+  let passed = 0;
+  let failed = 0;
+  const failures: string[] = [];
+  for (const name of testFns) {
+    runtime.resetTestState();
+    runtime.setCurrentTest(name);
+    try {
+      (instance.exports[name] as () => void)();
+      const { failures: assertFails } = runtime.getTestResults();
+      if (assertFails.length === 0) {
+        passed++;
+      } else {
+        failed++;
+        for (const f of assertFails) {
+          failures.push(`${name}: ${f.kind} actual=${f.actual} expected=${f.expected}`);
+        }
+      }
+    } catch (e) {
+      failed++;
+      failures.push(`${name}: threw ${e}`);
+    }
+  }
+  return { passed, failed, failures };
+}
+
+describe("Example: Template Engine (13)", () => {
+  it("compiles without errors", () => {
+    const result = compileFile(path.resolve("examples/13-template-engine/template.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("all 12 test functions pass", async () => {
+    const result = compileFile(path.resolve("examples/13-template-engine/template.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { passed, failed, failures } = await runExampleTests(result.wasm!);
+    expect(passed).toBe(12);
+    expect(failures).toHaveLength(0);
+    expect(failed).toBe(0);
+  });
+});
+
+describe("Example: JSON Parser (19)", () => {
+  it("compiles without errors", () => {
+    const result = compileFile(path.resolve("examples/19-json-parser/json.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("all 17 test functions pass", async () => {
+    const result = compileFile(path.resolve("examples/19-json-parser/json.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { passed, failed, failures } = await runExampleTests(result.wasm!);
+    expect(passed).toBe(17);
+    expect(failures).toHaveLength(0);
+    expect(failed).toBe(0);
+  });
+});
+
+describe("Example: Todo CLI (11)", () => {
+  it("compiles without errors", () => {
+    const result = compileFile(path.resolve("examples/11-todo-cli/todo.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("all 21 test functions pass", async () => {
+    const result = compileFile(path.resolve("examples/11-todo-cli/todo.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { passed, failed, failures } = await runExampleTests(result.wasm!);
+    expect(passed).toBe(21);
+    expect(failures).toHaveLength(0);
+    expect(failed).toBe(0);
+  });
+});
+
+describe("Example: Log Analyzer (12)", () => {
+  it("compiles without errors", () => {
+    const result = compileFile(path.resolve("examples/12-log-analyzer/log_analyzer.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("all 22 test functions pass", async () => {
+    const result = compileFile(path.resolve("examples/12-log-analyzer/log_analyzer.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { passed, failed, failures } = await runExampleTests(result.wasm!);
+    expect(passed).toBe(22);
+    expect(failures).toHaveLength(0);
+    expect(failed).toBe(0);
+  });
+});
