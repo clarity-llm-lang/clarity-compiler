@@ -242,6 +242,14 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return readString(haystackPtr).includes(readString(needlePtr)) ? 1 : 0;
       },
 
+      string_starts_with(sPtr: number, prefixPtr: number): number {
+        return readString(sPtr).startsWith(readString(prefixPtr)) ? 1 : 0;
+      },
+
+      string_ends_with(sPtr: number, suffixPtr: number): number {
+        return readString(sPtr).endsWith(readString(suffixPtr)) ? 1 : 0;
+      },
+
       index_of(haystackPtr: number, needlePtr: number): bigint {
         return BigInt(readString(haystackPtr).indexOf(readString(needlePtr)));
       },
@@ -274,6 +282,12 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const replacement = readString(replacementPtr);
         if (search.length === 0) return writeString(s);
         return writeString(s.split(search).join(replacement));
+      },
+
+      string_repeat(sPtr: number, count: bigint): number {
+        const n = Number(count);
+        if (n <= 0) return writeString("");
+        return writeString(readString(sPtr).repeat(n));
       },
 
       char_code(ptr: number): bigint {
@@ -361,6 +375,18 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       max_int(a: bigint, b: bigint): bigint {
         return a > b ? a : b;
+      },
+
+      int_clamp(value: bigint, min: bigint, max: bigint): bigint {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+      },
+
+      float_clamp(value: number, min: number, max: number): number {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
       },
 
       sqrt(value: number): number {

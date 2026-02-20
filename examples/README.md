@@ -160,13 +160,13 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ## Next Implementation Roadmap (examples-first)
 
-### Milestone A — Unlock example 08 (JSON API client)
+### Milestone A — Finish example 08 (JSON API client)
 
-1. Add `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
+1. ✅ Added `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
 2. Add built-in JSON runtime surface:
    - `json_parse(s) -> Result<JsonValue, String>`
    - `json_stringify(v) -> String`
-3. Add e2e tests for success + network/parse failure paths.
+3. Add e2e tests for parse failure paths and JSON traversal.
 
 ### Milestone B — Unlock example 15 (Web server)
 
@@ -182,7 +182,7 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ### Suggested next task
 
-**Start with Milestone A (HTTP client + JSON runtime) because it unlocks example 08 immediately and establishes the `Network` and structured-data runtime boundary needed by Milestones B/C.**
+**Next task: complete Milestone A by implementing JSON runtime built-ins (`json_parse`/`json_stringify`) and update example 08 from partially blocked to implemented.**
 
 ## Recently Implemented Examples
 

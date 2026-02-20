@@ -24,6 +24,11 @@ describe("builtins registry", () => {
     expect(names).toContain("regex_match");
     expect(names).toContain("timestamp_parse_iso");
     expect(names).toContain("string_replace");
+    expect(names).toContain("string_starts_with");
+    expect(names).toContain("string_ends_with");
+    expect(names).toContain("string_repeat");
+    expect(names).toContain("int_clamp");
+    expect(names).toContain("float_clamp");
   });
 
   it("contains all expected effects", () => {

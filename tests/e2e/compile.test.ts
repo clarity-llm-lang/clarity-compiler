@@ -733,6 +733,55 @@ describe("end-to-end compilation", () => {
   // Phase 1.5: I/O Primitives
   // ============================================================
 
+  it("string_starts_with and string_ends_with work", async () => {
+    const source = `
+      module Test
+      function starts(s: String) -> Bool { string_starts_with(s, "clar") }
+      function ends(s: String) -> Bool { string_ends_with(s, "ity") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const starts = instance.exports.starts as (ptr: number) => number;
+    const ends = instance.exports.ends as (ptr: number) => number;
+    expect(starts(runtime.writeString("clarity"))).toBe(1);
+    expect(starts(runtime.writeString("lang"))).toBe(0);
+    expect(ends(runtime.writeString("clarity"))).toBe(1);
+    expect(ends(runtime.writeString("clar"))).toBe(0);
+  });
+
+  it("string_repeat repeats and handles non-positive counts", async () => {
+    const source = `
+      module Test
+      function rep(s: String, n: Int64) -> String { string_repeat(s, n) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rep = instance.exports.rep as (ptr: number, n: bigint) => number;
+    expect(runtime.readString(rep(runtime.writeString("ab"), 3n))).toBe("ababab");
+    expect(runtime.readString(rep(runtime.writeString("ab"), 0n))).toBe("");
+  });
+
+  it("int_clamp and float_clamp work", async () => {
+    const source = `
+      module Test
+      function ci(v: Int64) -> Int64 { int_clamp(v, 0, 10) }
+      function cf(v: Float64) -> Float64 { float_clamp(v, 0.0, 1.0) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const ci = instance.exports.ci as (v: bigint) => bigint;
+    const cf = instance.exports.cf as (v: number) => number;
+    expect(ci(-5n)).toBe(0n);
+    expect(ci(12n)).toBe(10n);
+    expect(ci(7n)).toBe(7n);
+    expect(cf(-1.2)).toBeCloseTo(0.0);
+    expect(cf(1.8)).toBeCloseTo(1.0);
+    expect(cf(0.33)).toBeCloseTo(0.33);
+  });
+
   it("string_replace replaces all occurrences", async () => {
     const source = `
       module Test

@@ -2179,10 +2179,11 @@ export class CodeGenerator {
       // String ops
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
-      contains: BOOL, index_of: INT64, trim: { kind: "String" },
+      contains: BOOL, string_starts_with: BOOL, string_ends_with: BOOL, index_of: INT64, trim: { kind: "String" },
       char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
       split: { kind: "List", element: { kind: "String" } } as ClarityType,
       string_replace: { kind: "String" } as ClarityType,
+      string_repeat: { kind: "String" } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
@@ -2190,6 +2191,7 @@ export class CodeGenerator {
       string_to_float: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Math
       abs_int: INT64, min_int: INT64, max_int: INT64,
+      int_clamp: INT64, float_clamp: FLOAT64,
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
