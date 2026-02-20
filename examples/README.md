@@ -20,35 +20,37 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 ## All Examples (20 Total)
 
-### ✅ Working Examples (01-04)
+### ✅ Implemented Examples (13 total)
 
-| # | Name | Complexity | Category | Status |
-|---|------|------------|----------|--------|
-| 01 | [Hello World](01-hello-world/) | Beginner | Fundamentals | ✅ Working |
-| 02 | [Recursion](02-recursion/) | Beginner→Intermediate | Fundamentals | ✅ Working |
-| 03 | [String Processing](03-string-processing/) | Intermediate | Text, Effects | ✅ Working |
-| 04 | [File I/O](04-file-io/) | Intermediate | FileSystem, Effects | ✅ Working |
+| # | Name | Complexity | Category | Tests | Status |
+|---|------|------------|----------|-------|--------|
+| 01 | [Hello World](01-hello-world/) | Beginner | Fundamentals | - | ✅ Implemented |
+| 02 | [Recursion](02-recursion/) | Beginner→Intermediate | Fundamentals | - | ✅ Implemented |
+| 03 | [String Processing](03-string-processing/) | Intermediate | Text, Effects | - | ✅ Implemented |
+| 04 | [File I/O](04-file-io/) | Intermediate | FileSystem, Effects | - | ✅ Implemented |
+| 05 | [Sudoku Solver](05-sudoku-solver/) | Advanced | Algorithms, Backtracking | 8 | ✅ Implemented |
+| 06 | [Math Toolkit](06-math-toolkit/) | Intermediate | Mathematics | 16 | ✅ Implemented |
+| 07 | [String Toolkit](07-string-toolkit/) | Intermediate | Text Processing | 13 | ✅ Implemented* |
+| 09 | [CSV Processor](09-csv-processor/) | Intermediate | Data Processing | 9 | ✅ Implemented |
+| 10 | [Config Parser](10-config-parser/) | Intermediate | Parsing | 12 | ✅ Implemented |
+| 14 | [Tic-Tac-Toe](14-tic-tac-toe/) | Intermediate | Games, AI | 8 | ✅ Implemented |
+| 17 | [Linear Regression](17-linear-regression/) | Advanced | ML, Numeric | 6 | ✅ Implemented |
+| 18 | [Merkle Tree](18-merkle-tree/) | Advanced | Blockchain, Crypto | 12 | ✅ Implemented |
+| 20 | [Expression Evaluator](20-expr-evaluator/) | Advanced | Compilers | 9 | ✅ Implemented |
 
-### 📋 Requirements Documentation (05-20)
+\* *String Toolkit: Implemented without case conversion (requires `char_code()` builtin)*
+
+### 📋 Requirements Documentation (7 remaining)
 
 | # | Name | Complexity | Category | Blocked By |
 |---|------|------------|----------|------------|
-| 05 | [Sudoku Solver](05-sudoku-solver/) | Advanced | Algorithms | Array<T>, parse_int |
-| 06 | [Math Toolkit](06-math-toolkit/) | Intermediate | Mathematics | ✅ No blockers! |
-| 07 | [String Toolkit](07-string-toolkit/) | Intermediate | Text | char_code, string_split |
 | 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP, JSON, Map |
-| 09 | [CSV Processor](09-csv-processor/) | Intermediate | Data | string_split, map/filter |
-| 10 | [Config Parser](10-config-parser/) | Intermediate | Parsing | string_split, Map, regex |
 | 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | JSON, Map |
 | 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | Regex, Map, DateTime |
 | 13 | [Template Engine](13-template-engine/) | Intermediate | Text | String interpolation |
-| 14 | [Tic-Tac-Toe](14-tic-tac-toe/) | Intermediate | Games | Array<T>, Random |
 | 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server, Map |
 | 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins, Map |
-| 17 | [Linear Regression](17-linear-regression/) | Advanced | ML, Numeric | Matrix, Vectors |
-| 18 | [Merkle Tree](18-merkle-tree/) | Advanced | Blockchain, Crypto | sha256, Bytes |
 | 19 | [JSON Parser](19-json-parser/) | Advanced | Parsing | char_code, Map |
-| 20 | [Expression Evaluator](20-expr-evaluator/) | Advanced | Compilers | ✅ Mostly ready! |
 
 ## Examples by Complexity
 
@@ -241,29 +243,33 @@ Based on the examples catalog, Clarity needs these features to be production-rea
 19. ✅ Async/await
 20. ✅ Streaming I/O
 
-## Examples Ready to Implement NOW
+## Recently Implemented Examples
 
-These examples have NO blocking dependencies and can be implemented immediately:
+### ✅ 06-math-toolkit (16 tests)
 
-### ✅ 06-math-toolkit
+**Implemented with:**
+- Factorial, GCD, LCM, prime checking, integer exponentiation
+- Fibonacci (both naive and tail-recursive)
+- Euclidean distance, hypotenuse, circle area, triangle area
+- List operations: sum, mean, product
+- Comprehensive test suite demonstrating pure functional programming
 
-**All features exist!**
-- Factorial, GCD, primes, fibonacci
-- Distance, circle area, hypotenuse
-- Sum, mean, product of lists
-- Comprehensive test suite
+### ✅ 10-config-parser (12 tests)
 
-**Recommendation:** Implement next session to showcase test-driven development and pure functional programming.
+**Implemented with:**
+- INI file parsing with `split()` builtin
+- Comment handling (# and ;)
+- Key-value storage using `List<ConfigEntry>`
+- Whitespace trimming and validation
+- Values containing '=' character
 
-### ✅ 20-expr-evaluator
+### ✅ 20-expr-evaluator (9 tests)
 
-**Mostly ready!**
-- Only missing Map for environment (can use List of bindings)
-- Lexer, parser, evaluator
-- AST construction and traversal
-- Great demonstration of compiler techniques
-
-**Recommendation:** Implement soon to showcase Clarity's strength in compiler/interpreter domains.
+**Implemented with:**
+- Full lexer tokenizing numbers, operators, parentheses
+- Recursive descent parser with operator precedence
+- AST evaluator computing numeric results
+- Demonstrates all phases of a simple interpreter
 
 ## Contributing New Examples
 
@@ -294,26 +300,29 @@ NN-example-name/
 
 ## Navigation
 
-- [01-hello-world](01-hello-world/) - Start here if you're new to Clarity
-- [02-recursion](02-recursion/) - Learn pattern matching and recursion
-- [03-string-processing](03-string-processing/) - Effects and string operations
-- [04-file-io](04-file-io/) - File reading and writing
-- [05-sudoku-solver](05-sudoku-solver/) - **REQUIREMENTS:** Complex algorithms
-- [06-math-toolkit](06-math-toolkit/) - **REQUIREMENTS:** Math functions (ready to implement!)
-- [07-string-toolkit](07-string-toolkit/) - **REQUIREMENTS:** String manipulation
-- [08-json-api](08-json-api/) - **REQUIREMENTS:** HTTP and JSON
-- [09-csv-processor](09-csv-processor/) - **REQUIREMENTS:** CSV parsing
-- [10-config-parser](10-config-parser/) - **REQUIREMENTS:** INI/TOML parsing
-- [11-todo-cli](11-todo-cli/) - **REQUIREMENTS:** CLI application
-- [12-log-analyzer](12-log-analyzer/) - **REQUIREMENTS:** Log parsing
-- [13-template-engine](13-template-engine/) - **REQUIREMENTS:** String interpolation
-- [14-tic-tac-toe](14-tic-tac-toe/) - **REQUIREMENTS:** Game logic
-- [15-web-server](15-web-server/) - **REQUIREMENTS:** HTTP server
-- [16-database-crud](16-database-crud/) - **REQUIREMENTS:** Database operations
-- [17-linear-regression](17-linear-regression/) - **REQUIREMENTS:** ML/numeric computing
-- [18-merkle-tree](18-merkle-tree/) - **REQUIREMENTS:** Cryptography
-- [19-json-parser](19-json-parser/) - **REQUIREMENTS:** Recursive parsing
-- [20-expr-evaluator](20-expr-evaluator/) - **REQUIREMENTS:** Lexer/parser/interpreter
+### Implemented Examples
+- [01-hello-world](01-hello-world/) - ✅ Start here if you're new to Clarity
+- [02-recursion](02-recursion/) - ✅ Learn pattern matching and recursion
+- [03-string-processing](03-string-processing/) - ✅ Effects and string operations
+- [04-file-io](04-file-io/) - ✅ File reading and writing
+- [05-sudoku-solver](05-sudoku-solver/) - ✅ Backtracking algorithms (8 tests)
+- [06-math-toolkit](06-math-toolkit/) - ✅ Pure math functions (16 tests)
+- [07-string-toolkit](07-string-toolkit/) - ✅ String manipulation (13 tests, partial)
+- [09-csv-processor](09-csv-processor/) - ✅ CSV parsing (9 tests)
+- [10-config-parser](10-config-parser/) - ✅ INI parsing (12 tests)
+- [14-tic-tac-toe](14-tic-tac-toe/) - ✅ Game AI with minimax (8 tests)
+- [17-linear-regression](17-linear-regression/) - ✅ ML/numeric computing (6 tests)
+- [18-merkle-tree](18-merkle-tree/) - ✅ Cryptography (12 tests)
+- [20-expr-evaluator](20-expr-evaluator/) - ✅ Lexer/parser/interpreter (9 tests)
+
+### Requirements (Not Yet Implemented)
+- [08-json-api](08-json-api/) - **REQUIRES:** HTTP, JSON, Map
+- [11-todo-cli](11-todo-cli/) - **REQUIRES:** JSON, Map
+- [12-log-analyzer](12-log-analyzer/) - **REQUIRES:** Regex, Map, DateTime
+- [13-template-engine](13-template-engine/) - **REQUIRES:** String interpolation
+- [15-web-server](15-web-server/) - **REQUIRES:** HTTP server, Map
+- [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins, Map
+- [19-json-parser](19-json-parser/) - **REQUIRES:** char_code, Map
 
 ## Questions or Feedback?
 
@@ -327,6 +336,6 @@ Please open an issue or discussion in the clarity-compiler repository.
 
 ---
 
-**Last updated:** 2026-02-14
-**Total examples:** 20 (4 working, 16 requirements)
-**Critical features needed:** 3 (Array, char_code, parse_int)
+**Last updated:** 2026-02-20
+**Total examples:** 20 (13 implemented, 7 requirements)
+**Total tests:** 93 (across all implemented examples with test suites)
