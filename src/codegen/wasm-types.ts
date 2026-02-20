@@ -14,6 +14,7 @@ export function clarityTypeToWasm(type: ClarityType): binaryen.Type {
     case "String":
     case "Bytes":
     case "List":
+    case "Map":    // Map handle (opaque i32)
     case "Option":
     case "Result":
     case "Function":

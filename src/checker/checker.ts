@@ -314,6 +314,13 @@ export class Checker {
         return this.makeResultType(okType, errType);
       }
     }
+    if (node.name === "Map" && node.typeArgs.length === 2) {
+      const keyType = this.resolveTypeRef(node.typeArgs[0]);
+      const valueType = this.resolveTypeRef(node.typeArgs[1]);
+      if (keyType && valueType) {
+        return { kind: "Map", key: keyType, value: valueType };
+      }
+    }
 
     this.diagnostics.push(error(`Unknown type '${node.name}'`, node.span));
     return null;
@@ -705,7 +712,13 @@ export class Checker {
           }
 
           // Substitute inferred types into the return type
-          const resolvedReturnType = substituteTypeVars(calleeType.returnType, bindings);
+          let resolvedReturnType = substituteTypeVars(calleeType.returnType, bindings);
+
+          // Convert Option<T> to its Union representation (required for pattern matching).
+          // This handles generic builtins like map_get whose return type uses Option<TypeVar>.
+          if (resolvedReturnType.kind === "Option" && !containsTypeVar(resolvedReturnType)) {
+            resolvedReturnType = this.makeOptionType(resolvedReturnType.inner);
+          }
 
           // Check effects
           this.diagnostics.push(
@@ -814,22 +827,30 @@ export class Checker {
       case "LetExpr": {
         const valueType = this.checkExpr(expr.value);
 
+        let bindingType = valueType;
         if (expr.typeAnnotation) {
           const annotType = this.resolveTypeRef(expr.typeAnnotation);
-          if (annotType && !typesEqual(valueType, annotType)) {
-            this.diagnostics.push(
-              error(
-                `Let binding type mismatch: expected ${typeToString(annotType)} but got ${typeToString(valueType)}`,
-                expr.value.span,
-              ),
-            );
+          if (annotType) {
+            // If value type contains TypeVars (e.g. from map_new()), the annotation
+            // provides the concrete type — accept it without a type error.
+            if (!containsTypeVar(valueType) && !typesEqual(valueType, annotType)) {
+              this.diagnostics.push(
+                error(
+                  `Let binding type mismatch: expected ${typeToString(annotType)} but got ${typeToString(valueType)}`,
+                  expr.value.span,
+                ),
+              );
+            }
+            // Annotation wins: use it as the binding type so subsequent uses
+            // of this variable see the concrete type (e.g. Map<String, String>).
+            bindingType = annotType;
           }
         }
 
         if (expr.name !== "_") {
           this.env.define(expr.name, {
             name: expr.name,
-            type: valueType,
+            type: bindingType,
             mutable: expr.mutable,
             defined: expr.span,
           });

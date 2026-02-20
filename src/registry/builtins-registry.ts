@@ -79,6 +79,13 @@ const LIST_STRING: ClarityType = { kind: "List", element: STRING };
 const T: ClarityType = { kind: "TypeVar", name: "T" };
 const LIST_T: ClarityType = { kind: "List", element: T };
 
+// Generic type variables for Map<K, V>
+const K: ClarityType = { kind: "TypeVar", name: "K" };
+const V: ClarityType = { kind: "TypeVar", name: "V" };
+const MAP_KV: ClarityType = { kind: "Map", key: K, value: V };
+const LIST_K: ClarityType = { kind: "List", element: K };
+const LIST_V: ClarityType = { kind: "List", element: V };
+
 // -----------------------------------------------------------------------------
 // Built-in Function Definitions
 // -----------------------------------------------------------------------------
@@ -646,6 +653,80 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: [],
     doc: "Compute the SHA-256 hash of a string and return the hex digest (64 lowercase hex chars).",
     category: "crypto",
+  },
+
+  // --- Map<K, V> operations ---
+  {
+    name: "map_new",
+    params: [],
+    paramNames: [],
+    returnType: MAP_KV,
+    effects: [],
+    doc: "Create a new empty Map<K, V>. Annotate the binding type to specify key and value types: `let m: Map<String, String> = map_new()`.",
+    category: "map",
+  },
+  {
+    name: "map_size",
+    params: [MAP_KV],
+    paramNames: ["m"],
+    returnType: INT64,
+    effects: [],
+    doc: "Return the number of key-value pairs in a map.",
+    category: "map",
+  },
+  {
+    name: "map_has",
+    params: [MAP_KV, K],
+    paramNames: ["m", "key"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if the map contains the given key.",
+    category: "map",
+  },
+  {
+    name: "map_get",
+    params: [MAP_KV, K],
+    paramNames: ["m", "key"],
+    returnType: { kind: "Option", inner: V },
+    effects: [],
+    doc: "Return Some(value) if the key exists in the map, or None if not found.",
+    category: "map",
+  },
+  {
+    name: "map_set",
+    params: [MAP_KV, K, V],
+    paramNames: ["m", "key", "value"],
+    returnType: MAP_KV,
+    effects: [],
+    doc: "Return a new map with the key-value pair added or updated.",
+    category: "map",
+  },
+  {
+    name: "map_remove",
+    params: [MAP_KV, K],
+    paramNames: ["m", "key"],
+    returnType: MAP_KV,
+    effects: [],
+    doc: "Return a new map with the given key removed.",
+    category: "map",
+  },
+  {
+    name: "map_keys",
+    params: [MAP_KV],
+    paramNames: ["m"],
+    returnType: LIST_K,
+    effects: [],
+    doc: "Return all keys in the map as a list (insertion order).",
+    category: "map",
+  },
+  {
+    name: "map_values",
+    params: [MAP_KV],
+    paramNames: ["m"],
+    returnType: LIST_V,
+    effects: [],
+    doc: "Return all values in the map as a list (insertion order).",
+    category: "map",
   },
 
   // --- Timestamp builtins ---

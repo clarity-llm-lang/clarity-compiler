@@ -1,0 +1,306 @@
+module JsonParser
+
+// Parse a flat JSON object like {"key": "value", "count": 42}
+// into a Map<String, String> where all values are their raw JSON representation.
+// Handles strings, numbers, booleans, and null.
+// Handles escape sequences in strings (\n, \t, \", \\).
+
+// A parsed token: the extracted value string and the position in the input after it.
+// next_pos == -1 signals a parse error.
+type ParseResult = { value: String, next_pos: Int64 }
+
+// --- Character classification ---
+
+function is_ws(ch: String) -> Bool {
+  match string_eq(ch, " ") {
+    True -> True,
+    False -> match string_eq(ch, "\t") {
+      True -> True,
+      False -> match string_eq(ch, "\n") {
+        True -> True,
+        False -> string_eq(ch, "\r")
+      }
+    }
+  }
+}
+
+function is_digit_char(ch: String) -> Bool {
+  let code = char_code(ch);
+  code >= 48 and code <= 57
+}
+
+// --- Low-level helpers ---
+
+// Skip whitespace characters starting at pos, return first non-ws position
+function skip_ws(s: String, pos: Int64) -> Int64 {
+  match pos >= string_length(s) {
+    True -> pos,
+    False -> match is_ws(char_at(s, pos)) {
+      True -> skip_ws(s, pos + 1),
+      False -> pos
+    }
+  }
+}
+
+// Check if s[pos..pos+len(prefix)] == prefix
+function starts_with_at(s: String, pos: Int64, prefix: String) -> Bool {
+  let plen = string_length(prefix);
+  match pos + plen > string_length(s) {
+    True -> False,
+    False -> string_eq(substring(s, pos, plen), prefix)
+  }
+}
+
+// --- String parsing ---
+
+// Parse a JSON string starting at pos (pos points to the opening '"').
+// Returns { value: parsed_string, next_pos: position_after_closing_quote }.
+// On error, next_pos == -1.
+function parse_quoted(s: String, pos: Int64) -> ParseResult {
+  match string_eq(char_at(s, pos), "\"") {
+    False -> { value: "", next_pos: 0 - 1 },
+    True -> parse_quoted_content(s, pos + 1, "")
+  }
+}
+
+function parse_quoted_content(s: String, pos: Int64, acc: String) -> ParseResult {
+  match pos >= string_length(s) {
+    True -> { value: acc, next_pos: 0 - 1 },
+    False -> {
+      let ch = char_at(s, pos);
+      match string_eq(ch, "\"") {
+        True -> { value: acc, next_pos: pos + 1 },
+        False -> match string_eq(ch, "\\") {
+          False -> parse_quoted_content(s, pos + 1, acc ++ ch),
+          True -> {
+            match pos + 1 >= string_length(s) {
+              True -> { value: acc, next_pos: 0 - 1 },
+              False -> {
+                let esc = char_at(s, pos + 1);
+                let decoded = match string_eq(esc, "n") {
+                  True -> "\n",
+                  False -> match string_eq(esc, "t") {
+                    True -> "\t",
+                    False -> match string_eq(esc, "r") {
+                      True -> "\r",
+                      False -> esc
+                    }
+                  }
+                };
+                parse_quoted_content(s, pos + 2, acc ++ decoded)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// --- Number parsing ---
+
+// Consume characters valid in a JSON number (digits, -, ., e, E, +)
+function parse_number_chars(s: String, start: Int64, pos: Int64) -> ParseResult {
+  match pos >= string_length(s) {
+    True -> { value: substring(s, start, pos - start), next_pos: pos },
+    False -> {
+      let ch = char_at(s, pos);
+      let ok = is_digit_char(ch) or string_eq(ch, "-") or string_eq(ch, ".") or
+               string_eq(ch, "e") or string_eq(ch, "E") or string_eq(ch, "+");
+      match ok {
+        True -> parse_number_chars(s, start, pos + 1),
+        False -> { value: substring(s, start, pos - start), next_pos: pos }
+      }
+    }
+  }
+}
+
+// --- Value parsing ---
+
+// Parse any JSON scalar value (string, number, null, true, false) at pos.
+// Returns { value: string_repr, next_pos }.
+function parse_value(s: String, pos: Int64) -> ParseResult {
+  let p = skip_ws(s, pos);
+  match p >= string_length(s) {
+    True -> { value: "", next_pos: 0 - 1 },
+    False -> {
+      let ch = char_at(s, p);
+      match string_eq(ch, "\"") {
+        True -> parse_quoted(s, p),
+        False -> match starts_with_at(s, p, "null") {
+          True -> { value: "null", next_pos: p + 4 },
+          False -> match starts_with_at(s, p, "true") {
+            True -> { value: "true", next_pos: p + 4 },
+            False -> match starts_with_at(s, p, "false") {
+              True -> { value: "false", next_pos: p + 5 },
+              False -> parse_number_chars(s, p, p)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// --- Object parsing ---
+
+// Parse comma-separated key:value pairs starting at pos (after the opening '{').
+function parse_pairs(s: String, pos: Int64, result: Map<String, String>) -> Map<String, String> {
+  let p = skip_ws(s, pos);
+  match p >= string_length(s) {
+    True -> result,
+    False -> {
+      let ch = char_at(s, p);
+      match string_eq(ch, "}") {
+        True -> result,
+        False -> {
+          let key_r = parse_quoted(s, p);
+          match key_r.next_pos == 0 - 1 {
+            True -> result,
+            False -> {
+              let p2 = skip_ws(s, key_r.next_pos);
+              match string_eq(char_at(s, p2), ":") {
+                False -> result,
+                True -> {
+                  let p3 = skip_ws(s, p2 + 1);
+                  let val_r = parse_value(s, p3);
+                  match val_r.next_pos == 0 - 1 {
+                    True -> result,
+                    False -> {
+                      let result2 = map_set(result, key_r.value, val_r.value);
+                      let p4 = skip_ws(s, val_r.next_pos);
+                      match p4 >= string_length(s) {
+                        True -> result2,
+                        False -> match string_eq(char_at(s, p4), ",") {
+                          True -> parse_pairs(s, p4 + 1, result2),
+                          False -> result2
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// Parse a flat JSON object string into a Map<String, String>.
+// Non-object input returns an empty map.
+function parse_json_object(json: String) -> Map<String, String> {
+  let s = trim(json);
+  let empty: Map<String, String> = map_new();
+  match string_length(s) == 0 {
+    True -> empty,
+    False -> match string_eq(char_at(s, 0), "{") {
+      False -> empty,
+      True -> parse_pairs(s, 1, empty)
+    }
+  }
+}
+
+// --- Tests ---
+
+effect[Test] function test_string_value() -> Unit {
+  let m = parse_json_object("{\"name\": \"Alice\"}");
+  let v = match map_get(m, "name") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "Alice")
+}
+
+effect[Test] function test_null_value() -> Unit {
+  let m = parse_json_object("{\"x\": null}");
+  let v = match map_get(m, "x") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "null")
+}
+
+effect[Test] function test_bool_values() -> Unit {
+  let m = parse_json_object("{\"a\": true, \"b\": false}");
+  let a = match map_get(m, "a") { None -> "MISSING", Some(v) -> v };
+  let b = match map_get(m, "b") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(a, "true");
+  assert_eq_string(b, "false")
+}
+
+effect[Test] function test_integer_value() -> Unit {
+  let m = parse_json_object("{\"count\": 42}");
+  let v = match map_get(m, "count") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "42")
+}
+
+effect[Test] function test_float_value() -> Unit {
+  let m = parse_json_object("{\"price\": 9.99}");
+  let v = match map_get(m, "price") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "9.99")
+}
+
+effect[Test] function test_negative_number() -> Unit {
+  let m = parse_json_object("{\"temp\": -5}");
+  let v = match map_get(m, "temp") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "-5")
+}
+
+effect[Test] function test_multiple_fields() -> Unit {
+  let m = parse_json_object("{\"name\": \"Bob\", \"age\": 30, \"active\": true}");
+  assert_eq(map_size(m), 3)
+}
+
+effect[Test] function test_empty_object() -> Unit {
+  let m = parse_json_object("{}");
+  assert_eq(map_size(m), 0)
+}
+
+effect[Test] function test_whitespace_handling() -> Unit {
+  let m = parse_json_object("{ \"key\" : \"value\" }");
+  let v = match map_get(m, "key") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "value")
+}
+
+effect[Test] function test_escape_newline() -> Unit {
+  let m = parse_json_object("{\"msg\": \"hello\\nworld\"}");
+  let v = match map_get(m, "msg") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "hello\nworld")
+}
+
+effect[Test] function test_escape_tab() -> Unit {
+  let m = parse_json_object("{\"msg\": \"a\\tb\"}");
+  let v = match map_get(m, "msg") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "a\tb")
+}
+
+effect[Test] function test_escape_quote() -> Unit {
+  let m = parse_json_object("{\"msg\": \"say \\\"hi\\\"\"}");
+  let v = match map_get(m, "msg") { None -> "MISSING", Some(v) -> v };
+  assert_eq_string(v, "say \"hi\"")
+}
+
+effect[Test] function test_is_digit_char() -> Unit {
+  assert_true(is_digit_char("0"));
+  assert_true(is_digit_char("9"));
+  assert_false(is_digit_char("a"));
+  assert_false(is_digit_char(" "))
+}
+
+effect[Test] function test_is_ws() -> Unit {
+  assert_true(is_ws(" "));
+  assert_true(is_ws("\t"));
+  assert_false(is_ws("x"))
+}
+
+effect[Test] function test_skip_ws() -> Unit {
+  assert_eq(skip_ws("  hello", 0), 2);
+  assert_eq(skip_ws("hello", 0), 0)
+}
+
+effect[Test] function test_missing_key() -> Unit {
+  let m = parse_json_object("{\"x\": 1}");
+  let v = match map_get(m, "y") { None -> "none", Some(v) -> v };
+  assert_eq_string(v, "none")
+}
+
+effect[Test] function test_non_object_input() -> Unit {
+  let m = parse_json_object("not json");
+  assert_eq(map_size(m), 0)
+}

@@ -102,6 +102,7 @@ All comparison and logical operators return `Bool`.
 | `List<T>` | Ordered collection of elements of type `T` |
 | `Option<T>` | Either `Some(value: T)` or `None` |
 | `Result<T, E>` | Either `Ok(value: T)` or `Err(error: E)` |
+| `Map<K, V>` | Immutable key-value mapping; keys are `String` or `Int64` |
 
 `Result<T, E>` is a built-in type for error handling. `Ok` and `Err` are polymorphic constructors — the compiler infers the full `Result` type from context:
 ```
@@ -733,6 +734,30 @@ Timestamp is represented as milliseconds since Unix epoch (i64).
 | `timestamp_from_int(ms)` | `Int64 -> Timestamp` | Create from milliseconds |
 | `timestamp_add(t, ms)` | `Timestamp, Int64 -> Timestamp` | Add milliseconds |
 | `timestamp_diff(a, b)` | `Timestamp, Timestamp -> Int64` | Difference in ms (a - b) |
+
+### 11.9 Map Operations
+
+`Map<K, V>` is an immutable persistent key-value store. Every mutating operation (`map_set`, `map_remove`) returns a new handle; the original is unchanged. Keys must be `String` or `Int64`.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `map_new()` | `-> Map<K, V>` | Create an empty map (type annotation required) |
+| `map_size(m)` | `Map<K, V> -> Int64` | Number of entries |
+| `map_has(m, key)` | `Map<K, V>, K -> Bool` | True if key exists |
+| `map_get(m, key)` | `Map<K, V>, K -> Option<V>` | Look up a key; returns `Some(v)` or `None` |
+| `map_set(m, key, value)` | `Map<K, V>, K, V -> Map<K, V>` | Insert or overwrite a key |
+| `map_remove(m, key)` | `Map<K, V>, K -> Map<K, V>` | Remove a key (no-op if absent) |
+| `map_keys(m)` | `Map<K, V> -> List<K>` | All keys as a list |
+| `map_values(m)` | `Map<K, V> -> List<V>` | All values as a list |
+
+```clarity
+let m: Map<String, Int64> = map_new();
+let m2 = map_set(m, "score", 42);
+match map_get(m2, "score") {
+  None -> 0,
+  Some(v) -> v        // v : Int64
+}
+```
 
 ---
 

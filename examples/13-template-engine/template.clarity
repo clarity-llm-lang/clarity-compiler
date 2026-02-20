@@ -1,0 +1,177 @@
+module TemplateEngine
+
+// Render a template string by replacing all {{key}} placeholders with values
+// from the vars map. Unknown keys are kept as-is: {{unknown}}.
+// Uses recursion to find and replace one placeholder at a time.
+function template_render(template: String, vars: Map<String, String>) -> String {
+  match contains(template, "{{") {
+    False -> template,
+    True -> {
+      let open_pos = index_of(template, "{{");
+      let after_open = open_pos + 2;
+      let rest = substring(template, after_open, string_length(template));
+      let close_pos = index_of(rest, "}}");
+      match close_pos == 0 - 1 {
+        True -> template,
+        False -> {
+          let key = trim(substring(rest, 0, close_pos));
+          let prefix = substring(template, 0, open_pos);
+          let suffix = substring(rest, close_pos + 2, string_length(rest));
+          match map_get(vars, key) {
+            None -> prefix ++ "{{" ++ key ++ "}}" ++ template_render(suffix, vars),
+            Some(v) -> template_render(prefix ++ v ++ suffix, vars)
+          }
+        }
+      }
+    }
+  }
+}
+
+// Count how many times a substring appears in a string
+function count_occurrences(text: String, sub: String) -> Int64 {
+  count_occurrences_acc(text, sub, 0)
+}
+
+function count_occurrences_acc(text: String, sub: String, acc: Int64) -> Int64 {
+  match contains(text, sub) {
+    False -> acc,
+    True -> {
+      let pos = index_of(text, sub);
+      let after = pos + string_length(sub);
+      count_occurrences_acc(substring(text, after, string_length(text)), sub, acc + 1)
+    }
+  }
+}
+
+// Extract all template variable names from a template string (deduplicated)
+// Returns a list of found key names in order of first occurrence
+function extract_keys(template: String) -> List<String> {
+  extract_keys_acc(template, [])
+}
+
+function extract_keys_acc(template: String, found: List<String>) -> List<String> {
+  match contains(template, "{{") {
+    False -> found,
+    True -> {
+      let open_pos = index_of(template, "{{");
+      let after_open = open_pos + 2;
+      let rest = substring(template, after_open, string_length(template));
+      let close_pos = index_of(rest, "}}");
+      match close_pos == 0 - 1 {
+        True -> found,
+        False -> {
+          let key = trim(substring(rest, 0, close_pos));
+          let suffix = substring(rest, close_pos + 2, string_length(rest));
+          let already_seen = list_contains_str(found, key);
+          let new_found = match already_seen {
+            True -> found,
+            False -> append(found, key)
+          };
+          extract_keys_acc(suffix, new_found)
+        }
+      }
+    }
+  }
+}
+
+// Check if a string is in a list of strings
+function list_contains_str(lst: List<String>, target: String) -> Bool {
+  match is_empty(lst) {
+    True -> False,
+    False -> {
+      let h = head(lst);
+      match string_eq(h, target) {
+        True -> True,
+        False -> list_contains_str(tail(lst), target)
+      }
+    }
+  }
+}
+
+// --- Tests ---
+
+effect[Test] function test_simple_substitution() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "name", "Alice");
+  let result = template_render("Hello, {{name}}!", vars2);
+  assert_eq_string(result, "Hello, Alice!")
+}
+
+effect[Test] function test_multiple_vars() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "name", "Bob");
+  let vars3 = map_set(vars2, "count", "5");
+  let template = "Hello, {{name}}! You have {{count}} messages.";
+  let result = template_render(template, vars3);
+  assert_eq_string(result, "Hello, Bob! You have 5 messages.")
+}
+
+effect[Test] function test_unknown_key_preserved() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let result = template_render("{{missing}}", vars);
+  assert_eq_string(result, "{{missing}}")
+}
+
+effect[Test] function test_no_placeholders() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let result = template_render("Hello, World!", vars);
+  assert_eq_string(result, "Hello, World!")
+}
+
+effect[Test] function test_repeated_key() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "item", "apple");
+  let result = template_render("I ate {{item}} and {{item}} today.", vars2);
+  assert_eq_string(result, "I ate apple and apple today.")
+}
+
+effect[Test] function test_html_template() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "title", "Welcome");
+  let vars3 = map_set(vars2, "name", "Carol");
+  let vars4 = map_set(vars3, "year", "2026");
+  let tmpl = "<h1>{{title}}</h1><p>Hello {{name}}, copyright {{year}}.</p>";
+  let result = template_render(tmpl, vars4);
+  assert_eq_string(result, "<h1>Welcome</h1><p>Hello Carol, copyright 2026.</p>")
+}
+
+effect[Test] function test_adjacent_placeholders() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "a", "X");
+  let vars3 = map_set(vars2, "b", "Y");
+  let result = template_render("{{a}}{{b}}", vars3);
+  assert_eq_string(result, "XY")
+}
+
+effect[Test] function test_map_has() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "key", "value");
+  assert_true(map_has(vars2, "key"));
+  assert_false(map_has(vars2, "missing"))
+}
+
+effect[Test] function test_map_remove() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "a", "1");
+  let vars3 = map_set(vars2, "b", "2");
+  let vars4 = map_remove(vars3, "a");
+  assert_false(map_has(vars4, "a"));
+  assert_true(map_has(vars4, "b"))
+}
+
+effect[Test] function test_map_size() -> Unit {
+  let vars: Map<String, String> = map_new();
+  let vars2 = map_set(vars, "x", "1");
+  let vars3 = map_set(vars2, "y", "2");
+  let vars4 = map_set(vars3, "z", "3");
+  assert_eq(map_size(vars4), 3)
+}
+
+effect[Test] function test_extract_keys() -> Unit {
+  let keys = extract_keys("Hello {{name}}, you have {{count}} messages from {{name}}.");
+  assert_eq(length(keys), 2)
+}
+
+effect[Test] function test_count_occurrences() -> Unit {
+  assert_eq(count_occurrences("aababab", "ab"), 3)
+}

@@ -2030,3 +2030,199 @@ describe("Crypto builtins", () => {
     expect((instance.exports.both_equal as () => number)()).toBe(1);
   });
 });
+
+describe("Map builtins", () => {
+  it("map_new creates an empty map with size 0", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        map_size(m)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(0n);
+  });
+
+  it("map_set and map_get with Int64 values", async () => {
+    const source = `
+      module Test
+      function test_hit() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "answer", 42);
+        match map_get(m2, "answer") { None -> 0, Some(v) -> v }
+      }
+      function test_miss() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        match map_get(m, "missing") { None -> 99, Some(v) -> v }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_hit as () => bigint)()).toBe(42n);
+    expect((instance.exports.test_miss as () => bigint)()).toBe(99n);
+  });
+
+  it("map_set and map_get with String values", async () => {
+    const source = `
+      module Test
+      function test_hit() -> String {
+        let m: Map<String, String> = map_new();
+        let m2 = map_set(m, "greeting", "hello");
+        match map_get(m2, "greeting") { None -> "MISSING", Some(v) -> v }
+      }
+      function test_miss() -> String {
+        let m: Map<String, String> = map_new();
+        match map_get(m, "absent") { None -> "NONE", Some(v) -> v }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_hit as () => number)())).toBe("hello");
+    expect(runtime.readString((instance.exports.test_miss as () => number)())).toBe("NONE");
+  });
+
+  it("map_size returns accurate count after multiple sets", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 1);
+        let m3 = map_set(m2, "b", 2);
+        let m4 = map_set(m3, "c", 3);
+        map_size(m4)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(3n);
+  });
+
+  it("map_set overwrites an existing key", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "x", 10);
+        let m3 = map_set(m2, "x", 99);
+        match map_get(m3, "x") { None -> 0, Some(v) -> v }
+      }
+      function test_size() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "x", 10);
+        let m3 = map_set(m2, "x", 99);
+        map_size(m3)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(99n);
+    expect((instance.exports.test_size as () => bigint)()).toBe(1n);
+  });
+
+  it("map_has returns True/False correctly", async () => {
+    const source = `
+      module Test
+      function test_present() -> Bool {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "key", 1);
+        map_has(m2, "key")
+      }
+      function test_absent() -> Bool {
+        let m: Map<String, Int64> = map_new();
+        map_has(m, "key")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_present as () => number)()).toBe(1);
+    expect((instance.exports.test_absent as () => number)()).toBe(0);
+  });
+
+  it("map_remove removes a key and leaves others intact", async () => {
+    const source = `
+      module Test
+      function test_size() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 1);
+        let m3 = map_set(m2, "b", 2);
+        let m4 = map_remove(m3, "a");
+        map_size(m4)
+      }
+      function test_removed() -> Bool {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 1);
+        let m3 = map_set(m2, "b", 2);
+        let m4 = map_remove(m3, "a");
+        map_has(m4, "a")
+      }
+      function test_kept() -> Bool {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 1);
+        let m3 = map_set(m2, "b", 2);
+        let m4 = map_remove(m3, "a");
+        map_has(m4, "b")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(1n);
+    expect((instance.exports.test_removed as () => number)()).toBe(0);
+    expect((instance.exports.test_kept as () => number)()).toBe(1);
+  });
+
+  it("map_keys returns all keys as a list", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "x", 1);
+        let m3 = map_set(m2, "y", 2);
+        length(map_keys(m3))
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("map_values returns all values as a list", async () => {
+    const source = `
+      module Test
+      function test() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "x", 10);
+        let m3 = map_set(m2, "y", 20);
+        length(map_values(m3))
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("map is immutable — set returns a new handle, original unchanged", async () => {
+    const source = `
+      module Test
+      function test_original_unchanged() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "k", 42);
+        map_size(m)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_original_unchanged as () => bigint)()).toBe(0n);
+  });
+});

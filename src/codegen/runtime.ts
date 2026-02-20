@@ -92,6 +92,86 @@ export function createRuntime(config: RuntimeConfig = {}) {
   let assertionFailures: AssertionFailure[] = [];
   let assertionCount = 0;
 
+  // --- Map table ---
+  // Maps are represented as opaque i32 handles backed by JS Map objects.
+  // Keys: string (for String-keyed maps) or bigint (for Int64-keyed maps).
+  // Values: number (i32 pointer types) or bigint (i64 types).
+  // All mutations (map_set, map_remove) return a NEW handle — functional style.
+  const mapTable = new Map<number, Map<string | bigint, number | bigint>>();
+  let nextMapHandle = 1;
+
+  // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
+  function allocOptionI32(value: number | null): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 8;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    if (value === null) {
+      view.setInt32(ptr, 1, true); // None
+    } else {
+      view.setInt32(ptr, 0, true); // Some
+      view.setInt32(ptr + 4, value, true);
+    }
+    return ptr;
+  }
+
+  // Allocate an Option<i64> union: [tag:i32][value:i64] = 12 bytes
+  function allocOptionI64(value: bigint | null): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 12;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    if (value === null) {
+      view.setInt32(ptr, 1, true); // None
+    } else {
+      view.setInt32(ptr, 0, true); // Some
+      view.setBigInt64(ptr + 4, value, true);
+    }
+    return ptr;
+  }
+
+  // Allocate a List<i32> on the heap: [count:i32][elements:i32...]
+  function allocListI32(items: number[]): number {
+    const len = items.length;
+    const size = 4 + len * 4;
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + size;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, len, true);
+    for (let i = 0; i < len; i++) {
+      view.setInt32(ptr + 4 + i * 4, items[i], true);
+    }
+    return ptr;
+  }
+
+  // Allocate a List<i64> on the heap: [count:i32][elements:i64...]
+  function allocListI64(items: bigint[]): number {
+    const len = items.length;
+    const size = 4 + len * 8;
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + size;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, len, true);
+    for (let i = 0; i < len; i++) {
+      view.setBigInt64(ptr + 4 + i * 8, items[i], true);
+    }
+    return ptr;
+  }
+
   const imports = {
     env: {
       // --- I/O & Logging ---
@@ -620,6 +700,133 @@ export function createRuntime(config: RuntimeConfig = {}) {
           new Uint8Array(memory.buffer, bPtr + 4, bLen * elemSize),
         );
         return newPtr;
+      },
+
+      // --- Map operations ---
+      // Maps are backed by JS Map objects stored in mapTable.
+      // String-keyed: key passed as i32 pointer to WASM string.
+      // Int64-keyed: key passed as i64.
+      // All mutations return a new handle (functional style).
+      map_new(): number {
+        const handle = nextMapHandle++;
+        mapTable.set(handle, new Map());
+        return handle;
+      },
+
+      map_size(handle: number): bigint {
+        return BigInt(mapTable.get(handle)?.size ?? 0);
+      },
+
+      // String-keyed operations
+      map_has_str(handle: number, keyPtr: number): number {
+        const key = readString(keyPtr);
+        return mapTable.get(handle)?.has(key) ? 1 : 0;
+      },
+
+      map_get_str_i32(handle: number, keyPtr: number): number {
+        const key = readString(keyPtr);
+        const m = mapTable.get(handle);
+        if (!m?.has(key)) return allocOptionI32(null);
+        return allocOptionI32(m.get(key) as number);
+      },
+
+      map_get_str_i64(handle: number, keyPtr: number): number {
+        const key = readString(keyPtr);
+        const m = mapTable.get(handle);
+        if (!m?.has(key)) return allocOptionI64(null);
+        return allocOptionI64(m.get(key) as bigint);
+      },
+
+      map_set_str_i32(handle: number, keyPtr: number, val: number): number {
+        const key = readString(keyPtr);
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.set(key, val);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_set_str_i64(handle: number, keyPtr: number, val: bigint): number {
+        const key = readString(keyPtr);
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.set(key, val);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_remove_str(handle: number, keyPtr: number): number {
+        const key = readString(keyPtr);
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.delete(key);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_keys_str(handle: number): number {
+        const m = mapTable.get(handle);
+        if (!m) return allocListI32([]);
+        return allocListI32([...m.keys()].map((k) => writeString(k as string)));
+      },
+
+      map_values_i32(handle: number): number {
+        const m = mapTable.get(handle);
+        if (!m) return allocListI32([]);
+        return allocListI32([...m.values()] as number[]);
+      },
+
+      // Int64-keyed operations
+      map_has_i64(handle: number, key: bigint): number {
+        return mapTable.get(handle)?.has(key) ? 1 : 0;
+      },
+
+      map_get_i64_i32(handle: number, key: bigint): number {
+        const m = mapTable.get(handle);
+        if (!m?.has(key)) return allocOptionI32(null);
+        return allocOptionI32(m.get(key) as number);
+      },
+
+      map_get_i64_i64(handle: number, key: bigint): number {
+        const m = mapTable.get(handle);
+        if (!m?.has(key)) return allocOptionI64(null);
+        return allocOptionI64(m.get(key) as bigint);
+      },
+
+      map_set_i64_i32(handle: number, key: bigint, val: number): number {
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.set(key, val);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_set_i64_i64(handle: number, key: bigint, val: bigint): number {
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.set(key, val);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_remove_i64(handle: number, key: bigint): number {
+        const newMap = new Map(mapTable.get(handle) ?? []);
+        newMap.delete(key);
+        const newHandle = nextMapHandle++;
+        mapTable.set(newHandle, newMap);
+        return newHandle;
+      },
+
+      map_keys_i64(handle: number): number {
+        const m = mapTable.get(handle);
+        if (!m) return allocListI64([]);
+        return allocListI64([...m.keys()] as bigint[]);
+      },
+
+      map_values_i64(handle: number): number {
+        const m = mapTable.get(handle);
+        if (!m) return allocListI64([]);
+        return allocListI64([...m.values()] as bigint[]);
       },
 
       // --- Test assertions ---

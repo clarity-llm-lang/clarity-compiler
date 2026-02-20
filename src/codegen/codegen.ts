@@ -441,6 +441,7 @@ export class CodeGenerator {
       case "Record":
       case "Union":
       case "List":
+      case "Map":    // Map handle (opaque i32)
       case "Option":
       case "Result":
       case "Bytes":
@@ -1005,11 +1006,11 @@ export class CodeGenerator {
         return this.generateMatch(expr, expectedType);
 
       case "LetExpr": {
-        const value = this.generateExpr(expr.value);
+        const clarityType = this.inferExprType(expr.value);
+        const value = this.generateExpr(expr.value, clarityType);
         if (expr.name === "_") {
           return this.mod.drop(value);
         }
-        const clarityType = this.inferExprType(expr.value);
         const wasmType = clarityTypeToWasm(clarityType);
         const index = this.localIndex++;
         this.additionalLocals.push(wasmType);
@@ -1095,6 +1096,10 @@ export class CodeGenerator {
     // List operation special cases
     const listCall = this.tryGenerateListCall(name, expr);
     if (listCall) return listCall;
+
+    // Map operation special cases
+    const mapCall = this.tryGenerateMapCall(name, expr);
+    if (mapCall) return mapCall;
 
     // Check if this is a call to a generic function that needs monomorphization
     const targetDecl = this.allFunctions.get(name);
@@ -1297,6 +1302,87 @@ export class CodeGenerator {
           return this.mod.call("list_set_i64", [listArg, indexArg, valueArg], binaryen.i32);
         }
         return this.mod.call("list_set_i32", [listArg, indexArg, valueArg], binaryen.i32);
+      }
+      default:
+        return null;
+    }
+  }
+
+  // Handle user-facing Map operations by mapping them to typed runtime functions.
+  // Dispatches based on key type (String=str, Int64=i64) and value type (i32 or i64).
+  private tryGenerateMapCall(name: string, expr: import("../ast/nodes.js").CallExpr): binaryen.ExpressionRef | null {
+    // Helper: is a ClarityType stored as i64 in WASM?
+    const isI64Val = (t: ClarityType) =>
+      t.kind === "Int64" || t.kind === "Timestamp" || t.kind === "Float64";
+
+    switch (name) {
+      case "map_new": {
+        return this.mod.call("map_new", [], binaryen.i32);
+      }
+      case "map_size": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        return this.mod.call("map_size", [mapArg], binaryen.i64);
+      }
+      case "map_has": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const keyArg = this.generateExpr(expr.args[1].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        if (mapType.key.kind === "String") {
+          return this.mod.call("map_has_str", [mapArg, keyArg], binaryen.i32);
+        }
+        return this.mod.call("map_has_i64", [mapArg, keyArg], binaryen.i32);
+      }
+      case "map_get": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const keyArg = this.generateExpr(expr.args[1].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        const valI64 = isI64Val(mapType.value);
+        if (mapType.key.kind === "String") {
+          return this.mod.call(valI64 ? "map_get_str_i64" : "map_get_str_i32", [mapArg, keyArg], binaryen.i32);
+        }
+        return this.mod.call(valI64 ? "map_get_i64_i64" : "map_get_i64_i32", [mapArg, keyArg], binaryen.i32);
+      }
+      case "map_set": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const keyArg = this.generateExpr(expr.args[1].value);
+        const valArg = this.generateExpr(expr.args[2].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        const valI64 = isI64Val(mapType.value);
+        if (mapType.key.kind === "String") {
+          return this.mod.call(valI64 ? "map_set_str_i64" : "map_set_str_i32", [mapArg, keyArg, valArg], binaryen.i32);
+        }
+        return this.mod.call(valI64 ? "map_set_i64_i64" : "map_set_i64_i32", [mapArg, keyArg, valArg], binaryen.i32);
+      }
+      case "map_remove": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const keyArg = this.generateExpr(expr.args[1].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        if (mapType.key.kind === "String") {
+          return this.mod.call("map_remove_str", [mapArg, keyArg], binaryen.i32);
+        }
+        return this.mod.call("map_remove_i64", [mapArg, keyArg], binaryen.i32);
+      }
+      case "map_keys": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        if (mapType.key.kind === "String") {
+          return this.mod.call("map_keys_str", [mapArg], binaryen.i32);
+        }
+        return this.mod.call("map_keys_i64", [mapArg], binaryen.i32);
+      }
+      case "map_values": {
+        const mapArg = this.generateExpr(expr.args[0].value);
+        const mapType = this.inferExprType(expr.args[0].value);
+        if (mapType.kind !== "Map") return null;
+        if (isI64Val(mapType.value)) {
+          return this.mod.call("map_values_i64", [mapArg], binaryen.i32);
+        }
+        return this.mod.call("map_values_i32", [mapArg], binaryen.i32);
       }
       default:
         return null;
@@ -1992,6 +2078,20 @@ export class CodeGenerator {
                 case "is_empty": return BOOL;
               }
             }
+            if (argType.kind === "Map") {
+              switch (name) {
+                case "map_size": return INT64;
+                case "map_has": return BOOL;
+                case "map_set": case "map_remove": return argType;
+                case "map_keys": return { kind: "List", element: argType.key };
+                case "map_values": return { kind: "List", element: argType.value };
+                // map_get returns Option<V> — fall through to resolvedType (set by checker)
+              }
+            }
+          }
+          // map_new returns Map type — use resolvedType from checker
+          if (name === "map_new") {
+            if (expr.resolvedType && expr.resolvedType.kind !== "Error") return expr.resolvedType;
           }
           // list_set returns the same list type
           if (name === "list_set" && expr.args.length > 0) {
@@ -2110,6 +2210,14 @@ export class CodeGenerator {
       timestamp_add: TIMESTAMP, timestamp_diff: INT64,
       // Crypto
       sha256: { kind: "String" } as ClarityType,
+      // Map ops — return i32 handle or bool/int; exact type inferred from Map type args
+      map_new: { kind: "Map", key: INT64, value: INT64 } as ClarityType, // placeholder
+      map_size: INT64, map_has: BOOL,
+      map_get: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      map_set: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
+      map_remove: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
+      map_keys: { kind: "List", element: INT64 } as ClarityType,
+      map_values: { kind: "List", element: INT64 } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

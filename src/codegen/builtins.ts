@@ -102,6 +102,29 @@ export function getBuiltins(): BuiltinDef[] {
     // --- Crypto operations ---
     { name: "sha256", importModule: "env", importName: "sha256", params: i32, result: i32 },
 
+    // --- Map operations ---
+    // Maps are opaque i32 handles. Keys: i32 (String ptr) or i64 (Int64). Values: i32 or i64.
+    { name: "map_new", importModule: "env", importName: "map_new", params: binaryen.none, result: i32 },
+    { name: "map_size", importModule: "env", importName: "map_size", params: i32, result: i64 },
+    // String-keyed
+    { name: "map_has_str", importModule: "env", importName: "map_has_str", params: pair_i32, result: i32 },
+    { name: "map_get_str_i32", importModule: "env", importName: "map_get_str_i32", params: pair_i32, result: i32 },
+    { name: "map_get_str_i64", importModule: "env", importName: "map_get_str_i64", params: pair_i32, result: i32 },
+    { name: "map_set_str_i32", importModule: "env", importName: "map_set_str_i32", params: binaryen.createType([i32, i32, i32]), result: i32 },
+    { name: "map_set_str_i64", importModule: "env", importName: "map_set_str_i64", params: binaryen.createType([i32, i32, i64]), result: i32 },
+    { name: "map_remove_str", importModule: "env", importName: "map_remove_str", params: pair_i32, result: i32 },
+    { name: "map_keys_str", importModule: "env", importName: "map_keys_str", params: i32, result: i32 },
+    { name: "map_values_i32", importModule: "env", importName: "map_values_i32", params: i32, result: i32 },
+    // Int64-keyed
+    { name: "map_has_i64", importModule: "env", importName: "map_has_i64", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "map_get_i64_i32", importModule: "env", importName: "map_get_i64_i32", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "map_get_i64_i64", importModule: "env", importName: "map_get_i64_i64", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "map_set_i64_i32", importModule: "env", importName: "map_set_i64_i32", params: binaryen.createType([i32, i64, i32]), result: i32 },
+    { name: "map_set_i64_i64", importModule: "env", importName: "map_set_i64_i64", params: binaryen.createType([i32, i64, i64]), result: i32 },
+    { name: "map_remove_i64", importModule: "env", importName: "map_remove_i64", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "map_keys_i64", importModule: "env", importName: "map_keys_i64", params: i32, result: i32 },
+    { name: "map_values_i64", importModule: "env", importName: "map_values_i64", params: i32, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },
