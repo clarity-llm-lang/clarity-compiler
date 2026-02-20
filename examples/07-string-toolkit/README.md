@@ -6,90 +6,42 @@
 
 ## Overview
 
-A comprehensive toolkit for string manipulation demonstrating character operations, text validation, and transformations. Includes 13 tests covering various string operations.
+A comprehensive toolkit for string manipulation demonstrating character-by-character operations, text validation, and transformations. Includes 13 tests covering various string operations using Clarity's existing string builtins.
 
-**Note:** Case conversion (toUpperCase/toLowerCase) is not included as it would require extensive Unicode mapping tables which are impractical to implement by hand.
+## Implementation Notes
 
-## What This Example Should Demonstrate
+This example implements a wide range of string operations using Clarity's current string capabilities. Case conversion (toUpperCase/toLowerCase) and character classification (is_digit, is_alpha) are not included as they would require `char_code()` builtin which is not yet available.
 
-- String transformations (reverse, repeat, case conversion)
-- Text validation (palindromes, pattern matching)
-- Character classification (alphabetic, digit, whitespace)
-- String analysis (searching, counting, finding)
-- Option types for nullable results
-- Tail-recursive string processing
+### What IS Implemented
 
-## Why This Is Partially Blocked
+✅ **String transformations:**
+- `reverse_string()` - Reverse a string character by character
+- `repeat()` - Repeat string n times
+- `trim()`, `trim_left()`, `trim_right()` - Whitespace removal
 
-### CRITICAL: Missing Character Code Operations
+✅ **String validation:**
+- `is_palindrome()` - Check if string reads same forwards/backwards
+- `contains()` - Check if string contains substring
+- `starts_with()`, `ends_with()` - Prefix/suffix checking
 
-Current string operations:
-- ✅ `char_at(s: String, i: Int64) -> String` - Get single-char string at index
-- ✅ `string_eq(a: String, b: String) -> Bool` - String equality
-- ✅ `string_length(s: String) -> Int64` - String length
-- ✅ `substring(s: String, start: Int64, end: Int64) -> String` - Extract substring
-- ✅ String concatenation with `++`
+✅ **String analysis:**
+- `count_char()` - Count occurrences of a character
+- `find_char()` - Find first occurrence (returns Option)
 
-**Missing:**
-- ❌ `char_code(ch: String) -> Int64` - Get ASCII/Unicode code point
-- ❌ `char_from_code(code: Int64) -> String` - Create char from code point
+✅ **Character operations:**
+- `is_whitespace()` - Check for space, tab, newline, carriage return
 
-**Problem:** Without char_code, case conversion requires checking every character against 52 string literals!
+### What is NOT Implemented
 
-### Current Workaround (IMPRACTICAL)
+❌ **Case conversion** (requires `char_code()` builtin):
+- `to_uppercase()`, `to_lowercase()`
+- `to_uppercase_char()`, `to_lowercase_char()`
 
-```clarity
-function to_uppercase_char(ch: String) -> String {
-  match string_eq(ch, "a") { True -> "A", False ->
-  match string_eq(ch, "b") { True -> "B", False ->
-  match string_eq(ch, "c") { True -> "C", False ->
-  match string_eq(ch, "d") { True -> "D", False ->
-  match string_eq(ch, "e") { True -> "E", False ->
-  match string_eq(ch, "f") { True -> "F", False ->
-  match string_eq(ch, "g") { True -> "G", False ->
-  match string_eq(ch, "h") { True -> "H", False ->
-  match string_eq(ch, "i") { True -> "I", False ->
-  match string_eq(ch, "j") { True -> "J", False ->
-  // ... 16 more letters ...
-  match string_eq(ch, "z") { True -> "Z", False -> ch }}}}}}}}}
-  // 26 nested matches!
-}
-```
+❌ **Character classification** (requires `char_code()` builtin):
+- `is_uppercase()`, `is_lowercase()`, `is_alphabetic()`
+- `is_digit()`, `is_alphanumeric()`
 
-**This is:**
-- 🚫 Extremely verbose and error-prone
-- 🚫 Hard to maintain
-- 🚫 Doesn't handle non-ASCII characters
-- 🚫 Not the right way to demonstrate language features
-
-## Required Language Features
-
-### Character Code Operations
-
-```clarity
-// Get Unicode/ASCII code point
-function char_code(ch: String) -> Int64
-
-// Create character from code point
-function char_from_code(code: Int64) -> String
-
-// Example:
-let code_a = char_code("a")  // 97
-let code_A = char_code("A")  // 65
-let letter = char_from_code(65)  // "A"
-```
-
-### String Splitting (Also Needed)
-
-```clarity
-// Split string by delimiter
-function string_split(s: String, delimiter: String) -> List<String>
-
-// Example:
-let words = string_split("hello,world,foo", ",")  // ["hello", "world", "foo"]
-```
-
-## Ideal Implementation (with char_code)
+## What This Example Demonstrates
 
 ```clarity
 module StringToolkit
@@ -414,117 +366,74 @@ effect[Test] function test_is_digit() -> Unit {
 }
 ```
 
-## What Can Be Implemented NOW vs LATER
-
-### ✅ Can Implement Now (Without char_code):
-- reverse_string
-- repeat
-- is_palindrome
-- contains, starts_with, ends_with
-- count_char, find_char
-- trim, trim_left, trim_right
-
-### ❌ Blocked by Missing char_code:
-- to_uppercase, to_lowercase
-- is_uppercase, is_lowercase, is_alphabetic
-- is_digit, is_alphanumeric
-- Any character classification based on code ranges
-
-## Usage (once implemented)
+## Usage
 
 ```bash
 # Compile
 npx clarityc compile examples/07-string-toolkit/strings.clarity --check-only
 
-# Run tests
+# Run tests (13 tests covering all implemented functions)
 npx clarityc test examples/07-string-toolkit/strings.clarity
 
 # Run individual functions
-npx clarityc run examples/07-string-toolkit/strings.clarity -f reverse_string -a '"hello"'
-npx clarityc run examples/07-string-toolkit/strings.clarity -f is_palindrome -a '"racecar"'
-npx clarityc run examples/07-string-toolkit/strings.clarity -f to_uppercase -a '"hello world"'
+npx clarityc run examples/07-string-toolkit/strings.clarity -f demo
 ```
 
-## Dependencies for Implementation
+### Sample Output
+```
+String Toolkit Demo
+===================
 
-**Critical (blocking case conversion):**
-1. ❌ `char_code(ch: String) -> Int64` - Get character code point
-2. ❌ `char_from_code(code: Int64) -> String` - Create char from code
+Reverse: olleh
+Palindrome check: true
+Contains: true
+Count 'l': 2
+Trimmed: "hello"
+```
 
-**Highly desirable (makes implementation cleaner):**
-3. ⚠️ `string_split(s: String, delimiter: String) -> List<String>` - Split by delimiter
+## Dependencies Used
+
+- ✅ `char_at()` - Character access by index
+- ✅ `length()` - String length
+- ✅ `substring()` - Extract substring
+- ✅ String concatenation with `++`
+- ✅ String equality comparison
+- ✅ Pattern matching and recursion
 
 ## Learning Objectives
 
-Once implemented, studying this example will teach:
+Studying this example teaches:
 
-1. Character-by-character string processing with recursion
-2. Using Option types for nullable results
-3. Tail-recursive accumulator pattern for string building
-4. Character classification and ASCII code ranges
-5. String validation and pattern matching
-6. Whitespace handling
-7. Performance considerations (string concatenation in loops)
+1. **Character-by-character string processing** - Recursive iteration through strings
+2. **Option types for safe operations** - Using `find_char()` returning `Option<Int64>`
+3. **Tail-recursive accumulator patterns** - Building strings efficiently
+4. **String validation techniques** - Palindrome checking, substring search
+5. **Whitespace handling** - Identifying and trimming whitespace characters
+6. **Pattern matching on strings** - Comparing characters and substrings
+
+## Test Coverage
+
+The example includes 13 comprehensive tests covering:
+- `test_reverse` - String reversal
+- `test_repeat` - String repetition
+- `test_is_palindrome` - Palindrome detection
+- `test_contains` - Substring search
+- `test_starts_with` / `test_ends_with` - Prefix/suffix checking
+- `test_count_char` - Character counting
+- `test_find_char` - Character search with Option
+- `test_trim` / `test_trim_left` / `test_trim_right` - Whitespace trimming
+- `test_is_whitespace` - Whitespace detection
 
 ## Related Examples
 
 - `03-string-processing` - String processing with recursion
-- `09-csv-processor` - More advanced string parsing (needs string_split)
-- `19-json-parser` - Complex string parsing and validation
+- `09-csv-processor` - More advanced string parsing
+- `10-config-parser` - INI file parsing
+- `20-expr-evaluator` - Lexical analysis and tokenization
 
-## Impact on Language Design
+## Future Enhancements
 
-**Character code operations are fundamental for text processing.** Almost every programming language provides:
-- C: `char c = 'A';` gives ASCII code 65
-- Python: `ord('A')` → 65, `chr(65)` → 'A'
-- JavaScript: `'A'.charCodeAt(0)` → 65, `String.fromCharCode(65)` → 'A'
-- Rust: `'A' as u32` → 65, `char::from_u32(65)` → Some('A')
-
-Without these operations, string manipulation is severely limited.
-
-**Recommendation:** Add `char_code` and `char_from_code` as built-in functions. These are critical for:
-- Case conversion
-- Character validation
-- Text parsing
-- CSV/JSON parsing
-- Any domain involving character classification
-
-## Alternative Approaches Considered
-
-### Approach 1: Add built-in case conversion functions
-```clarity
-function to_uppercase(s: String) -> String  // Built-in
-function to_lowercase(s: String) -> String  // Built-in
-```
-
-**Problem:** This doesn't help with character classification (is_digit, is_alphabetic), which also needs char codes.
-
-### Approach 2: Add character classification functions
-```clarity
-function is_uppercase(ch: String) -> Bool   // Built-in
-function is_lowercase(ch: String) -> Bool   // Built-in
-function is_digit(ch: String) -> Bool       // Built-in
-```
-
-**Problem:** Still need char_code for custom character ranges, Unicode handling, etc.
-
-### Approach 3: Add char_code + char_from_code (RECOMMENDED)
-```clarity
-function char_code(ch: String) -> Int64
-function char_from_code(code: Int64) -> String
-```
-
-**Benefits:**
-- Enables all character operations
-- Universal solution (works for any character set)
-- Minimal API surface (just 2 functions)
-- Users can build their own abstractions
-- Matches every other programming language
-
-## Next Steps
-
-**Implementation priority: MEDIUM-HIGH**
-
-Can partially implement now (reverse, palindrome, contains, etc.), but save until char_code is available for complete implementation.
-
-**Recommendation:** Add char_code/char_from_code built-ins first, then implement this example to showcase string manipulation capabilities.
+When `char_code()` and `char_from_code()` builtins become available, this example could be extended with:
+- Case conversion (`to_uppercase`, `to_lowercase`)
+- Character classification (`is_digit`, `is_alpha`, `is_alphanumeric`)
+- More sophisticated text transformations

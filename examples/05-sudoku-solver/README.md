@@ -6,116 +6,31 @@
 
 ## Overview
 
-A sudoku solver using recursive backtracking to solve 9×9 puzzles. This example would demonstrate complex algorithmic problem-solving, 2D grid manipulation, and efficient data structures.
+A sudoku solver using recursive backtracking to solve 9×9 puzzles. Demonstrates complex algorithmic problem-solving, 2D grid manipulation using List<Int64>, and recursive constraint satisfaction.
 
-## What This Example Should Demonstrate
+## Implementation Notes
+
+This example uses `List<Int64>` to represent the 9×9 grid (81 cells) with `nth()` builtin for indexed access. While not O(1) like a dedicated array type, it's sufficient for demonstrating the backtracking algorithm on typical sudoku puzzles.
+
+### Key Design Decisions
+
+- **Grid representation**: Flat `List<Int64>` with 81 elements, indexed as `row * 9 + col`
+- **Empty cells**: Represented as `0`, filled cells as `1-9`
+- **Access pattern**: Uses `nth(grid, index)` which returns `Option<Int64>`
+- **Result type**: `SolveResult` union with `Solved(grid)` or `Unsolvable` variants
+- **Validation**: Separate functions for row, column, and 3×3 box constraints
+
+## What This Example Demonstrates
 
 - Recursive backtracking algorithm
-- 2D grid representation and manipulation
+- 2D grid representation using 1D list
 - Complex validation logic (row, column, 3×3 box constraints)
-- File parsing (reading puzzle from text file)
+- Pattern matching on Option types
 - Union types for result values
-- Performance-critical operations requiring O(1) access
+- Constraint satisfaction problems
+- Exhaustive search with pruning
 
-## Why This Can't Be Implemented Yet
-
-### CRITICAL: Missing Indexed Array Operations
-
-Clarity currently has `List<T>` with only these operations:
-- `head(list)` - O(1) get first element
-- `tail(list)` - O(1) get rest of list
-- `append(list, elem)` - O(n) add to end
-- `concat(list1, list2)` - O(n) merge lists
-- `reverse(list)` - O(n) reverse
-- `length(list)` - O(n) count elements
-
-**Problem:** No way to get or set element at arbitrary index!
-
-A sudoku solver needs frequent random access to grid cells:
-```clarity
-// NEEDED (doesn't exist):
-let cell = list_get(grid, 42)           // Get element at index 42
-let new_grid = list_set(grid, 42, 5)   // Set element at index 42 to 5
-```
-
-**Workaround attempt:** Implement get/set recursively with head/tail:
-```clarity
-// O(n) - WAY TOO SLOW for sudoku
-function list_get_slow(list: List<T>, index: Int64) -> Option<T> {
-  match index == 0 {
-    True -> Some(head(list)),
-    False -> list_get_slow(tail(list), index - 1)
-  }
-}
-```
-
-**Result:** Sudoku solver becomes O(n²) per cell access instead of O(1). A single solve attempt would take seconds or minutes instead of milliseconds.
-
-## Required Language Features
-
-### Option 1: Add Indexed List Operations
-
-```clarity
-// Built-in indexed access for List<T>
-function list_get<T>(list: List<T>, index: Int64) -> Option<T>
-function list_set<T>(list: List<T>, index: Int64, value: T) -> List<T>
-
-// Example usage:
-let grid: List<Int64> = [0, 0, 5, 3, ...]  // 81 elements for 9×9 sudoku
-match list_get(grid, 42) {
-  Some(val) -> print_int(val),
-  None -> print_string("Index out of bounds")
-}
-let new_grid = list_set(grid, 42, 5)  // Set cell to 5
-```
-
-**Implementation:** Internally use array/vector with O(1) random access
-
-### Option 2: Add Dedicated Array Type (PREFERRED)
-
-```clarity
-// New built-in Array type with O(1) indexed access
-type Array<T>
-
-function array_new<T>(size: Int64, initial: T) -> Array<T>
-function array_get<T>(arr: Array<T>, index: Int64) -> Option<T>
-function array_set<T>(arr: Array<T>, index: Int64, value: T) -> Array<T>
-function array_length<T>(arr: Array<T>) -> Int64
-function array_to_list<T>(arr: Array<T>) -> List<T>
-function list_to_array<T>(list: List<T>) -> Array<T>
-
-// Example usage:
-let grid = array_new(81, 0)  // 9×9 grid, all cells empty
-let grid2 = array_set(grid, 42, 5)  // Set cell to 5
-match array_get(grid2, 42) {
-  Some(val) -> print_int(val),  // Prints: 5
-  None -> print_string("Invalid index")
-}
-```
-
-**Why Array is better than List for this:**
-- Clearly signals O(1) random access intent
-- Optimized for index-based algorithms
-- Distinguishes sequential processing (List) from random access (Array)
-
-### Additional: Better Parsing
-
-```clarity
-// string_to_int returns Option<Int64>: Some(value) or None on failure
-let result = string_to_int("xyz")  // Returns None
-let num = match string_to_int("42") {
-  Some(n) -> n,     // 42
-  None -> 0 - 1     // parse failure
-}
-
-// Usage:
-match parse_int(input) {
-  Ok(num) -> process(num),
-  Err(msg) -> print_string("Error: " ++ msg)
-}
-```
-
-## Ideal Implementation (with Array<T>)
+## Implementation Overview
 
 ```clarity
 module SudokuSolver
@@ -306,48 +221,52 @@ function print_row(grid: Grid, row: Int64, col: Int64) -> Unit {
 0 0 0 0 8 0 0 7 9
 ```
 
-## Usage (once implemented)
+## Usage
 
 ```bash
 # Compile
 npx clarityc compile examples/05-sudoku-solver/sudoku.clarity
 
-# Solve puzzle
-npx clarityc run examples/05-sudoku-solver/sudoku.clarity -f main -a '"examples/05-sudoku-solver/puzzle1.txt"'
-
-# Run tests
+# Run tests (8 tests covering validation, solving, and edge cases)
 npx clarityc test examples/05-sudoku-solver/sudoku.clarity
+
+# Run demo (solves a sample puzzle)
+npx clarityc run examples/05-sudoku-solver/sudoku.clarity -f demo
 ```
 
-## Dependencies for Implementation
+## Dependencies Used
 
-Before this can be implemented, Clarity needs:
-
-1. ✅ **Array<T> type** with indexed access (CRITICAL)
-2. ✅ **parse_int returning Result<Int64, String>** (HIGH)
-3. ⚠️ **string_split** for parsing (MEDIUM - can work around)
-4. ⚠️ **Better file parsing utilities** (NICE TO HAVE)
+- ✅ **List<T>** with nth() for indexed access
+- ✅ **Option<T>** for safe indexing
+- ✅ **Pattern matching** for control flow
+- ✅ **Recursion** for backtracking algorithm
+- ✅ **Union types** for result values
 
 ## Learning Objectives
 
-Once implemented, studying this example will teach:
+Studying this example teaches:
 
-1. Recursive backtracking algorithms
-2. 2D grid representation with 1D arrays
-3. Complex validation logic with multiple constraints
-4. Efficient data structure usage (Array vs List trade-offs)
-5. File parsing and text processing
-6. Algorithm optimization and performance considerations
+1. **Recursive backtracking algorithms** - The core constraint satisfaction technique
+2. **2D grid representation with 1D lists** - Mapping (row, col) to flat index
+3. **Complex validation logic** - Checking row, column, and box constraints
+4. **Option type handling** - Safe indexed access with pattern matching
+5. **Algorithmic thinking** - Breaking down problems into smaller validations
+6. **Performance considerations** - Understanding algorithm complexity
+
+## Test Coverage
+
+The example includes 8 comprehensive tests:
+- `test_get_set_cell` - Grid access operations
+- `test_is_valid_placement` - Constraint validation
+- `test_find_empty` - Empty cell detection
+- `test_solve_simple` - Basic puzzle solving
+- `test_solve_medium` - Moderate difficulty
+- `test_solve_hard` - Complex backtracking
+- `test_unsolvable` - Invalid puzzle detection
+- `test_already_solved` - Solved puzzle recognition
 
 ## Related Examples
 
 - `02-recursion` - Recursion fundamentals
-- `04-file-io` - File reading
-- `14-tic-tac-toe` - Another grid-based game (also needs Array)
-- `20-expr-evaluator` - Another backtracking example
-
-## Impact on Language Design
-
-This example reveals that Clarity needs efficient random access data structures. Many real-world algorithms (games, simulations, matrix operations) are impractical without O(1) indexed access.
-
-**Recommendation:** Add `Array<T>` as a first-class type alongside `List<T>`.
+- `14-tic-tac-toe` - Another grid-based game
+- `20-expr-evaluator` - Tree-based recursive algorithms

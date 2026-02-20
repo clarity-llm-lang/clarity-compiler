@@ -6,88 +6,80 @@
 
 ## Overview
 
-Read CSV files, parse rows, filter by column values, and compute statistics. Demonstrates text parsing and functional list operations. Includes 9 tests covering parsing, filtering, and statistics.
+Parse CSV files, extract fields, filter rows, and compute statistics. Demonstrates text parsing with `split()` builtin and functional list operations using recursion. Includes 9 tests covering parsing, filtering, and statistics.
 
-## Required Language Features
+## Implementation Notes
 
-### 1. String Splitting
+This example uses Clarity's `split()` builtin to parse CSV lines and custom recursive functions to implement map/filter/reduce patterns. Demonstrates practical data processing without requiring higher-order list functions or list comprehensions.
 
-```clarity
-function string_split(s: String, delimiter: String) -> List<String>
+### Key Features
 
-// Example:
-let line = "John,Doe,30,Engineer";
-let fields = string_split(line, ",");  // ["John", "Doe", "30", "Engineer"]
+- ✅ **CSV parsing** - Split lines by delimiter with `split()`
+- ✅ **Field extraction** - Access specific columns by index
+- ✅ **Row filtering** - Custom filter functions using recursion
+- ✅ **Statistics** - Compute sum, average, min, max
+- ✅ **Type conversion** - Parse numeric fields with `string_to_int()`
+- ✅ **Record types** - Represent rows as structured data
+
+## Usage
+
+```bash
+# Compile
+npx clarityc compile examples/09-csv-processor/csv.clarity --check-only
+
+# Run tests (9 tests covering parsing and statistics)
+npx clarityc test examples/09-csv-processor/csv.clarity
+
+# Run demo
+npx clarityc run examples/09-csv-processor/csv.clarity -f demo
 ```
 
-### 2. Map/Filter/Reduce for Lists
+### Sample Output
+```
+CSV Processor Demo
+==================
 
-```clarity
-function map<A, B>(list: List<A>, f: (A) -> B) -> List<B>
-function filter<T>(list: List<T>, predicate: (T) -> Bool) -> List<T>
-function reduce<T, R>(list: List<T>, init: R, f: (R, T) -> R) -> R
-
-// Or list comprehensions:
-let ages = [int_to_string(row.age) | row <- people, row.age > 18];
+Parsed 3 rows
+Total score: 270
+Average score: 90
+Highest score: 95
+Lowest score: 85
 ```
 
-## Example Use Case
+## Test Coverage
 
-```clarity
-type Person = {
-  name: String,
-  age: Int64,
-  city: String
-}
-
-effect[FileSystem, Log] function process_csv(filename: String) -> Unit {
-  let content = read_file(filename);
-  let lines = string_split(content, "\n");
-  let rows = map(lines, parse_csv_row);
-
-  // Filter people over 30
-  let adults = filter(rows, is_adult);
-
-  // Calculate average age
-  let ages = map(adults, get_age);
-  let total = reduce(ages, 0, add_int);
-  let avg = total / length(ages);
-
-  print_int(avg)
-}
-
-function parse_csv_row(line: String) -> Person {
-  let fields = string_split(line, ",");
-  {
-    name: head(fields),
-    age: string_to_int(head(tail(fields))),
-    city: head(tail(tail(fields)))
-  }
-}
-
-function is_adult(person: Person) -> Bool {
-  person.age > 30
-}
-
-function get_age(person: Person) -> Int64 {
-  person.age
-}
-
-function add_int(a: Int64, b: Int64) -> Int64 {
-  a + b
-}
-```
+The example includes 9 comprehensive tests:
+- `test_parse_csv_line` - Basic CSV line parsing
+- `test_parse_multiple_fields` - Multi-field parsing
+- `test_get_field` - Field extraction by index
+- `test_filter_rows` - Row filtering by predicate
+- `test_count_rows` - Row counting
+- `test_sum_column` - Column sum computation
+- `test_average` - Average calculation
+- `test_min_max` - Minimum/maximum finding
+- `test_empty_csv` - Edge case handling
 
 ## Learning Objectives
 
-- CSV parsing with string_split
-- Functional list processing (map, filter, reduce)
-- Working with records/structs
-- Data transformation pipelines
+Studying this example teaches:
 
-## Dependencies
+1. **CSV parsing** - Splitting text by delimiters
+2. **Functional list processing** - Map/filter/reduce patterns using recursion
+3. **Working with records** - Structured data representation
+4. **Data transformation pipelines** - Multi-step data processing
+5. **Type conversion** - String to numeric conversion with `string_to_int()`
+6. **Option type handling** - Safe field access with fallbacks
 
-- ❌ `string_split` (CRITICAL)
-- ❌ `map`/`filter`/`reduce` or list comprehensions (HIGH)
-- ✅ File I/O (already available)
-- ✅ Records (already available)
+## Related Examples
+
+- `07-string-toolkit` - String manipulation functions
+- `10-config-parser` - Another text parsing example
+- `03-string-processing` - String processing with recursion
+
+## Dependencies Used
+
+- ✅ **`split()`** - String splitting by delimiter
+- ✅ **`string_to_int()`** - Numeric parsing with Option<Int64>
+- ✅ **List operations** - head, tail, append, length
+- ✅ **Records** - Structured data types
+- ✅ **Recursion** - Implementing map/filter/reduce patterns

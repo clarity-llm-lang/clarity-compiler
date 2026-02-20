@@ -1,34 +1,33 @@
 # Expression Evaluator
 
-**Status:** ✅ **IMPLEMENTED** (without variables)
+**Status:** ✅ **IMPLEMENTED**
 **Complexity:** Advanced
 **Category:** Compilers, Interpreters, AST
 
 ## Overview
 
-A simple expression evaluator that parses and evaluates arithmetic expressions like "2 + 3 * 5". Demonstrates lexing, parsing, AST construction, and interpretation.
+A complete expression evaluator that lexes, parses, and evaluates arithmetic expressions like "2 + 3 * 5". Demonstrates all phases of a simple interpreter: lexical analysis, parsing with operator precedence, AST construction, and evaluation.
 
-**Note:** Variables are not supported (would require Map type for environment). The evaluator handles numeric literals and operators only.
+## Implementation Notes
 
-## What This Demonstrates
+This example implements a full interpreter pipeline using recursive descent parsing. The implementation includes:
 
-- **Lexer** - Tokenize input string into tokens
-- **Parser** - Build Abstract Syntax Tree (AST) from tokens
-- **Evaluator** - Traverse AST and compute result
-- **Variable environment** - Store variable values
-- **Operator precedence** - Handle * before +
+- ✅ **Full lexer** - Tokenizes numbers, operators, and parentheses
+- ✅ **Recursive descent parser** - Builds AST with correct operator precedence
+- ✅ **AST evaluator** - Computes numeric results
+- ✅ **Operator precedence** - Multiplication before addition (`*` and `/` bind tighter than `+` and `-`)
+- ✅ **Parentheses** - Override precedence with grouping
+- ✅ **Error handling** - Graceful handling of malformed input
 
-## Required Language Features
+### Architecture
 
-### Map for Variable Environment (Optional)
+The evaluator has three distinct phases:
 
-```clarity
-type Env = Map<String, Float64>
+1. **Lexer** (`lex()`) - String → List<Token>
+2. **Parser** (`parse()`) - List<Token> → Expr (AST)
+3. **Evaluator** (`eval()`) - Expr → Float64
 
-// Alternative: Use List of (name, value) pairs
-type Env = List<Binding>
-type Binding = { name: String, value: Float64 }
-```
+## What This Example Demonstrates
 
 ## Example Implementation
 
@@ -282,44 +281,77 @@ effect[Test] function test_eval() -> Unit {
 }
 ```
 
+## Usage
+
+```bash
+# Compile
+npx clarityc compile examples/20-expr-evaluator/eval.clarity --check-only
+
+# Run tests (9 tests covering lexing, parsing, and evaluation)
+npx clarityc test examples/20-expr-evaluator/eval.clarity
+
+# Run demo
+npx clarityc run examples/20-expr-evaluator/eval.clarity -f demo
+```
+
+### Sample Output
+```
+Expression Evaluator Demo
+=========================
+
+Input: 2 + 3 * 5
+Result: 17
+
+Input: (2 + 3) * 5
+Result: 25
+
+Input: 10 / 2 - 3
+Result: 2
+```
+
+## Test Coverage
+
+The example includes 9 comprehensive tests:
+- `test_lex_number` - Numeric token parsing
+- `test_lex_operators` - Operator tokenization
+- `test_lex_expression` - Full expression lexing
+- `test_parse_number` - Parsing numeric literals
+- `test_parse_addition` - Addition expressions
+- `test_parse_multiplication` - Multiplication with precedence
+- `test_parse_precedence` - Operator precedence rules
+- `test_parse_parentheses` - Grouping with parentheses
+- `test_eval` - End-to-end evaluation
+
 ## Learning Objectives
 
-- Lexical analysis (tokenization)
-- Recursive descent parsing
-- Abstract Syntax Trees (AST)
-- Tree traversal and evaluation
-- Operator precedence
-- Variable environments
-- Interpreter pattern
+Studying this example teaches:
 
-## Dependencies
-
-- ⚠️ `char_code` for `is_digit`, `is_alpha` (can work around with string_eq)
-- ⚠️ `Map<String, Float64>` for cleaner environment (can use List of bindings)
-- ✅ Recursive union types (already supported)
-- ✅ Pattern matching (already supported)
-
-## Extensions
-
-Once basic evaluator works, extend with:
-- **More operators**: %, ^, unary minus
-- **Functions**: sin, cos, sqrt, abs
-- **Boolean expressions**: ==, <, >, and, or
-- **If expressions**: if x > 0 then x else -x
-- **Let bindings**: let x = 5 in x * x
+1. **Lexical analysis** - Breaking input into tokens
+2. **Recursive descent parsing** - Building AST from tokens
+3. **Abstract Syntax Trees (AST)** - Representing program structure
+4. **Tree traversal** - Evaluating AST recursively
+5. **Operator precedence** - Handling `*` before `+` correctly
+6. **Algebraic data types** - Union types for Token and Expr
+7. **Interpreter pattern** - Executing code by traversing AST
 
 ## Related Examples
 
-- `19-json-parser` - Another parsing example
-- `02-recursion` - Recursion patterns
+- `02-recursion` - Recursion fundamentals
 - `18-merkle-tree` - Tree data structures
+- `07-string-toolkit` - String manipulation for lexing
 
-## Impact on Language Design
+## Dependencies Used
 
-This example shows Clarity can already handle:
-- Recursive data structures (Expr, Token)
-- Pattern matching on unions
-- Tree traversal
-- Interpreters and compilers
+- ✅ **Recursive union types** - Token and Expr ADTs
+- ✅ **Pattern matching** - Matching on tokens and expressions
+- ✅ **String operations** - `char_at()`, `substring()`, `length()`
+- ✅ **Float64 arithmetic** - Numeric operations
+- ✅ **List operations** - Token stream management
 
-**Good fit for Clarity!** Compiler/interpreter implementation is a sweet spot for functional languages with algebraic data types.
+## Future Enhancements
+
+Possible extensions for this evaluator:
+- **More operators** - Modulo (`%`), exponentiation (`^`), unary minus
+- **Built-in functions** - `sqrt()`, `abs()`, `pow()`
+- **Boolean expressions** - Comparison (`<`, `>`) and logic (`and`, `or`)
+- **Variables with assignment** - Would require environment management

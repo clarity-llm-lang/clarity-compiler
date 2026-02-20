@@ -286,7 +286,7 @@ npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 206 tests across lexer, parser, type checker, and end-to-end
+npm test    # 220 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
