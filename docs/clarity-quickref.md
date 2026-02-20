@@ -21,7 +21,7 @@ export type Color = | Red | Green | Blue
 ## Types
 ```
 // Primitives: Int64, Float64, String, Bool, Unit
-// Generic built-ins: List<T>, Option<T> (Some/None), Result<T, E> (Ok/Err)
+// Generic built-ins: List<T>, Option<T> (Some/None), Result<T, E> (Ok/Err), Map<K, V>
 
 // Records
 type User = { id: Int64, email: String }
@@ -105,6 +105,14 @@ a + b                // last expression = return value
 | `tail(list)` | `List<T> -> List<T>` | — |
 | `append(list, elem)` | `List<T>, T -> List<T>` | — |
 | `length(list)` | `List<T> -> Int64` | — |
+| `map_new()` | `-> Map<K, V>` (annotate type) | — |
+| `map_get(m, key)` | `Map<K,V>, K -> Option<V>` | — |
+| `map_set(m, key, val)` | `Map<K,V>, K, V -> Map<K,V>` | — |
+| `map_remove(m, key)` | `Map<K,V>, K -> Map<K,V>` | — |
+| `map_has(m, key)` | `Map<K,V>, K -> Bool` | — |
+| `map_size(m)` | `Map<K,V> -> Int64` | — |
+| `map_keys(m)` | `Map<K,V> -> List<K>` | — |
+| `map_values(m)` | `Map<K,V> -> List<V>` | — |
 
 Run `npx clarityc introspect --builtins` for the full list (string ops, math, conversions, etc).
 

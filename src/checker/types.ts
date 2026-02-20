@@ -9,6 +9,7 @@ export type ClarityType =
   | { kind: "Record"; name: string; fields: Map<string, ClarityType> }
   | { kind: "Union"; name: string; variants: ClarityVariant[] }
   | { kind: "List"; element: ClarityType }
+  | { kind: "Map"; key: ClarityType; value: ClarityType }
   | { kind: "Option"; inner: ClarityType }
   | { kind: "Result"; ok: ClarityType; err: ClarityType }
   | { kind: "Function"; params: ClarityType[]; paramNames?: string[]; returnType: ClarityType; effects: Set<string> }
@@ -65,6 +66,11 @@ export function typesEqual(a: ClarityType, b: ClarityType): boolean {
       return typesEqual(a.element, bList.element);
     }
 
+    case "Map": {
+      const bMap = b as Extract<ClarityType, { kind: "Map" }>;
+      return typesEqual(a.key, bMap.key) && typesEqual(a.value, bMap.value);
+    }
+
     case "Option": {
       const bOpt = b as Extract<ClarityType, { kind: "Option" }>;
       return typesEqual(a.inner, bOpt.inner);
@@ -106,6 +112,7 @@ export function typeToString(t: ClarityType): string {
     case "Record": return t.name;
     case "Union": return t.name;
     case "List": return `List<${typeToString(t.element)}>`;
+    case "Map": return `Map<${typeToString(t.key)}, ${typeToString(t.value)}>`;
     case "Option": return `Option<${typeToString(t.inner)}>`;
     case "Result": return `Result<${typeToString(t.ok)}, ${typeToString(t.err)}>`;
     case "Function": return `(${t.params.map(typeToString).join(", ")}) -> ${typeToString(t.returnType)}`;
@@ -133,6 +140,7 @@ export function containsTypeVar(t: ClarityType): boolean {
   switch (t.kind) {
     case "TypeVar": return true;
     case "List": return containsTypeVar(t.element);
+    case "Map": return containsTypeVar(t.key) || containsTypeVar(t.value);
     case "Option": return containsTypeVar(t.inner);
     case "Result": return containsTypeVar(t.ok) || containsTypeVar(t.err);
     case "Function": return t.params.some(containsTypeVar) || containsTypeVar(t.returnType);
@@ -147,6 +155,7 @@ export function substituteTypeVars(t: ClarityType, subst: Map<string, ClarityTyp
   switch (t.kind) {
     case "TypeVar": return subst.get(t.name) ?? t;
     case "List": return { kind: "List", element: substituteTypeVars(t.element, subst) };
+    case "Map": return { kind: "Map", key: substituteTypeVars(t.key, subst), value: substituteTypeVars(t.value, subst) };
     case "Option": return { kind: "Option", inner: substituteTypeVars(t.inner, subst) };
     case "Result": return { kind: "Result", ok: substituteTypeVars(t.ok, subst), err: substituteTypeVars(t.err, subst) };
     case "Function": return {
@@ -206,6 +215,11 @@ export function unifyTypes(
     case "List": {
       const cList = concrete as Extract<ClarityType, { kind: "List" }>;
       return unifyTypes(generic.element, cList.element, bindings);
+    }
+
+    case "Map": {
+      const cMap = concrete as Extract<ClarityType, { kind: "Map" }>;
+      return unifyTypes(generic.key, cMap.key, bindings) && unifyTypes(generic.value, cMap.value, bindings);
     }
 
     case "Option": {

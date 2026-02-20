@@ -89,6 +89,7 @@ LineComment     <- '//' [^\n]*
 # List<T>         — ordered collection
 # Option<T>       — Some(value: T) | None
 # Result<T, E>    — Ok(value: T) | Err(error: E)
+# Map<K, V>       — immutable key-value mapping (K: String or Int64, V: any type)
 #
 # === Type Aliases ===
 # type Name = ExistingType    (transparent — alias is interchangeable with underlying type)
@@ -100,6 +101,7 @@ LineComment     <- '//' [^\n]*
 # Conversions: int_to_float, float_to_int, int_to_string, float_to_string, string_to_int, string_to_float
 # Math: abs_int, min_int, max_int, sqrt, pow, floor, ceil
 # Lists: length, head, tail, append, concat, reverse, is_empty, nth
+# Maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
 # Bytes: bytes_new, bytes_length, bytes_get, bytes_set, bytes_slice, bytes_concat, bytes_from_string, bytes_to_string
 # Timestamps (Time effect for now): now, timestamp_to_string, timestamp_to_int, timestamp_from_int, timestamp_add, timestamp_diff
 # Tests (Test effect): assert_eq, assert_eq_float, assert_eq_string, assert_true, assert_false

@@ -286,7 +286,7 @@ npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 220 tests across lexer, parser, type checker, and end-to-end
+npm test    # 230 tests across lexer, parser, type checker, and end-to-end
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 206 tests
+└── tests/                  # 230 tests
 ```
 
 ---
@@ -363,6 +363,7 @@ clarity/
 - Result<T, E> as built-in (Ok/Err with polymorphic type inference)
 - Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
+- Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
 - String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
