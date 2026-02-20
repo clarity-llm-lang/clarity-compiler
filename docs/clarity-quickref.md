@@ -14,6 +14,7 @@ module ModuleName
 import { add, User } from "math"           // imports math.clarity from same directory
 import { abs, clamp } from "std/math"      // standard library import
 import { length, repeat } from "std/string"
+import { size, first, push } from "std/list"
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
 export type Color = | Red | Green | Blue
 ```
@@ -113,6 +114,8 @@ a + b                // last expression = return value
 | `map_size(m)` | `Map<K,V> -> Int64` | — |
 | `map_keys(m)` | `Map<K,V> -> List<K>` | — |
 | `map_values(m)` | `Map<K,V> -> List<V>` | — |
+| `json_parse(s)` | `String -> Option<Map<String, String>>` | — |
+| `json_stringify(m)` | `Map<String, String> -> String` | — |
 
 Run `npx clarityc introspect --builtins` for the full list (string ops, math, conversions, etc).
 

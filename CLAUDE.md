@@ -306,6 +306,16 @@ Make programs viable beyond demos.
 4. ✓ **Bytes and Timestamp runtime support** — `Bytes` is a heap-allocated byte buffer with create/get/set/slice/concat/encode/decode. `Timestamp` is i64 (ms since epoch) with now/add/diff/to_string/from_int. `now()` requires `Time` effect.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
 6. **REPL / browser playground**.
+
+### Phase 6 — Native AI Interop Requirements (v0.7+)
+1. **New effects** — `A2A`, `MCP`, `Model`, `Secret`.
+2. **New std modules** — `std/a2a`, `std/mcp`, `std/llm`, `std/secret`.
+3. **Interop error contract** — All protocol/model calls return `Result<T, InteropError>` (no exceptions).
+4. **MCP support** — stdio/http session connect, tool list/read/call primitives.
+5. **LLM support** — Unified `std/llm` API with streaming and cancellation; at least one OpenAI-compatible adapter and one local adapter (Ollama).
+6. **A2A support** — Discovery plus task submit/poll/cancel lifecycle.
+7. **Policy + audit** — Endpoint allowlists, effect-family deny support, structured interop audit logs.
+
 - No lambdas or closures — pass named functions only
 - No garbage collection — bump allocator, programs leak memory over time
 

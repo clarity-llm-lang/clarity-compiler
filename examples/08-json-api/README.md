@@ -1,5 +1,6 @@
 # JSON API Client (REQUIREMENTS)
 
+**Status:** ⚠️ **BLOCKED** - Missing HTTP client (JSON/Map now partially available)
 **Status:** ⚠️ **PARTIALLY BLOCKED** - Missing JSON parsing/serialization runtime
 **Complexity:** Intermediate
 **Category:** Network, Data Processing

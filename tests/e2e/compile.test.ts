@@ -34,7 +34,7 @@ describe("end-to-end compilation", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const add = instance.exports.add as (a: bigint, b: bigint) => bigint;
     expect(add(2n, 3n)).toBe(5n);
   });
@@ -47,7 +47,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const sub = instance.exports.sub as (a: bigint, b: bigint) => bigint;
     expect(sub(10n, 3n)).toBe(7n);
   });
@@ -60,7 +60,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const mul = instance.exports.mul as (a: bigint, b: bigint) => bigint;
     expect(mul(6n, 7n)).toBe(42n);
   });
@@ -73,7 +73,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const div = instance.exports.div as (a: bigint, b: bigint) => bigint;
     expect(div(42n, 6n)).toBe(7n);
   });
@@ -2061,6 +2061,37 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_blank as () => number)()).toBe(1);
     expect((instance.exports.test_to_int as () => bigint)()).toBe(99n);
   });
+
+  it("imports std/list functions", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { size, first, rest, push, join, reversed, empty, get, set_at } from "std/list"
+      function test_size() -> Int64 { size([1, 2, 3]) }
+      function test_first() -> Int64 { first([42, 7]) }
+      function test_rest_head() -> Int64 { first(rest([9, 8, 7])) }
+      function test_push_get() -> Int64 { get(push([1, 2], 3), 2) }
+      function test_join_get() -> Int64 { get(join([1, 2], [3, 4]), 3) }
+      function test_reversed_first() -> Int64 { first(reversed([1, 2, 3])) }
+      function test_empty() -> Bool { empty(rest([5])) }
+      function test_set_at() -> Int64 { get(set_at([1, 2, 3], 1, 99), 1) }
+      function test_string_head() -> String { first(["a", "b"]) }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(42n);
+    expect((instance.exports.test_rest_head as () => bigint)()).toBe(8n);
+    expect((instance.exports.test_push_get as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_join_get as () => bigint)()).toBe(4n);
+    expect((instance.exports.test_reversed_first as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_empty as () => number)()).toBe(1);
+    expect((instance.exports.test_set_at as () => bigint)()).toBe(99n);
+    expect(runtime.readString((instance.exports.test_string_head as () => number)())).toBe("a");
+  });
 });
 
 describe("String interning", () => {
@@ -2475,6 +2506,72 @@ describe("Map builtins", () => {
     expect(result.errors).toHaveLength(0);
     const { instance } = await instantiate(result.wasm!);
     expect((instance.exports.test_original_unchanged as () => bigint)()).toBe(0n);
+  });
+});
+
+describe("JSON builtins", () => {
+  it("json_parse parses flat object scalars into Map<String, String>", async () => {
+    const source = `
+      module Test
+      function get_name() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42,\\"ok\\":true,\\"none\\":null}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "name") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+      function get_age() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "age") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.get_name as () => number)())).toBe("Alice");
+    expect(runtime.readString((instance.exports.get_age as () => number)())).toBe("42");
+  });
+
+  it("json_parse returns None for invalid or unsupported input", async () => {
+    const source = `
+      module Test
+      function invalid_json_is_none() -> Bool {
+        match json_parse("not json") { None -> True, Some(_) -> False }
+      }
+      function nested_object_is_none() -> Bool {
+        match json_parse("{\\"outer\\":{\\"inner\\":1}}") { None -> True, Some(_) -> False }
+      }
+      function array_root_is_none() -> Bool {
+        match json_parse("[1,2,3]") { None -> True, Some(_) -> False }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.invalid_json_is_none as () => number)()).toBe(1);
+    expect((instance.exports.nested_object_is_none as () => number)()).toBe(1);
+    expect((instance.exports.array_root_is_none as () => number)()).toBe(1);
+  });
+
+  it("json_stringify serializes Map<String, String> with literal detection", async () => {
+    const source = `
+      module Test
+      function test() -> String {
+        let m: Map<String, String> = map_new();
+        let m1 = map_set(m, "name", "Alice");
+        let m2 = map_set(m1, "age", "42");
+        let m3 = map_set(m2, "active", "true");
+        let m4 = map_set(m3, "middle", "null");
+        json_stringify(m4)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe(
+      "{\"name\":\"Alice\",\"age\":42,\"active\":true,\"middle\":null}",
+    );
   });
 });
 

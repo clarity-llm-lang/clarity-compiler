@@ -1,0 +1,46 @@
+module StdList
+
+// Number of elements in a list
+export function size<T>(items: List<T>) -> Int64 {
+  list_length(items)
+}
+
+// First element of a list (traps on empty list)
+export function first<T>(items: List<T>) -> T {
+  head(items)
+}
+
+// List without the first element
+export function rest<T>(items: List<T>) -> List<T> {
+  tail(items)
+}
+
+// Append an element to the end of a list
+export function push<T>(items: List<T>, value: T) -> List<T> {
+  append(items, value)
+}
+
+// Concatenate two lists
+export function join<T>(a: List<T>, b: List<T>) -> List<T> {
+  concat(a, b)
+}
+
+// Reverse a list
+export function reversed<T>(items: List<T>) -> List<T> {
+  reverse(items)
+}
+
+// Check whether a list has no elements
+export function empty<T>(items: List<T>) -> Bool {
+  is_empty(items)
+}
+
+// Read a list element by index (traps if out of bounds)
+export function get<T>(items: List<T>, index: Int64) -> T {
+  nth(items, index)
+}
+
+// Return a list with one element replaced (traps if out of bounds)
+export function set_at<T>(items: List<T>, index: Int64, value: T) -> List<T> {
+  list_set(items, index, value)
+}

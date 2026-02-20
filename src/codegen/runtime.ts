@@ -567,6 +567,65 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(hex);
       },
 
+      // --- JSON operations ---
+      // json_parse parses a flat JSON object into Option<Map<String, String>>.
+      // Some(mapHandle) on success, None on invalid input / non-object / nested values.
+      json_parse(strPtr: number): number {
+        const src = readString(strPtr);
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(src);
+        } catch {
+          return allocOptionI32(null);
+        }
+
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return allocOptionI32(null);
+        }
+
+        const out = new Map<string | bigint, number | bigint>();
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          if (v === null) {
+            out.set(k, writeString("null"));
+          } else if (typeof v === "string") {
+            out.set(k, writeString(v));
+          } else if (typeof v === "number" || typeof v === "boolean") {
+            out.set(k, writeString(String(v)));
+          } else {
+            // Only flat scalar values are currently supported.
+            return allocOptionI32(null);
+          }
+        }
+
+        const handle = nextMapHandle++;
+        mapTable.set(handle, out);
+        return allocOptionI32(handle);
+      },
+
+      // json_stringify serializes Map<String, String> to a JSON object.
+      // Values that look like JSON literals (null/true/false/number) are emitted raw.
+      // Everything else is emitted as a JSON string.
+      json_stringify(mapHandle: number): number {
+        const m = mapTable.get(mapHandle);
+        if (!m) return writeString("{}");
+
+        const numPattern = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/;
+        const parts: string[] = [];
+        for (const [k, v] of m.entries()) {
+          const key = String(k);
+          const raw = typeof v === "number" ? readString(v) : String(v);
+          const trimmed = raw.trim();
+          const asJsonValue =
+            trimmed === "null" ||
+            trimmed === "true" ||
+            trimmed === "false" ||
+            numPattern.test(trimmed)
+              ? trimmed
+              : JSON.stringify(raw);
+          parts.push(`${JSON.stringify(key)}:${asJsonValue}`);
+        }
+
+        return writeString(`{${parts.join(",")}}`);
       // --- Regex operations ---
       regex_match(patternPtr: number, textPtr: number): number {
         try {
