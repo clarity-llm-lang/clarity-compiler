@@ -3,7 +3,7 @@ import type {
   ModuleDecl, FunctionDecl, Expr, BinaryOp, UnaryOp,
 } from "../ast/nodes.js";
 import type { ClarityType, ClarityVariant } from "../checker/types.js";
-import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
+import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, STRING, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
 import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
@@ -40,6 +40,11 @@ export class CodeGenerator {
   // Monomorphization tracking for generic functions
   private generatedMonomorphs: Set<string> = new Set();
 
+  // Current type-variable substitution in effect while generating a monomorphized body.
+  // inferExprType applies this to checker-annotated resolvedTypes so that TypeVars
+  // carried from the generic declaration are replaced with their concrete types.
+  private typeVarSubst: Map<string, ClarityType> = new Map();
+
   generate(module: ModuleDecl, checker: Checker): Uint8Array {
     this.mod = new binaryen.Module();
     this.checker = checker;
@@ -51,6 +56,7 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.typeVarSubst = new Map();
 
     this.setupModule(module);
 
@@ -1113,56 +1119,33 @@ export class CodeGenerator {
   }
 
   // Resolve a type reference with type parameter names treated as TypeVars.
-  // Unlike checker.resolveTypeRef(), this resolver can keep nested type vars
-  // inside generic containers (e.g. List<T>, Map<String, T>) during codegen.
+  // Recursively handles generic wrapper types (List<T>, Option<T>, Result<T,E>,
+  // Map<K,V>) and function types ((T)->U) so that nested type parameters are
+  // preserved as TypeVar nodes rather than being dropped as "unknown".
   private resolveTypeRefWithTypeParams(node: import("../ast/nodes.js").TypeNode, typeParams: string[]): ClarityType {
+    // Function type: (T) -> U
     if (node.kind === "FunctionType") {
       return {
         kind: "Function",
-        params: node.paramTypes.map((p) => this.resolveTypeRefWithTypeParams(p, typeParams)),
+        params: node.paramTypes.map(pt => this.resolveTypeRefWithTypeParams(pt, typeParams)),
         returnType: this.resolveTypeRefWithTypeParams(node.returnType, typeParams),
         effects: new Set(),
       };
     }
 
-    // Type variable
-    if (typeParams.includes(node.name) && node.typeArgs.length === 0) {
+    // Bare type parameter: T
+    if (node.kind === "TypeRef" && typeParams.includes(node.name) && node.typeArgs.length === 0) {
       return { kind: "TypeVar", name: node.name };
     }
 
-    // Generic built-ins
-    if (node.name === "List" && node.typeArgs.length === 1) {
-      return { kind: "List", element: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams) };
-    }
-    if (node.name === "Option" && node.typeArgs.length === 1) {
-      return { kind: "Option", inner: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams) };
-    }
-    if (node.name === "Result" && node.typeArgs.length === 2) {
-      return {
-        kind: "Result",
-        ok: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams),
-        err: this.resolveTypeRefWithTypeParams(node.typeArgs[1], typeParams),
-      };
-    }
-    if (node.name === "Map" && node.typeArgs.length === 2) {
-      return {
-        kind: "Map",
-        key: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams),
-        value: this.resolveTypeRefWithTypeParams(node.typeArgs[1], typeParams),
-      };
-    }
-
-    // User-defined generic type instantiation
-    const userType = this.checker.lookupType(node.name);
-    if (userType) {
-      if (node.typeArgs.length === 0) return userType;
-      const declaredTypeParams = (userType as any).__typeParams as string[] | undefined;
-      if (declaredTypeParams && declaredTypeParams.length === node.typeArgs.length) {
-        const bindings = new Map<string, ClarityType>();
-        for (let i = 0; i < declaredTypeParams.length; i++) {
-          bindings.set(declaredTypeParams[i], this.resolveTypeRefWithTypeParams(node.typeArgs[i], typeParams));
-        }
-        return substituteTypeVars(userType, bindings);
+    // Generic wrapper type with type arguments: List<T>, Option<T>, etc.
+    if (node.kind === "TypeRef" && node.typeArgs.length > 0) {
+      const args = node.typeArgs.map(a => this.resolveTypeRefWithTypeParams(a, typeParams));
+      switch (node.name) {
+        case "List":   return { kind: "List", element: args[0] ?? INT64 };
+        case "Option": return { kind: "Option", inner: args[0] ?? INT64 };
+        case "Result": return { kind: "Result", ok: args[0] ?? INT64, err: args[1] ?? STRING };
+        case "Map":    return { kind: "Map", key: args[0] ?? STRING, value: args[1] ?? INT64 };
       }
     }
 
@@ -1199,12 +1182,16 @@ export class CodeGenerator {
       const savedLocalIndex = this.localIndex;
       const savedAdditionalLocals = this.additionalLocals;
       const savedCurrentFunction = this.currentFunction;
+      const savedTypeVarSubst = this.typeVarSubst;
 
       // Set up new function context
       this.locals = new Map();
       this.localIndex = 0;
       this.additionalLocals = [];
       this.currentFunction = genericDecl;
+      // Install the concrete type bindings so that inferExprType substitutes
+      // TypeVars that the checker left in resolvedType annotations inside this body.
+      this.typeVarSubst = bindings;
 
       const paramWasmTypes: binaryen.Type[] = [];
       for (const param of genericDecl.params) {
@@ -1239,6 +1226,7 @@ export class CodeGenerator {
       this.localIndex = savedLocalIndex;
       this.additionalLocals = savedAdditionalLocals;
       this.currentFunction = savedCurrentFunction;
+      this.typeVarSubst = savedTypeVarSubst;
     }
 
     // Generate the call to the monomorphized function
@@ -2071,11 +2059,12 @@ export class CodeGenerator {
 
   private inferExprType(expr: Expr): ClarityType {
     // Use the resolved type from the checker if available (preferred path).
-    // But if the resolved type still contains TypeVars (e.g. inside a generic
-    // function body before monomorphization), fall back to local/codegen
-    // inference so we can use concrete instantiated types.
-    if (expr.resolvedType && expr.resolvedType.kind !== "Error" && !containsTypeVar(expr.resolvedType)) {
-      return expr.resolvedType;
+    // If we're inside a monomorphized body, substitute any TypeVars that the
+    // checker left in the resolvedType with their concrete bindings.
+    if (expr.resolvedType && expr.resolvedType.kind !== "Error") {
+      return this.typeVarSubst.size > 0
+        ? substituteTypeVars(expr.resolvedType, this.typeVarSubst)
+        : expr.resolvedType;
     }
 
     // Fallback for expressions not annotated by the checker (e.g., codegen
