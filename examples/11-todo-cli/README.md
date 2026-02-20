@@ -1,6 +1,6 @@
 # Todo List CLI (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing JSON, Map type, better arg parsing
+**Status:** ⚠️ **PARTIALLY BLOCKED** - Better arg parsing and full JSON model support still missing
 **Complexity:** Intermediate
 **Category:** CLI Application, CRUD, Persistence
 
@@ -94,6 +94,6 @@ function execute_command(cmd: Command, todos: TodoList) -> TodoList {
 
 ## Dependencies
 
-- ❌ JSON parsing/serialization (CRITICAL)
-- ❌ Map type (CRITICAL)
+- ⚠️ JSON parsing/serialization (flat objects with scalar values only)
+- ✅ Map type
 - ⚠️ Better arg parsing (can implement manually)

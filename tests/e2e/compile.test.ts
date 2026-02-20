@@ -2256,6 +2256,72 @@ describe("Map builtins", () => {
   });
 });
 
+describe("JSON builtins", () => {
+  it("json_parse parses flat object scalars into Map<String, String>", async () => {
+    const source = `
+      module Test
+      function get_name() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42,\\"ok\\":true,\\"none\\":null}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "name") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+      function get_age() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "age") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.get_name as () => number)())).toBe("Alice");
+    expect(runtime.readString((instance.exports.get_age as () => number)())).toBe("42");
+  });
+
+  it("json_parse returns None for invalid or unsupported input", async () => {
+    const source = `
+      module Test
+      function invalid_json_is_none() -> Bool {
+        match json_parse("not json") { None -> True, Some(_) -> False }
+      }
+      function nested_object_is_none() -> Bool {
+        match json_parse("{\\"outer\\":{\\"inner\\":1}}") { None -> True, Some(_) -> False }
+      }
+      function array_root_is_none() -> Bool {
+        match json_parse("[1,2,3]") { None -> True, Some(_) -> False }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.invalid_json_is_none as () => number)()).toBe(1);
+    expect((instance.exports.nested_object_is_none as () => number)()).toBe(1);
+    expect((instance.exports.array_root_is_none as () => number)()).toBe(1);
+  });
+
+  it("json_stringify serializes Map<String, String> with literal detection", async () => {
+    const source = `
+      module Test
+      function test() -> String {
+        let m: Map<String, String> = map_new();
+        let m1 = map_set(m, "name", "Alice");
+        let m2 = map_set(m1, "age", "42");
+        let m3 = map_set(m2, "active", "true");
+        let m4 = map_set(m3, "middle", "null");
+        json_stringify(m4)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe(
+      "{\"name\":\"Alice\",\"age\":42,\"active\":true,\"middle\":null}",
+    );
+  });
+});
+
 // Helper: run all effect[Test] functions exported from a compiled WASM module.
 // Returns the number of assertion failures across all test functions.
 async function runExampleTests(wasmBytes: Uint8Array): Promise<{ passed: number; failed: number; failures: string[] }> {

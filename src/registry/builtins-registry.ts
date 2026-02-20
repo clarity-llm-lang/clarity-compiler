@@ -74,6 +74,15 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
 
 const LIST_INT: ClarityType = { kind: "List", element: INT64 };
 const LIST_STRING: ClarityType = { kind: "List", element: STRING };
+const MAP_STRING_STRING: ClarityType = { kind: "Map", key: STRING, value: STRING };
+const OPTION_MAP_STRING_STRING: ClarityType = {
+  kind: "Union",
+  name: "Option<Map<String, String>>",
+  variants: [
+    { name: "Some", fields: new Map([["value", MAP_STRING_STRING]]) },
+    { name: "None", fields: new Map() },
+  ],
+};
 
 // Generic type variable for polymorphic list operations
 const T: ClarityType = { kind: "TypeVar", name: "T" };
@@ -653,6 +662,26 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: [],
     doc: "Compute the SHA-256 hash of a string and return the hex digest (64 lowercase hex chars).",
     category: "crypto",
+  },
+
+  // --- JSON builtins ---
+  {
+    name: "json_parse",
+    params: [STRING],
+    paramNames: ["json"],
+    returnType: OPTION_MAP_STRING_STRING,
+    effects: [],
+    doc: "Parse a flat JSON object into Some(Map<String, String>). Returns None for invalid JSON, non-object roots, or nested values.",
+    category: "json",
+  },
+  {
+    name: "json_stringify",
+    params: [MAP_STRING_STRING],
+    paramNames: ["obj"],
+    returnType: STRING,
+    effects: [],
+    doc: "Serialize a Map<String, String> to JSON. Values matching JSON literals (null/true/false/number) are emitted as literals; others are emitted as strings.",
+    category: "json",
   },
 
   // --- Map<K, V> operations ---

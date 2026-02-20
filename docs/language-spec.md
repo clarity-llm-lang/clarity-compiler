@@ -770,6 +770,15 @@ match map_get(m2, "score") {
 }
 ```
 
+### 11.10 JSON Operations
+
+JSON builtins currently support flat JSON objects with scalar values only (`String`, `Number`, `Bool`, `null`).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `json_parse(s)` | `String -> Option<Map<String, String>>` | Parse flat JSON object. Returns `Some(map)` on success, `None` on invalid JSON / non-object / nested values |
+| `json_stringify(m)` | `Map<String, String> -> String` | Serialize map to JSON object. `null`/`true`/`false`/number-looking values are emitted as literals; others as strings |
+
 ---
 
 ## 12. Self-Healing Test System

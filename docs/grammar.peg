@@ -102,6 +102,7 @@ LineComment     <- '//' [^\n]*
 # Math: abs_int, min_int, max_int, sqrt, pow, floor, ceil
 # Lists: length, head, tail, append, concat, reverse, is_empty, nth
 # Maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
+# JSON: json_parse, json_stringify
 # Bytes: bytes_new, bytes_length, bytes_get, bytes_set, bytes_slice, bytes_concat, bytes_from_string, bytes_to_string
 # Timestamps (Time effect for now): now, timestamp_to_string, timestamp_to_int, timestamp_from_int, timestamp_add, timestamp_diff
 # Tests (Test effect): assert_eq, assert_eq_float, assert_eq_string, assert_true, assert_false

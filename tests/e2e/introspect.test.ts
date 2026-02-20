@@ -19,6 +19,7 @@ describe("builtins registry", () => {
     expect(names).toContain("head");
     expect(names).toContain("read_line");
     expect(names).toContain("assert_eq");
+    expect(names).toContain("json_parse");
   });
 
   it("contains all expected effects", () => {
