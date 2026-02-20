@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { compile, compileFile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
 import { createRuntime } from "./codegen/runtime.js";
@@ -11,6 +12,51 @@ const program = new Command()
   .name("clarityc")
   .description("Clarity language compiler — optimized for LLM code generation, compiles to WASM")
   .version("0.2.1");
+
+const DEFAULT_DAEMON_URL = process.env.CLARITYD_URL ?? "http://127.0.0.1:4707";
+
+async function runtimeApi<T>(baseUrl: string, pathname: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${baseUrl}${pathname}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  const text = await res.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    throw new Error((payload as { error?: string }).error ?? `${res.status} ${res.statusText}`);
+  }
+  return payload as T;
+}
+
+function extractServiceId(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("unexpected runtime response shape");
+  }
+  const out = payload as {
+    service?: {
+      manifest?: {
+        metadata?: {
+          serviceId?: string;
+        };
+      };
+    };
+  };
+
+  const serviceId = out.service?.manifest?.metadata?.serviceId;
+  if (!serviceId) {
+    throw new Error("runtime did not return serviceId");
+  }
+  return serviceId;
+}
+
+function moduleFromFile(file: string): string {
+  const base = path.basename(file, path.extname(file));
+  return base.replace(/[^a-zA-Z0-9_]/g, "_");
+}
 
 program
   .command("compile <file>")
@@ -146,6 +192,90 @@ program
         }
       }
       console.log(resultValue);
+    } catch (e) {
+      console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("start <file>")
+  .description("Compile a .clarity file and start it in Clarity Runtime")
+  .option("-o, --output <file>", "Output .wasm file (default: ./.clarity/build/<module>.wasm)")
+  .option("--module <name>", "Module name override (default: derived from filename)")
+  .option("--entry <name>", "MCP entry function", "mcp_main")
+  .option("--name <display>", "Optional display name")
+  .option("--daemon-url <url>", "Clarity Runtime daemon URL", DEFAULT_DAEMON_URL)
+  .action(async (file: string, opts: Record<string, unknown>) => {
+    try {
+      const source = await readFile(file, "utf-8");
+      const result = compileFile(file);
+
+      if (result.errors.length > 0) {
+        console.error(formatDiagnostics(source, result.errors));
+        process.exit(1);
+      }
+
+      if (!result.wasm) {
+        console.error("No WASM output produced");
+        process.exit(1);
+      }
+
+      const moduleName = (opts.module as string | undefined) ?? moduleFromFile(file);
+      const outputFile =
+        (opts.output as string | undefined)
+        ?? path.resolve(process.cwd(), ".clarity", "build", `${moduleName}.wasm`);
+      await mkdir(path.dirname(outputFile), { recursive: true });
+      await writeFile(outputFile, result.wasm);
+
+      const manifest = {
+        apiVersion: "clarity.runtime/v1",
+        kind: "MCPService",
+        metadata: {
+          sourceFile: path.resolve(file),
+          module: moduleName,
+          ...(opts.name ? { displayName: opts.name as string } : {}),
+        },
+        spec: {
+          origin: {
+            type: "local_wasm",
+            wasmPath: outputFile,
+            entry: (opts.entry as string) ?? "mcp_main",
+          },
+          enabled: true,
+          autostart: true,
+          restartPolicy: {
+            mode: "on-failure",
+            maxRestarts: 5,
+            windowSeconds: 60,
+          },
+          policyRef: "default",
+          toolNamespace: moduleName.toLowerCase(),
+        },
+      };
+
+      const daemonUrl = (opts.daemonUrl as string | undefined) ?? DEFAULT_DAEMON_URL;
+      const applyResult = await runtimeApi<{ service: unknown }>(daemonUrl, "/api/services/apply", {
+        method: "POST",
+        body: JSON.stringify({ manifest }),
+      });
+      const serviceId = extractServiceId(applyResult);
+
+      await runtimeApi(daemonUrl, `/api/services/${encodeURIComponent(serviceId)}/start`, {
+        method: "POST",
+      });
+      await runtimeApi(daemonUrl, `/api/services/${encodeURIComponent(serviceId)}/introspect`, {
+        method: "POST",
+      });
+
+      console.log(JSON.stringify({
+        ok: true,
+        serviceId,
+        sourceFile: path.resolve(file),
+        wasmPath: outputFile,
+        module: moduleName,
+        daemonUrl,
+      }, null, 2));
     } catch (e) {
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
