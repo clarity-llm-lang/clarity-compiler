@@ -1,99 +1,109 @@
-# Todo List CLI (REQUIREMENTS)
+# Todo List CLI
 
-**Status:** ⚠️ **BLOCKED** - Missing JSON, Map type, better arg parsing
+**Status:** ✅ **Implemented** (14 tests)
 **Complexity:** Intermediate
 **Category:** CLI Application, CRUD, Persistence
 
 ## Overview
 
-Command-line todo list with persistence (JSON file storage). Demonstrates CRUD operations, command parsing, and data persistence.
+Command-line todo list with file persistence. Demonstrates CRUD operations,
+command parsing from argv, `Map<String, String>` for in-memory storage, and
+a custom tab-separated text format for persistence.
 
-## Required Language Features
-
-### 1. JSON for Persistence
-
-```clarity
-function json_parse(s: String) -> Result<JsonValue, String>
-function json_stringify(val: JsonValue) -> String
-```
-
-### 2. Map Type (for storing todos by ID)
-
-```clarity
-type Map<K, V>  // Map<Int64, Todo>
-```
-
-### 3. Better Command Parsing
-
-```clarity
-// Current: get_args() returns List<String>
-// Need: structured command parsing
-
-type Command =
-  | Add(text: String)
-  | List
-  | Done(id: Int64)
-  | Delete(id: Int64)
-  | Help
-
-function parse_command(args: List<String>) -> Result<Command, String>
-```
-
-## Example Usage
+## Usage
 
 ```bash
-todo add "Buy milk"              # Add new todo
-todo add "Write documentation"
-todo list                         # Show all todos
-todo done 1                       # Mark todo #1 as done
-todo delete 2                     # Delete todo #2
+# Run with the Clarity compiler
+npx clarityc run examples/11-todo-cli/todo.clarity -f main -a add "Buy milk"
+npx clarityc run examples/11-todo-cli/todo.clarity -f main -a list
+npx clarityc run examples/11-todo-cli/todo.clarity -f main -a done 1
+npx clarityc run examples/11-todo-cli/todo.clarity -f main -a delete 1
+npx clarityc run examples/11-todo-cli/todo.clarity -f main -a help
+
+# Run tests
+npx clarityc test examples/11-todo-cli/todo.clarity
 ```
 
-## Example Implementation
+## Implementation Details
+
+### Persistence format
+Todos are stored in `todos.txt`, one per line:
+```
+1	Buy milk|false
+2	Write documentation|true
+```
+Each line is `id<TAB>text|done`. The `|` separator uses the **last** pipe in the
+entry, so todo text may safely contain `|` characters.
+
+### Data model
 
 ```clarity
-type Todo = {
-  id: Int64,
-  text: String,
-  done: Bool
-}
+// In-memory: Map<String, String>  key=string-id, value=entry
+// Entry encoding: "text|done"  where done = "true" / "false"
 
-type TodoList = Map<Int64, Todo>
+function make_entry(text: String, done: Bool) -> String  // encode
+function entry_text(entry: String) -> String              // decode text
+function entry_done(entry: String) -> Bool                // decode status
+```
 
+### Command parsing
+
+```clarity
+type Command =
+  | AddCmd(text: String)
+  | ListCmd
+  | DoneCmd(id: Int64)
+  | DeleteCmd(id: Int64)
+  | HelpCmd
+  | ErrorCmd(msg: String)
+
+function parse_command(args: List<String>) -> Command
+```
+
+### Main dispatch
+
+```clarity
 effect[FileSystem, Log] function main() -> Unit {
   let args = get_args();
-  let todos = load_todos("todos.json");
-
-  match parse_command(args) {
-    Err(msg) -> print_string("Error: " ++ msg),
-    Ok(cmd) -> {
-      let new_todos = execute_command(cmd, todos);
-      save_todos("todos.json", new_todos)
-    }
-  }
-}
-
-function execute_command(cmd: Command, todos: TodoList) -> TodoList {
+  let path = "todos.txt";
+  let cmd  = parse_command(args);
   match cmd {
-    Add(text) -> add_todo(todos, text),
-    List -> { list_todos(todos); todos },
-    Done(id) -> mark_done(todos, id),
-    Delete(id) -> delete_todo(todos, id),
-    Help -> { show_help(); todos }
+    AddCmd(text)  -> cmd_add(path, text),
+    ListCmd       -> cmd_list(path),
+    DoneCmd(id)   -> cmd_done(path, id),
+    DeleteCmd(id) -> cmd_delete(path, id),
+    HelpCmd       -> print_help(),
+    ErrorCmd(msg) -> print_string("Error: " ++ msg)
   }
 }
 ```
 
-## Learning Objectives
+## Language Features Demonstrated
 
-- CLI application structure
-- Command parsing from arguments
-- CRUD operations
-- JSON persistence
-- Map-based data storage
+- `Map<String, String>` for key-value storage
+- `get_args()` for CLI argument parsing
+- `read_file` / `write_file` for persistence
+- `split()`, `trim()`, `index_of()`, `substring()` for text parsing
+- `string_to_int()` returning `Option<Int64>` for safe ID parsing
+- Union types (`Command`) for structured dispatch
+- Tail-recursive helpers for list and map traversal
+- `last_index_of` helper to handle text containing `|` characters
 
-## Dependencies
+## Tests (14)
 
-- ❌ JSON parsing/serialization (CRITICAL)
-- ❌ Map type (CRITICAL)
-- ⚠️ Better arg parsing (can implement manually)
+| Test | Covers |
+|------|--------|
+| `test_make_entry` | Entry encoding |
+| `test_entry_text` | Text extraction (incl. pipes in text) |
+| `test_entry_done` | Done-status extraction |
+| `test_parse_command_add` | `add <text>` command |
+| `test_parse_command_list` | `list` command |
+| `test_parse_command_done` | `done <id>` command |
+| `test_parse_command_delete` | `delete <id>` command |
+| `test_parse_command_help` | `help` and no-args → HelpCmd |
+| `test_parse_command_error` | Missing id, bad id, unknown command |
+| `test_next_id_empty` | ID=1 for empty store |
+| `test_next_id` | max+1 for populated store |
+| `test_roundtrip` | serialize → parse round-trip |
+| `test_parse_todos_empty` | Empty file → empty store |
+| `test_parse_todos_multiline` | Multi-line file parsing |

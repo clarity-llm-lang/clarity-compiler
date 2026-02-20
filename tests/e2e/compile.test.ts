@@ -2226,3 +2226,228 @@ describe("Map builtins", () => {
     expect((instance.exports.test_original_unchanged as () => bigint)()).toBe(0n);
   });
 });
+
+describe("Todo CLI (example 11)", () => {
+  // Shared helpers — inlined pure functions from examples/11-todo-cli/todo.clarity
+  const todoHelpers = `
+    function last_index_at(s: String, ch: String, pos: Int64) -> Int64 {
+      match pos < 0 {
+        True -> -1,
+        False -> match string_eq(char_at(s, pos), ch) {
+          True -> pos,
+          False -> last_index_at(s, ch, pos - 1)
+        }
+      }
+    }
+    function last_index_of(s: String, ch: String) -> Int64 {
+      last_index_at(s, ch, string_length(s) - 1)
+    }
+    function make_entry(text: String, done: Bool) -> String {
+      match done {
+        True  -> text ++ "|true",
+        False -> text ++ "|false"
+      }
+    }
+    function entry_text(entry: String) -> String {
+      let sep = last_index_of(entry, "|");
+      match sep < 0 {
+        True  -> entry,
+        False -> substring(entry, 0, sep)
+      }
+    }
+    function entry_done(entry: String) -> Bool {
+      let sep = last_index_of(entry, "|");
+      match sep < 0 {
+        True  -> False,
+        False -> string_eq(substring(entry, sep + 1, string_length(entry) - sep - 1), "true")
+      }
+    }
+    function parse_lines(lines: List<String>, store: Map<String, String>) -> Map<String, String> {
+      match is_empty(lines) {
+        True -> store,
+        False -> {
+          let line = head(lines);
+          let rest = tail(lines);
+          let tline = trim(line);
+          match string_length(tline) == 0 {
+            True  -> parse_lines(rest, store),
+            False -> {
+              let tab = index_of(tline, "\\t");
+              match tab < 0 {
+                True  -> parse_lines(rest, store),
+                False -> {
+                  let key   = substring(tline, 0, tab);
+                  let entry = substring(tline, tab + 1, string_length(tline) - tab - 1);
+                  parse_lines(rest, map_set(store, key, entry))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    function parse_todos(content: String) -> Map<String, String> {
+      let lines = split(content, "\\n");
+      let empty: Map<String, String> = map_new();
+      parse_lines(lines, empty)
+    }
+    function serialize_keys(keys: List<String>, store: Map<String, String>, acc: String) -> String {
+      match is_empty(keys) {
+        True -> acc,
+        False -> {
+          let key  = head(keys);
+          let rest = tail(keys);
+          match map_get(store, key) {
+            None        -> serialize_keys(rest, store, acc),
+            Some(entry) -> serialize_keys(rest, store, acc ++ key ++ "\\t" ++ entry ++ "\\n")
+          }
+        }
+      }
+    }
+    function serialize_todos(store: Map<String, String>) -> String {
+      let keys = map_keys(store);
+      serialize_keys(keys, store, "")
+    }
+    function max_key(keys: List<String>, current: Int64) -> Int64 {
+      match is_empty(keys) {
+        True -> current,
+        False -> {
+          let k    = head(keys);
+          let rest = tail(keys);
+          match string_to_int(k) {
+            None    -> max_key(rest, current),
+            Some(n) -> match n > current {
+              True  -> max_key(rest, n),
+              False -> max_key(rest, current)
+            }
+          }
+        }
+      }
+    }
+    function next_id(store: Map<String, String>) -> Int64 {
+      max_key(map_keys(store), 0) + 1
+    }
+  `;
+
+  it("make_entry encodes text and done status", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test_false() -> String { make_entry("Buy milk", False) }
+      function test_true()  -> String { make_entry("Write docs", True) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_false as () => number)())).toBe("Buy milk|false");
+    expect(runtime.readString((instance.exports.test_true  as () => number)())).toBe("Write docs|true");
+  });
+
+  it("entry_text extracts text before last pipe", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test_simple() -> String { entry_text("Buy milk|false") }
+      function test_pipe()   -> String { entry_text("Text with | pipe|true") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_simple as () => number)())).toBe("Buy milk");
+    expect(runtime.readString((instance.exports.test_pipe   as () => number)())).toBe("Text with | pipe");
+  });
+
+  it("entry_done extracts done status from last segment", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test_done()   -> Bool { entry_done("Buy milk|true") }
+      function test_undone() -> Bool { entry_done("Buy milk|false") }
+      function test_pipes()  -> Bool { entry_done("Text|with|pipes|true") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_done   as () => number)()).toBe(1);
+    expect((instance.exports.test_undone as () => number)()).toBe(0);
+    expect((instance.exports.test_pipes  as () => number)()).toBe(1);
+  });
+
+  it("next_id returns 1 for empty store", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test() -> Int64 {
+        let empty: Map<String, String> = map_new();
+        next_id(empty)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(1n);
+  });
+
+  it("next_id returns max+1 for populated store", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test() -> Int64 {
+        let s0: Map<String, String> = map_new();
+        let s1 = map_set(s0, "1", "first|false");
+        let s2 = map_set(s1, "3", "third|true");
+        next_id(s2)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(4n);
+  });
+
+  it("parse_todos round-trips with serialize_todos", async () => {
+    const source = `
+      module Test
+      ${todoHelpers}
+      function test_size() -> Int64 {
+        let s0: Map<String, String> = map_new();
+        let s1 = map_set(s0, "1", "Buy milk|false");
+        let s2 = map_set(s1, "2", "Write docs|true");
+        let serialized = serialize_todos(s2);
+        map_size(parse_todos(serialized))
+      }
+      function test_text() -> String {
+        let s0: Map<String, String> = map_new();
+        let s1 = map_set(s0, "1", "Buy milk|false");
+        let serialized = serialize_todos(s1);
+        let parsed = parse_todos(serialized);
+        match map_get(parsed, "1") {
+          None    -> "missing",
+          Some(e) -> entry_text(e)
+        }
+      }
+      function test_done() -> Bool {
+        let s0: Map<String, String> = map_new();
+        let s1 = map_set(s0, "2", "Write docs|true");
+        let serialized = serialize_todos(s1);
+        let parsed = parse_todos(serialized);
+        match map_get(parsed, "2") {
+          None    -> False,
+          Some(e) -> entry_done(e)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(2n);
+    expect(runtime.readString((instance.exports.test_text as () => number)())).toBe("Buy milk");
+    expect((instance.exports.test_done as () => number)()).toBe(1);
+  });
+
+  it("example file compiles without errors", () => {
+    const filePath = path.join("examples", "11-todo-cli", "todo.clarity");
+    const result = compileFile(filePath);
+    expect(result.errors).toHaveLength(0);
+  });
+});

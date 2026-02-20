@@ -1,0 +1,438 @@
+module TodoCli
+
+// Todo CLI — command-line todo list with file persistence.
+// File format: one todo per line: "id<TAB>text<TAB>done\n"
+// done is "true" or "false"
+
+// ============================================================
+// Types
+// ============================================================
+
+type Command =
+  | AddCmd(text: String)
+  | ListCmd
+  | DoneCmd(id: Int64)
+  | DeleteCmd(id: Int64)
+  | HelpCmd
+  | ErrorCmd(msg: String)
+
+// ============================================================
+// String helpers
+// ============================================================
+
+// Find the last occurrence of ch in s; return -1 if not found.
+function last_index_at(s: String, ch: String, pos: Int64) -> Int64 {
+  match pos < 0 {
+    True -> -1,
+    False -> match string_eq(char_at(s, pos), ch) {
+      True -> pos,
+      False -> last_index_at(s, ch, pos - 1)
+    }
+  }
+}
+
+function last_index_of(s: String, ch: String) -> Int64 {
+  last_index_at(s, ch, string_length(s) - 1)
+}
+
+// ============================================================
+// Entry encoding: "text|done"  (done = "true" / "false")
+// We split on the LAST | so text may contain | characters.
+// ============================================================
+
+function make_entry(text: String, done: Bool) -> String {
+  match done {
+    True  -> text ++ "|true",
+    False -> text ++ "|false"
+  }
+}
+
+function entry_text(entry: String) -> String {
+  let sep = last_index_of(entry, "|");
+  match sep < 0 {
+    True  -> entry,
+    False -> substring(entry, 0, sep)
+  }
+}
+
+function entry_done(entry: String) -> Bool {
+  let sep = last_index_of(entry, "|");
+  match sep < 0 {
+    True  -> False,
+    False -> string_eq(substring(entry, sep + 1, string_length(entry) - sep - 1), "true")
+  }
+}
+
+// ============================================================
+// Parse command from CLI args
+// ============================================================
+
+function parse_command(args: List<String>) -> Command {
+  match is_empty(args) {
+    True -> HelpCmd,
+    False -> {
+      let cmd = head(args);
+      let rest = tail(args);
+      match string_eq(cmd, "add") {
+        True -> match is_empty(rest) {
+          True  -> ErrorCmd("add requires text argument"),
+          False -> AddCmd(head(rest))
+        },
+        False -> parse_command_2(cmd, rest)
+      }
+    }
+  }
+}
+
+function parse_command_2(cmd: String, rest: List<String>) -> Command {
+  match string_eq(cmd, "list") {
+    True -> ListCmd,
+    False -> match string_eq(cmd, "done") {
+      True  -> parse_id_command(rest, "done"),
+      False -> parse_command_3(cmd, rest)
+    }
+  }
+}
+
+function parse_command_3(cmd: String, rest: List<String>) -> Command {
+  match string_eq(cmd, "delete") {
+    True -> parse_id_command(rest, "delete"),
+    False -> match string_eq(cmd, "help") {
+      True  -> HelpCmd,
+      False -> ErrorCmd("unknown command: " ++ cmd)
+    }
+  }
+}
+
+function parse_id_command(args: List<String>, name: String) -> Command {
+  match is_empty(args) {
+    True  -> ErrorCmd(name ++ " requires an id"),
+    False -> match string_to_int(head(args)) {
+      None     -> ErrorCmd(name ++ " requires a numeric id"),
+      Some(id) -> match string_eq(name, "done") {
+        True  -> DoneCmd(id),
+        False -> DeleteCmd(id)
+      }
+    }
+  }
+}
+
+// ============================================================
+// Persistence: Map<String, String>  key=id, value=entry
+// ============================================================
+
+function parse_todos(content: String) -> Map<String, String> {
+  let lines = split(content, "\n");
+  let empty: Map<String, String> = map_new();
+  parse_lines(lines, empty)
+}
+
+function parse_lines(lines: List<String>, store: Map<String, String>) -> Map<String, String> {
+  match is_empty(lines) {
+    True -> store,
+    False -> {
+      let line = head(lines);
+      let rest = tail(lines);
+      let tline = trim(line);
+      match string_length(tline) == 0 {
+        True  -> parse_lines(rest, store),
+        False -> {
+          // Format: "id<TAB>entry"
+          let tab = index_of(tline, "\t");
+          match tab < 0 {
+            True  -> parse_lines(rest, store),
+            False -> {
+              let key   = substring(tline, 0, tab);
+              let entry = substring(tline, tab + 1, string_length(tline) - tab - 1);
+              parse_lines(rest, map_set(store, key, entry))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function serialize_todos(store: Map<String, String>) -> String {
+  let keys = map_keys(store);
+  serialize_keys(keys, store, "")
+}
+
+function serialize_keys(keys: List<String>, store: Map<String, String>, acc: String) -> String {
+  match is_empty(keys) {
+    True -> acc,
+    False -> {
+      let key  = head(keys);
+      let rest = tail(keys);
+      match map_get(store, key) {
+        None       -> serialize_keys(rest, store, acc),
+        Some(entry) -> serialize_keys(rest, store, acc ++ key ++ "\t" ++ entry ++ "\n")
+      }
+    }
+  }
+}
+
+// ============================================================
+// ID management: next ID = max existing ID + 1
+// ============================================================
+
+function next_id(store: Map<String, String>) -> Int64 {
+  max_key(map_keys(store), 0) + 1
+}
+
+function max_key(keys: List<String>, current: Int64) -> Int64 {
+  match is_empty(keys) {
+    True -> current,
+    False -> {
+      let k    = head(keys);
+      let rest = tail(keys);
+      match string_to_int(k) {
+        None    -> max_key(rest, current),
+        Some(n) -> match n > current {
+          True  -> max_key(rest, n),
+          False -> max_key(rest, current)
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// Display
+// ============================================================
+
+effect[Log] function print_todo(key: String, entry: String) -> Unit {
+  let text   = entry_text(entry);
+  let done   = entry_done(entry);
+  let status = match done {
+    True  -> "[x]",
+    False -> "[ ]"
+  };
+  print_string(key ++ ". " ++ status ++ " " ++ text)
+}
+
+effect[Log] function print_all(keys: List<String>, store: Map<String, String>) -> Unit {
+  match is_empty(keys) {
+    True  -> {},
+    False -> {
+      let key  = head(keys);
+      let rest = tail(keys);
+      match map_get(store, key) {
+        None        -> print_all(rest, store),
+        Some(entry) -> {
+          print_todo(key, entry);
+          print_all(rest, store)
+        }
+      }
+    }
+  }
+}
+
+effect[Log] function print_help() -> Unit {
+  print_string("Todo CLI — Commands:");
+  print_string("  add <text>    Add a new todo item");
+  print_string("  list          Show all todos");
+  print_string("  done <id>     Mark a todo as completed");
+  print_string("  delete <id>   Remove a todo");
+  print_string("  help          Show this help message")
+}
+
+// ============================================================
+// Command implementations
+// ============================================================
+
+effect[FileSystem, Log] function cmd_add(path: String, text: String) -> Unit {
+  let content  = read_file(path);
+  let store    = parse_todos(content);
+  let id       = next_id(store);
+  let id_str   = int_to_string(id);
+  let new_store = map_set(store, id_str, make_entry(text, False));
+  write_file(path, serialize_todos(new_store));
+  print_string("Added todo #" ++ id_str ++ ": " ++ text)
+}
+
+effect[FileSystem, Log] function cmd_list(path: String) -> Unit {
+  let content = read_file(path);
+  let store   = parse_todos(content);
+  let size    = map_size(store);
+  match size == 0 {
+    True  -> print_string("No todos yet. Use: add <text>"),
+    False -> {
+      print_string("Todos (" ++ int_to_string(size) ++ "):");
+      print_all(map_keys(store), store)
+    }
+  }
+}
+
+effect[FileSystem, Log] function cmd_done(path: String, id: Int64) -> Unit {
+  let id_str  = int_to_string(id);
+  let content = read_file(path);
+  let store   = parse_todos(content);
+  match map_get(store, id_str) {
+    None        -> print_string("Todo #" ++ id_str ++ " not found"),
+    Some(entry) -> {
+      let text      = entry_text(entry);
+      let new_store = map_set(store, id_str, make_entry(text, True));
+      write_file(path, serialize_todos(new_store));
+      print_string("Marked #" ++ id_str ++ " as done: " ++ text)
+    }
+  }
+}
+
+effect[FileSystem, Log] function cmd_delete(path: String, id: Int64) -> Unit {
+  let id_str  = int_to_string(id);
+  let content = read_file(path);
+  let store   = parse_todos(content);
+  match map_has(store, id_str) {
+    False -> print_string("Todo #" ++ id_str ++ " not found"),
+    True  -> {
+      let new_store = map_remove(store, id_str);
+      write_file(path, serialize_todos(new_store));
+      print_string("Deleted todo #" ++ id_str)
+    }
+  }
+}
+
+// ============================================================
+// Main
+// ============================================================
+
+effect[FileSystem, Log] function main() -> Unit {
+  let args = get_args();
+  let path = "todos.txt";
+  let cmd  = parse_command(args);
+  match cmd {
+    AddCmd(text)    -> cmd_add(path, text),
+    ListCmd         -> cmd_list(path),
+    DoneCmd(id)     -> cmd_done(path, id),
+    DeleteCmd(id)   -> cmd_delete(path, id),
+    HelpCmd         -> print_help(),
+    ErrorCmd(msg)   -> print_string("Error: " ++ msg)
+  }
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+effect[Test] function test_make_entry() -> Unit {
+  assert_eq_string(make_entry("Buy milk", False), "Buy milk|false");
+  assert_eq_string(make_entry("Write docs", True), "Write docs|true");
+  assert_eq_string(make_entry("Text with | pipe", False), "Text with | pipe|false")
+}
+
+effect[Test] function test_entry_text() -> Unit {
+  assert_eq_string(entry_text("Buy milk|false"), "Buy milk");
+  assert_eq_string(entry_text("Write docs|true"), "Write docs");
+  assert_eq_string(entry_text("Text with | pipe|false"), "Text with | pipe")
+}
+
+effect[Test] function test_entry_done() -> Unit {
+  assert_true(entry_done("Buy milk|true"));
+  assert_false(entry_done("Buy milk|false"));
+  assert_true(entry_done("Text|with|pipes|true"));
+  assert_false(entry_done("Text|with|pipes|false"))
+}
+
+effect[Test] function test_parse_command_add() -> Unit {
+  let cmd = parse_command(["add", "Buy milk"]);
+  match cmd {
+    AddCmd(text) -> assert_eq_string(text, "Buy milk"),
+    _            -> assert_true(False)
+  }
+}
+
+effect[Test] function test_parse_command_list() -> Unit {
+  let cmd = parse_command(["list"]);
+  match cmd {
+    ListCmd -> assert_true(True),
+    _       -> assert_true(False)
+  }
+}
+
+effect[Test] function test_parse_command_done() -> Unit {
+  let cmd = parse_command(["done", "3"]);
+  match cmd {
+    DoneCmd(id) -> assert_eq(id, 3),
+    _           -> assert_true(False)
+  }
+}
+
+effect[Test] function test_parse_command_delete() -> Unit {
+  let cmd = parse_command(["delete", "2"]);
+  match cmd {
+    DeleteCmd(id) -> assert_eq(id, 2),
+    _             -> assert_true(False)
+  }
+}
+
+effect[Test] function test_parse_command_help() -> Unit {
+  let cmd1 = parse_command(["help"]);
+  let cmd2 = parse_command([]);
+  match cmd1 {
+    HelpCmd -> assert_true(True),
+    _       -> assert_true(False)
+  };
+  match cmd2 {
+    HelpCmd -> assert_true(True),
+    _       -> assert_true(False)
+  }
+}
+
+effect[Test] function test_parse_command_error() -> Unit {
+  let e1 = parse_command(["done"]);
+  let e2 = parse_command(["done", "abc"]);
+  let e3 = parse_command(["delete"]);
+  let e4 = parse_command(["bogus"]);
+  match e1 { ErrorCmd(_) -> assert_true(True), _ -> assert_true(False) };
+  match e2 { ErrorCmd(_) -> assert_true(True), _ -> assert_true(False) };
+  match e3 { ErrorCmd(_) -> assert_true(True), _ -> assert_true(False) };
+  match e4 { ErrorCmd(_) -> assert_true(True), _ -> assert_true(False) }
+}
+
+effect[Test] function test_next_id_empty() -> Unit {
+  let store: Map<String, String> = map_new();
+  assert_eq(next_id(store), 1)
+}
+
+effect[Test] function test_next_id() -> Unit {
+  let s0: Map<String, String> = map_new();
+  let s1 = map_set(s0, "1", "first|false");
+  let s2 = map_set(s1, "3", "third|true");
+  assert_eq(next_id(s2), 4)
+}
+
+effect[Test] function test_roundtrip() -> Unit {
+  let s0: Map<String, String> = map_new();
+  let s1 = map_set(s0, "1", "Buy milk|false");
+  let s2 = map_set(s1, "2", "Write docs|true");
+  let serialized = serialize_todos(s2);
+  let parsed     = parse_todos(serialized);
+  assert_eq(map_size(parsed), 2);
+  match map_get(parsed, "1") {
+    None    -> assert_true(False),
+    Some(e) -> assert_eq_string(entry_text(e), "Buy milk")
+  };
+  match map_get(parsed, "2") {
+    None    -> assert_true(False),
+    Some(e) -> assert_true(entry_done(e))
+  }
+}
+
+effect[Test] function test_parse_todos_empty() -> Unit {
+  let store = parse_todos("");
+  assert_eq(map_size(store), 0)
+}
+
+effect[Test] function test_parse_todos_multiline() -> Unit {
+  let content = "1\tBuy milk|false\n2\tWrite docs|true\n3\tCall mom|false\n";
+  let store   = parse_todos(content);
+  assert_eq(map_size(store), 3);
+  match map_get(store, "2") {
+    None    -> assert_true(False),
+    Some(e) -> {
+      assert_eq_string(entry_text(e), "Write docs");
+      assert_true(entry_done(e))
+    }
+  }
+}

@@ -20,7 +20,7 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 ## All Examples (20 Total)
 
-### ✅ Implemented Examples (13 total)
+### ✅ Implemented Examples (16 total)
 
 | # | Name | Complexity | Category | Tests | Status |
 |---|------|------------|----------|-------|--------|
@@ -33,24 +33,24 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 | 07 | [String Toolkit](07-string-toolkit/) | Intermediate | Text Processing | 13 | ✅ Implemented* |
 | 09 | [CSV Processor](09-csv-processor/) | Intermediate | Data Processing | 9 | ✅ Implemented |
 | 10 | [Config Parser](10-config-parser/) | Intermediate | Parsing | 12 | ✅ Implemented |
+| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | 14 | ✅ Implemented |
+| 13 | [Template Engine](13-template-engine/) | Intermediate | Text | 12 | ✅ Implemented |
 | 14 | [Tic-Tac-Toe](14-tic-tac-toe/) | Intermediate | Games, AI | 8 | ✅ Implemented |
 | 17 | [Linear Regression](17-linear-regression/) | Advanced | ML, Numeric | 6 | ✅ Implemented |
 | 18 | [Merkle Tree](18-merkle-tree/) | Advanced | Blockchain, Crypto | 12 | ✅ Implemented |
+| 19 | [JSON Parser](19-json-parser/) | Advanced | Parsing | 17 | ✅ Implemented |
 | 20 | [Expression Evaluator](20-expr-evaluator/) | Advanced | Compilers | 9 | ✅ Implemented |
 
 \* *String Toolkit: Implemented without case conversion (requires `char_code()` builtin)*
 
-### 📋 Requirements Documentation (7 remaining)
+### 📋 Requirements Documentation (4 remaining)
 
 | # | Name | Complexity | Category | Blocked By |
 |---|------|------------|----------|------------|
-| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP, JSON, Map |
-| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | JSON, Map |
-| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | Regex, Map, DateTime |
-| 13 | [Template Engine](13-template-engine/) | Intermediate | Text | String interpolation |
-| 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server, Map |
-| 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins, Map |
-| 19 | [JSON Parser](19-json-parser/) | Advanced | Parsing | char_code, Map |
+| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP client |
+| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | Regex |
+| 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server |
+| 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins |
 
 ## Examples by Complexity
 
@@ -245,31 +245,30 @@ Based on the examples catalog, Clarity needs these features to be production-rea
 
 ## Recently Implemented Examples
 
-### ✅ 06-math-toolkit (16 tests)
+### ✅ 11-todo-cli (14 tests)
 
 **Implemented with:**
-- Factorial, GCD, LCM, prime checking, integer exponentiation
-- Fibonacci (both naive and tail-recursive)
-- Euclidean distance, hypotenuse, circle area, triangle area
-- List operations: sum, mean, product
-- Comprehensive test suite demonstrating pure functional programming
+- `Map<String, String>` for in-memory todo storage (key = string ID, value = encoded entry)
+- Tab-separated text format for file persistence (`id\ttext|done`)
+- Union type `Command` for structured dispatch on CLI arguments
+- `get_args()`, `read_file`, `write_file` for full CLI application lifecycle
+- `last_index_of` helper to support `|` characters in todo text
 
-### ✅ 10-config-parser (12 tests)
-
-**Implemented with:**
-- INI file parsing with `split()` builtin
-- Comment handling (# and ;)
-- Key-value storage using `List<ConfigEntry>`
-- Whitespace trimming and validation
-- Values containing '=' character
-
-### ✅ 20-expr-evaluator (9 tests)
+### ✅ 13-template-engine (12 tests)
 
 **Implemented with:**
-- Full lexer tokenizing numbers, operators, parentheses
-- Recursive descent parser with operator precedence
-- AST evaluator computing numeric results
-- Demonstrates all phases of a simple interpreter
+- `{{key}}` placeholder substitution using `Map<String, String>`
+- Handles unknown keys (preserves original placeholder)
+- Recursive template rendering with `map_get` lookups
+- HTML/text template examples
+
+### ✅ 19-json-parser (17 tests)
+
+**Implemented with:**
+- Recursive descent parser for flat JSON objects → `Map<String, String>`
+- `char_code()` for character classification (digit, whitespace)
+- Handles strings with escape sequences, numbers, booleans, null
+- Error signaling via sentinel `next_pos = -1`
 
 ## Contributing New Examples
 
@@ -310,19 +309,19 @@ NN-example-name/
 - [07-string-toolkit](07-string-toolkit/) - ✅ String manipulation (13 tests, partial)
 - [09-csv-processor](09-csv-processor/) - ✅ CSV parsing (9 tests)
 - [10-config-parser](10-config-parser/) - ✅ INI parsing (12 tests)
+- [11-todo-cli](11-todo-cli/) - ✅ Todo CRUD with file persistence (14 tests)
+- [13-template-engine](13-template-engine/) - ✅ {{key}} template substitution (12 tests)
 - [14-tic-tac-toe](14-tic-tac-toe/) - ✅ Game AI with minimax (8 tests)
 - [17-linear-regression](17-linear-regression/) - ✅ ML/numeric computing (6 tests)
 - [18-merkle-tree](18-merkle-tree/) - ✅ Cryptography (12 tests)
+- [19-json-parser](19-json-parser/) - ✅ Recursive JSON object parser (17 tests)
 - [20-expr-evaluator](20-expr-evaluator/) - ✅ Lexer/parser/interpreter (9 tests)
 
 ### Requirements (Not Yet Implemented)
-- [08-json-api](08-json-api/) - **REQUIRES:** HTTP, JSON, Map
-- [11-todo-cli](11-todo-cli/) - **REQUIRES:** JSON, Map
-- [12-log-analyzer](12-log-analyzer/) - **REQUIRES:** Regex, Map, DateTime
-- [13-template-engine](13-template-engine/) - **REQUIRES:** String interpolation
-- [15-web-server](15-web-server/) - **REQUIRES:** HTTP server, Map
-- [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins, Map
-- [19-json-parser](19-json-parser/) - **REQUIRES:** char_code, Map
+- [08-json-api](08-json-api/) - **REQUIRES:** HTTP client
+- [12-log-analyzer](12-log-analyzer/) - **REQUIRES:** Regex
+- [15-web-server](15-web-server/) - **REQUIRES:** HTTP server
+- [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins
 
 ## Questions or Feedback?
 
@@ -337,5 +336,5 @@ Please open an issue or discussion in the clarity-compiler repository.
 ---
 
 **Last updated:** 2026-02-20
-**Total examples:** 20 (13 implemented, 7 requirements)
-**Total tests:** 93 (across all implemented examples with test suites)
+**Total examples:** 20 (16 implemented, 4 requirements)
+**Total tests:** 136 (across all implemented examples with test suites)
