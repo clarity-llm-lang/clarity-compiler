@@ -145,6 +145,7 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 | Gap | Blocks | Why it matters |
 |-----|--------|----------------|
+| **HTTP client built-ins** (`http_get`, `http_post`) | 08 | Required to make outbound API requests under `effect[Network]`. |
 | **JSON runtime built-ins** (`json_parse`, `json_stringify`, typed `JsonValue`) | 08 | Needed for general API payload handling (beyond example-level parsers). |
 | **HTTP server built-ins** (`http_listen`, request/response host bridge) | 15 | Required for long-running network services and routing examples. |
 | **DB built-ins** (`db_query`, `db_execute`, typed DB errors) | 16 | Required for relational CRUD workflows under `effect[DB]`. |
@@ -159,13 +160,13 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ## Next Implementation Roadmap (examples-first)
 
-### Milestone A — Finish example 08 (JSON API client)
+### Milestone A — Unlock example 08 (JSON API client)
 
-1. ✅ Added `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
+1. Add `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
 2. Add built-in JSON runtime surface:
    - `json_parse(s) -> Result<JsonValue, String>`
    - `json_stringify(v) -> String`
-3. Add e2e tests for parse failure paths and JSON traversal.
+3. Add e2e tests for success + network/parse failure paths.
 
 ### Milestone B — Unlock example 15 (Web server)
 
@@ -181,7 +182,7 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ### Suggested next task
 
-**Next task: complete Milestone A by implementing JSON runtime built-ins (`json_parse`/`json_stringify`) and update example 08 from partially blocked to implemented.**
+**Start with Milestone A (HTTP client + JSON runtime) because it unlocks example 08 immediately and establishes the `Network` and structured-data runtime boundary needed by Milestones B/C.**
 
 ## Recently Implemented Examples
 
