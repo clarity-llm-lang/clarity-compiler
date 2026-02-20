@@ -5,6 +5,7 @@
 // Strings are stored in WASM linear memory. A string pointer (i32) points to the length prefix.
 
 import * as nodeFs from "node:fs";
+import { createHash } from "node:crypto";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
 
 export interface RuntimeExports {
@@ -401,6 +402,13 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(str);
       },
 
+      // --- Crypto operations ---
+      sha256(strPtr: number): number {
+        const str = readString(strPtr);
+        const hex = createHash("sha256").update(str).digest("hex");
+        return writeString(hex);
+      },
+
       // --- Timestamp operations ---
       // Timestamp is i64 (milliseconds since Unix epoch)
       now(): bigint {
@@ -541,6 +549,52 @@ export function createRuntime(config: RuntimeConfig = {}) {
           new Uint8Array(memory.buffer, ptr + 4, len * 4),
         );
         newView.setInt32(newPtr + 4 + len * 4, value, true);
+        return newPtr;
+      },
+
+      list_set_i64(ptr: number, index: bigint, value: bigint): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getInt32(ptr, true);
+        const i = Number(index);
+        const newSize = 4 + len * 8;
+        const newPtr = heapPtr;
+        heapPtr = (heapPtr + newSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const newView = new DataView(memory.buffer);
+        newView.setInt32(newPtr, len, true);
+        // Copy all elements
+        new Uint8Array(memory.buffer, newPtr + 4, len * 8).set(
+          new Uint8Array(memory.buffer, ptr + 4, len * 8),
+        );
+        // Replace element at index
+        if (i >= 0 && i < len) {
+          new DataView(memory.buffer).setBigInt64(newPtr + 4 + i * 8, value, true);
+        }
+        return newPtr;
+      },
+
+      list_set_i32(ptr: number, index: bigint, value: number): number {
+        const view = new DataView(memory.buffer);
+        const len = view.getInt32(ptr, true);
+        const i = Number(index);
+        const newSize = 4 + len * 4;
+        const newPtr = heapPtr;
+        heapPtr = (heapPtr + newSize + 3) & ~3;
+        if (heapPtr > memory.buffer.byteLength) {
+          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+        }
+        const newView = new DataView(memory.buffer);
+        newView.setInt32(newPtr, len, true);
+        // Copy all elements
+        new Uint8Array(memory.buffer, newPtr + 4, len * 4).set(
+          new Uint8Array(memory.buffer, ptr + 4, len * 4),
+        );
+        // Replace element at index
+        if (i >= 0 && i < len) {
+          new DataView(memory.buffer).setInt32(newPtr + 4 + i * 4, value, true);
+        }
         return newPtr;
       },
 

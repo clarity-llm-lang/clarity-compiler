@@ -1,0 +1,269 @@
+module MerkleTree
+
+// =============================================================================
+// Merkle Tree
+// =============================================================================
+//
+// A Merkle tree is a binary tree where each leaf is a hash of data, and each
+// internal node is a hash of its two children. The root hash summarizes all
+// the data, and inclusion proofs allow verifying membership in O(log n) space.
+//
+// Uses a flat/iterative approach since Clarity does not yet support recursive
+// union types. The tree is built by repeatedly pairing and hashing until a
+// single root hash remains.
+//
+// Demonstrates: sha256, recursion, list processing, proof systems.
+
+// =============================================================================
+// Core hashing
+// =============================================================================
+
+// Hash a single data item to get a leaf hash
+function leaf_hash(data: String) -> String {
+  sha256(data)
+}
+
+// Hash two child hashes together to get a parent hash
+function combine_hashes(left: String, right: String) -> String {
+  sha256(left ++ right)
+}
+
+// =============================================================================
+// Building the tree
+// =============================================================================
+
+// Hash all items in a list
+function hash_all(data: List<String>) -> List<String> {
+  match is_empty(data) {
+    True -> [],
+    False -> concat([leaf_hash(head(data))], hash_all(tail(data)))
+  }
+}
+
+// Pair up adjacent hashes. If the count is odd, the last hash is promoted as-is.
+function pair_hashes(hashes: List<String>) -> List<String> {
+  match is_empty(hashes) {
+    True -> [],
+    False -> match is_empty(tail(hashes)) {
+      True -> hashes,
+      False -> {
+        let left = head(hashes);
+        let right = head(tail(hashes));
+        let parent = combine_hashes(left, right);
+        concat([parent], pair_hashes(tail(tail(hashes))))
+      }
+    }
+  }
+}
+
+// Compute the Merkle root hash by repeatedly pairing until one hash remains
+function compute_root(hashes: List<String>) -> String {
+  match length(hashes) == 1 {
+    True -> head(hashes),
+    False -> compute_root(pair_hashes(hashes))
+  }
+}
+
+// Compute the Merkle root hash of a list of data items
+function merkle_root(data: List<String>) -> String {
+  let leaves = hash_all(data);
+  compute_root(leaves)
+}
+
+// =============================================================================
+// Proof generation
+// =============================================================================
+//
+// A Merkle proof for item at index i in a list of n items is a sequence of
+// sibling hashes going from the leaf level up to (but not including) the root.
+// To verify: start with sha256(item), then at each step combine with the
+// sibling hash in the correct order (left or right) and hash the result.
+
+// Build a proof by climbing from a leaf up to the root.
+// hashes: current level of hashes (starts as all leaf hashes)
+// idx: the index in the current level that we are proving
+// proof: accumulated sibling hashes (bottom to top)
+function collect_proof(hashes: List<String>, idx: Int64, proof: List<String>) -> List<String> {
+  match length(hashes) == 1 {
+    True -> proof,
+    False -> {
+      // If idx is even, sibling is idx+1 (to the right)
+      // If idx is odd, sibling is idx-1 (to the left)
+      let is_left = idx % 2 == 0;
+      let sibling_idx = match is_left {
+        True -> idx + 1,
+        False -> idx - 1
+      };
+      // If sibling_idx is out of bounds (odd number of nodes), duplicate the last
+      let sibling = match sibling_idx < length(hashes) {
+        True -> nth(hashes, sibling_idx),
+        False -> nth(hashes, idx)
+      };
+      let new_proof = append(proof, sibling);
+      let next_level = pair_hashes(hashes);
+      collect_proof(next_level, idx / 2, new_proof)
+    }
+  }
+}
+
+// Generate a Merkle proof for the item at the given index (0-based)
+// Returns a list of sibling hashes from leaf to root
+function merkle_proof(data: List<String>, target_idx: Int64) -> List<String> {
+  let leaves = hash_all(data);
+  collect_proof(leaves, target_idx, [])
+}
+
+// =============================================================================
+// Proof verification
+// =============================================================================
+
+// Apply a proof: starting from a leaf hash, combine with each sibling
+// in order to reconstruct the root hash.
+// proof: sibling hashes from leaf to root
+// idx: index of the item at the current level
+function apply_proof(current: String, proof: List<String>, idx: Int64) -> String {
+  match is_empty(proof) {
+    True -> current,
+    False -> {
+      let sibling = head(proof);
+      let is_left = idx % 2 == 0;
+      let combined = match is_left {
+        True -> combine_hashes(current, sibling),
+        False -> combine_hashes(sibling, current)
+      };
+      apply_proof(combined, tail(proof), idx / 2)
+    }
+  }
+}
+
+// Verify that an item belongs at the given index in a tree with the given root.
+// root: the Merkle root hash to check against
+// item: the data item to verify
+// proof: the sibling hashes returned by merkle_proof
+// idx: the position of item in the original data list
+function merkle_verify(root: String, item: String, proof: List<String>, idx: Int64) -> Bool {
+  let leaf = leaf_hash(item);
+  let computed_root = apply_proof(leaf, proof, idx);
+  string_eq(computed_root, root)
+}
+
+// =============================================================================
+// Demo
+// =============================================================================
+
+effect[Log] function demo() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+
+  // Compute root
+  let root = merkle_root(data);
+  print_string("Data: tx1, tx2, tx3, tx4");
+  print_string("Merkle root: " ++ root);
+  print_string("");
+
+  // Generate and verify proof for "tx2" (index 1)
+  let proof = merkle_proof(data, 1);
+  print_string("Proof for tx2 (index 1): " ++ int_to_string(length(proof)) ++ " hashes");
+
+  let valid = merkle_verify(root, "tx2", proof, 1);
+  print_string("Proof valid: " ++ match valid { True -> "yes", False -> "no" });
+  print_string("");
+
+  // Wrong data should fail
+  let invalid = merkle_verify(root, "tx2_tampered", proof, 1);
+  print_string("Tampered data proof valid: " ++ match invalid { True -> "yes", False -> "no" })
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_single_item() -> Unit {
+  let data = ["hello"];
+  let root = merkle_root(data);
+  // Single item: root = sha256("hello")
+  let expected = sha256("hello");
+  assert_eq_string(root, expected)
+}
+
+effect[Test] function test_two_items() -> Unit {
+  let data = ["a", "b"];
+  let root = merkle_root(data);
+  // Two items: root = sha256(sha256("a") ++ sha256("b"))
+  let expected = sha256(sha256("a") ++ sha256("b"));
+  assert_eq_string(root, expected)
+}
+
+effect[Test] function test_four_items_deterministic() -> Unit {
+  // Same data should always give the same root
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root1 = merkle_root(data);
+  let root2 = merkle_root(data);
+  assert_eq_string(root1, root2)
+}
+
+effect[Test] function test_different_order_gives_different_root() -> Unit {
+  let data1 = ["a", "b"];
+  let data2 = ["b", "a"];
+  let root1 = merkle_root(data1);
+  let root2 = merkle_root(data2);
+  // Different order = different root
+  assert_false(string_eq(root1, root2))
+}
+
+effect[Test] function test_proof_verify_index_0() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 0);
+  assert_true(merkle_verify(root, "tx1", proof, 0))
+}
+
+effect[Test] function test_proof_verify_index_1() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 1);
+  assert_true(merkle_verify(root, "tx2", proof, 1))
+}
+
+effect[Test] function test_proof_verify_index_2() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 2);
+  assert_true(merkle_verify(root, "tx3", proof, 2))
+}
+
+effect[Test] function test_proof_verify_index_3() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 3);
+  assert_true(merkle_verify(root, "tx4", proof, 3))
+}
+
+effect[Test] function test_tampered_data_fails() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 1);
+  // Wrong data should fail verification
+  assert_false(merkle_verify(root, "tx2_tampered", proof, 1))
+}
+
+effect[Test] function test_wrong_index_fails() -> Unit {
+  let data = ["tx1", "tx2", "tx3", "tx4"];
+  let root = merkle_root(data);
+  let proof = merkle_proof(data, 0);
+  // Proof for index 0 used with index 1 should fail
+  assert_false(merkle_verify(root, "tx1", proof, 1))
+}
+
+effect[Test] function test_proof_length_power_of_two() -> Unit {
+  // For 4 items (2^2), proof has 2 hashes
+  let data = ["a", "b", "c", "d"];
+  let proof = merkle_proof(data, 0);
+  assert_eq(length(proof), 2)
+}
+
+effect[Test] function test_two_item_proof_length() -> Unit {
+  // For 2 items, proof has 1 hash
+  let data = ["a", "b"];
+  let proof = merkle_proof(data, 0);
+  assert_eq(length(proof), 1)
+}

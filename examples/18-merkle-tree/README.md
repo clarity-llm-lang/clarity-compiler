@@ -1,12 +1,12 @@
-# Merkle Tree (REQUIREMENTS)
+# Merkle Tree
 
-**Status:** ⚠️ **BLOCKED** - Missing cryptographic hash functions, byte operations
+**Status:** ✅ **IMPLEMENTED**
 **Complexity:** Advanced
 **Category:** Blockchain, Cryptography, Data Structures
 
 ## Overview
 
-Build a Merkle tree from data, generate proofs, and verify proofs. Demonstrates cryptographic hashing, binary tree structures, and proof systems.
+Build a Merkle tree from data, generate inclusion proofs, and verify proofs. Demonstrates SHA-256 hashing, recursive list processing, and cryptographic proof systems.
 
 ## What is a Merkle Tree?
 

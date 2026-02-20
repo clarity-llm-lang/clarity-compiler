@@ -1,12 +1,12 @@
-# Linear Regression (REQUIREMENTS)
+# Linear Regression
 
-**Status:** ⚠️ **BLOCKED** - Missing Matrix type, vector operations
+**Status:** ✅ **IMPLEMENTED**
 **Complexity:** Advanced
 **Category:** Data Science, Machine Learning, Numerical Computing
 
 ## Overview
 
-Compute linear regression (y = mx + b) from (x, y) data points using least squares method. Demonstrates numerical computing, matrix operations, and statistical algorithms.
+Compute linear regression (y = mx + b) from (x, y) data points using least squares method. Demonstrates numerical computing with Float64, higher-order functions, and statistical algorithms.
 
 ## Required Language Features
 
@@ -181,26 +181,84 @@ function linear_regression_matrix(X: Matrix<Float64>, y: Vector<Float64>) -> Vec
 - Least squares method
 - Model evaluation (R²)
 
+## Usage
+
+### Compile the example
+
+```bash
+npx tsx src/index.ts compile examples/17-linear-regression/regression.clarity
+```
+
+### Run the demo
+
+```bash
+npx tsx src/index.ts run examples/17-linear-regression/regression.clarity -f demo
+```
+
+**Output:**
+```
+Linear Regression Results:
+Slope (m): 1.9300000000000024
+Intercept (b): 1.229999999999992
+
+Prediction for x=6: 12.810000000000006
+
+R² (coefficient of determination): 0.9984185697437546
+(R² close to 1.0 indicates a good fit)
+```
+
+### Run tests
+
+```bash
+npx tsx src/index.ts test examples/17-linear-regression/regression.clarity
+```
+
+**Output:**
+```
+[PASS] test_perfect_linear_fit (3 assertions)
+[PASS] test_horizontal_line (2 assertions)
+[PASS] test_negative_slope (2 assertions)
+[PASS] test_prediction (2 assertions)
+[PASS] test_two_points (2 assertions)
+[PASS] test_r_squared_perfect_fit (1 assertions)
+
+6 tests, 6 passed, 0 failed
+```
+
+## Implementation Details
+
+This implementation uses:
+- **List<Point>** for storing data points
+- **Higher-order functions** for computing sums and aggregations
+- **Least squares method** for finding the best-fit line
+- **R² calculation** for measuring goodness of fit
+
+The algorithm computes the optimal slope and intercept using these formulas:
+- slope = (n × Σ(xy) - Σx × Σy) / (n × Σ(x²) - (Σx)²)
+- intercept = (Σy - slope × Σx) / n
+
 ## Dependencies
 
-- ❌ Matrix type and operations (CRITICAL for advanced ML)
-- ⚠️ Vector operations (can implement with List<Float64>)
-- ⚠️ Higher-order functions for vectors (desirable)
-- ✅ Float64 operations (already available)
+- ✅ List<T> with head/tail/length operations
+- ✅ Higher-order functions (passing functions as arguments)
+- ✅ Float64 arithmetic operations
+- ✅ Record types (Point, LinearModel)
 
 ## Related Examples
 
 - `06-math-toolkit` - Basic numerical functions
 - `09-csv-processor` - Loading data from CSV
 
-## Impact on Language Design
+## Future Enhancements
 
-Data science and numerical computing require:
-- Efficient matrix/vector operations
-- BLAS-level performance (for real ML workloads)
-- Interop with NumPy/TensorFlow-style libraries
+For production data science workloads, the following would be valuable:
 
-Clarity could either:
-1. Build matrix operations as built-ins (like sqrt, pow)
-2. Provide FFI to existing numerical libraries
-3. Focus on symbolic computation and code generation to target optimized backends
+1. **Matrix operations** for multivariate regression
+2. **Array<T>** for more efficient random access
+3. **FFI to numerical libraries** for BLAS-level performance
+
+The matrix-based approach (shown in comments) would enable:
+- Multiple regression (multiple predictor variables)
+- Polynomial regression
+- Ridge/Lasso regression
+- Other advanced statistical models

@@ -450,6 +450,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Return the element at the given index (0-based). Traps if index is out of bounds.",
     category: "list",
   },
+  {
+    name: "list_set",
+    params: [LIST_T, INT64, T],
+    paramNames: ["list", "index", "value"],
+    returnType: LIST_T,
+    effects: [],
+    doc: "Return a new list with the element at the given index replaced (0-based). Traps if index is out of bounds.",
+    category: "list",
+  },
 
   // --- I/O primitives (require FileSystem effect) ---
   {
@@ -626,6 +635,17 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: [],
     doc: "Decode a Bytes buffer as a UTF-8 string.",
     category: "bytes",
+  },
+
+  // --- Crypto builtins ---
+  {
+    name: "sha256",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Compute the SHA-256 hash of a string and return the hex digest (64 lowercase hex chars).",
+    category: "crypto",
   },
 
   // --- Timestamp builtins ---

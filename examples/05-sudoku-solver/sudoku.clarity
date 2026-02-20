@@ -1,0 +1,397 @@
+module SudokuSolver
+
+// =============================================================================
+// Sudoku Solver using recursive backtracking
+// =============================================================================
+//
+// Represents the 9×9 grid as a flat List<Int64> of 81 cells.
+// Index formula: row * 9 + col
+// Values: 0 = empty, 1–9 = digits
+//
+// Uses list_set for immutable updates and nth for O(n) indexed access.
+// For a 9×9 grid (81 cells) this is perfectly practical.
+//
+// Demonstrates: backtracking algorithms, recursive problem solving,
+//               List<T> as a 2D grid, complex validation logic.
+
+type Grid = List<Int64>
+
+type SolveResult =
+  | Solved(grid: Grid)
+  | Unsolvable
+
+// =============================================================================
+// Grid accessors
+// =============================================================================
+
+// Get cell value at (row, col)
+function get_cell(grid: Grid, row: Int64, col: Int64) -> Int64 {
+  nth(grid, row * 9 + col)
+}
+
+// Set cell value at (row, col) — returns new grid (immutable)
+function set_cell(grid: Grid, row: Int64, col: Int64, val: Int64) -> Grid {
+  list_set(grid, row * 9 + col, val)
+}
+
+// =============================================================================
+// Validation helpers
+// =============================================================================
+
+// Check if num appears in row (skip the cell at skip_col to allow checking
+// after a tentative placement)
+function row_has(grid: Grid, row: Int64, num: Int64, col: Int64) -> Bool {
+  match col >= 9 {
+    True -> False,
+    False -> match get_cell(grid, row, col) == num {
+      True -> True,
+      False -> row_has(grid, row, num, col + 1)
+    }
+  }
+}
+
+// Check if num appears in column
+function col_has(grid: Grid, col: Int64, num: Int64, row: Int64) -> Bool {
+  match row >= 9 {
+    True -> False,
+    False -> match get_cell(grid, row, col) == num {
+      True -> True,
+      False -> col_has(grid, col, num, row + 1)
+    }
+  }
+}
+
+// Check if num appears in the 3×3 box containing (row, col)
+// idx runs 0..8 over the 9 cells of the box
+function box_has(grid: Grid, box_row: Int64, box_col: Int64, num: Int64, idx: Int64) -> Bool {
+  match idx >= 9 {
+    True -> False,
+    False -> {
+      let r = box_row + idx / 3;
+      let c = box_col + idx % 3;
+      match get_cell(grid, r, c) == num {
+        True -> True,
+        False -> box_has(grid, box_row, box_col, num, idx + 1)
+      }
+    }
+  }
+}
+
+// Check if placing num at (row, col) is valid
+function is_valid(grid: Grid, row: Int64, col: Int64, num: Int64) -> Bool {
+  let row_ok = !row_has(grid, row, num, 0);
+  let col_ok = !col_has(grid, col, num, 0);
+  let box_row = (row / 3) * 3;
+  let box_col = (col / 3) * 3;
+  let box_ok = !box_has(grid, box_row, box_col, num, 0);
+  row_ok and col_ok and box_ok
+}
+
+// =============================================================================
+// Backtracking solver
+// =============================================================================
+
+// Find the index of the next empty cell (value 0) starting at idx.
+// Returns the index, or -1 if no empty cell exists.
+function find_empty(grid: Grid, idx: Int64) -> Int64 {
+  match idx >= 81 {
+    True -> 0 - 1,
+    False -> match nth(grid, idx) == 0 {
+      True -> idx,
+      False -> find_empty(grid, idx + 1)
+    }
+  }
+}
+
+// Try placing digits 1–9 in the cell at (row, col)
+function try_digits(grid: Grid, row: Int64, col: Int64, digit: Int64) -> SolveResult {
+  match digit > 9 {
+    True -> Unsolvable,
+    False -> match is_valid(grid, row, col, digit) {
+      False -> try_digits(grid, row, col, digit + 1),
+      True -> {
+        let new_grid = set_cell(grid, row, col, digit);
+        match solve(new_grid) {
+          Solved(solution) -> Solved(solution),
+          Unsolvable -> try_digits(grid, row, col, digit + 1)
+        }
+      }
+    }
+  }
+}
+
+// Solve the puzzle using recursive backtracking
+function solve(grid: Grid) -> SolveResult {
+  let empty_idx = find_empty(grid, 0);
+  match empty_idx == 0 - 1 {
+    True -> Solved(grid),
+    False -> {
+      let row = empty_idx / 9;
+      let col = empty_idx % 9;
+      try_digits(grid, row, col, 1)
+    }
+  }
+}
+
+// =============================================================================
+// Parsing
+// =============================================================================
+
+// Parse a single character as a digit (0–9); returns 0 for non-digit
+function char_to_digit(ch: String) -> Int64 {
+  let code = char_code(ch);
+  let zero_code = char_code("0");
+  let nine_code = char_code("9");
+  match code >= zero_code and code <= nine_code {
+    True -> code - zero_code,
+    False -> 0
+  }
+}
+
+// Walk through the puzzle string and collect up to 81 digits
+function parse_grid_helper(s: String, pos: Int64, acc: Grid) -> Grid {
+  match pos >= string_length(s) {
+    True -> acc,
+    False -> match length(acc) >= 81 {
+      True -> acc,
+      False -> {
+        let ch = char_at(s, pos);
+        let code = char_code(ch);
+        let zero = char_code("0");
+        let nine = char_code("9");
+        match code >= zero and code <= nine {
+          True -> parse_grid_helper(s, pos + 1, append(acc, code - zero)),
+          False -> parse_grid_helper(s, pos + 1, acc)
+        }
+      }
+    }
+  }
+}
+
+// Parse a puzzle from a string. Digits 0–9 are collected in order;
+// any other character (spaces, newlines, pipes, dots) is skipped.
+// Returns an 81-element List<Int64>.
+function parse_grid(s: String) -> Grid {
+  parse_grid_helper(s, 0, [])
+}
+
+// =============================================================================
+// Printing
+// =============================================================================
+
+// Print a single row of the grid
+function row_to_string(grid: Grid, row: Int64, col: Int64, acc: String) -> String {
+  match col >= 9 {
+    True -> acc,
+    False -> {
+      let val = get_cell(grid, row, col);
+      let cell = match val == 0 {
+        True -> ".",
+        False -> int_to_string(val)
+      };
+      let sep = match col == 2 or col == 5 {
+        True -> " | ",
+        False -> match col == 8 {
+          True -> "",
+          False -> " "
+        }
+      };
+      row_to_string(grid, row, col + 1, acc ++ cell ++ sep)
+    }
+  }
+}
+
+// Print all 9 rows of the grid
+effect[Log] function print_grid(grid: Grid, row: Int64) -> Unit {
+  match row >= 9 {
+    True -> {},
+    False -> {
+      match row == 3 or row == 6 {
+        True -> print_string("------+-------+------"),
+        False -> {}
+      };
+      print_string(row_to_string(grid, row, 0, ""));
+      print_grid(grid, row + 1)
+    }
+  }
+}
+
+// =============================================================================
+// Demo
+// =============================================================================
+
+effect[Log] function demo() -> Unit {
+  // A classic easy sudoku puzzle (0 = empty)
+  let puzzle_str =
+    """
+    5 3 0 0 7 0 0 0 0
+    6 0 0 1 9 5 0 0 0
+    0 9 8 0 0 0 0 6 0
+    8 0 0 0 6 0 0 0 3
+    4 0 0 8 0 3 0 0 1
+    7 0 0 0 2 0 0 0 6
+    0 6 0 0 0 0 2 8 0
+    0 0 0 4 1 9 0 0 5
+    0 0 0 0 8 0 0 7 9
+    """;
+  let puzzle = parse_grid(puzzle_str);
+
+  print_string("Puzzle:");
+  print_grid(puzzle, 0);
+  print_string("");
+
+  match solve(puzzle) {
+    Unsolvable -> print_string("No solution found!"),
+    Solved(solution) -> {
+      print_string("Solution:");
+      print_grid(solution, 0)
+    }
+  }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_get_set_cell() -> Unit {
+  let empty = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0
+  ];
+  let g = set_cell(empty, 4, 4, 7);
+  assert_eq(get_cell(g, 4, 4), 7);
+  assert_eq(get_cell(g, 0, 0), 0)
+}
+
+effect[Test] function test_row_validation() -> Unit {
+  let empty = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0
+  ];
+  let g = set_cell(empty, 0, 3, 5);
+  // 5 is already in row 0, should be invalid
+  assert_false(is_valid(g, 0, 0, 5));
+  // 7 is not in row 0, should be valid
+  assert_true(is_valid(g, 0, 0, 7))
+}
+
+effect[Test] function test_col_validation() -> Unit {
+  let empty = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0
+  ];
+  let g = set_cell(empty, 3, 0, 9);
+  // 9 is already in col 0, should be invalid
+  assert_false(is_valid(g, 0, 0, 9));
+  // 3 is not in col 0, should be valid
+  assert_true(is_valid(g, 0, 0, 3))
+}
+
+effect[Test] function test_box_validation() -> Unit {
+  let empty = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0
+  ];
+  let g = set_cell(empty, 1, 1, 4);
+  // 4 is in same 3x3 box (top-left), should be invalid at (0,2)
+  assert_false(is_valid(g, 0, 2, 4));
+  // 4 is not in top-right box, should be valid at (0,6)
+  assert_true(is_valid(g, 0, 6, 4))
+}
+
+effect[Test] function test_solve_easy() -> Unit {
+  // Classic easy sudoku puzzle
+  let puzzle_str =
+    """
+    530070000
+    600195000
+    098000060
+    800060003
+    400803001
+    700020006
+    060000280
+    000419005
+    000080079
+    """;
+  let puzzle = parse_grid(puzzle_str);
+  assert_eq(length(puzzle), 81);
+
+  match solve(puzzle) {
+    Unsolvable -> assert_true(False),
+    Solved(solution) -> {
+      // Check a few known cells of the solution
+      assert_eq(get_cell(solution, 0, 0), 5);
+      assert_eq(get_cell(solution, 0, 1), 3);
+      // No zeros in solved grid
+      assert_eq(find_empty(solution, 0), 0 - 1)
+    }
+  }
+}
+
+effect[Test] function test_already_solved() -> Unit {
+  // A completely filled, valid grid
+  let full_str =
+    """
+    534678912
+    672195348
+    198342567
+    859761423
+    426853791
+    713924856
+    961537284
+    287419635
+    345286179
+    """;
+  let full = parse_grid(full_str);
+  assert_eq(length(full), 81);
+
+  match solve(full) {
+    Unsolvable -> assert_true(False),
+    Solved(solution) -> assert_eq(find_empty(solution, 0), 0 - 1)
+  }
+}
+
+effect[Test] function test_parse_grid() -> Unit {
+  let s = "530070000600195000098000060800060003400803001700020006060000280000419005000080079";
+  let g = parse_grid(s);
+  assert_eq(length(g), 81);
+  assert_eq(nth(g, 0), 5);
+  assert_eq(nth(g, 1), 3);
+  assert_eq(nth(g, 2), 0)
+}
+
+effect[Test] function test_char_to_digit() -> Unit {
+  assert_eq(char_to_digit("0"), 0);
+  assert_eq(char_to_digit("5"), 5);
+  assert_eq(char_to_digit("9"), 9);
+  assert_eq(char_to_digit(" "), 0);
+  assert_eq(char_to_digit("\n"), 0)
+}
