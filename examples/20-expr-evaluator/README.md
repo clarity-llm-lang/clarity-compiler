@@ -1,12 +1,14 @@
-# Expression Evaluator (REQUIREMENTS)
+# Expression Evaluator
 
-**Status:** ✅ **CAN BE MOSTLY IMPLEMENTED** - Only missing Map for variable environments
+**Status:** ✅ **IMPLEMENTED** (without variables)
 **Complexity:** Advanced
 **Category:** Compilers, Interpreters, AST
 
 ## Overview
 
-A simple expression evaluator that parses and evaluates arithmetic expressions like "2 + 3 * x" where x is a variable. Demonstrates lexing, parsing, AST construction, and interpretation.
+A simple expression evaluator that parses and evaluates arithmetic expressions like "2 + 3 * 5". Demonstrates lexing, parsing, AST construction, and interpretation.
+
+**Note:** Variables are not supported (would require Map type for environment). The evaluator handles numeric literals and operators only.
 
 ## What This Demonstrates
 

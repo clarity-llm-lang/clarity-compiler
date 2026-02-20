@@ -1,0 +1,339 @@
+module ConfigParser
+
+// =============================================================================
+// INI Configuration File Parser
+// =============================================================================
+//
+// Parses simple INI-style configuration files into a list of key-value pairs.
+// Supports comments (#), empty lines, and key=value syntax.
+//
+// Example INI file:
+//   # Application settings
+//   app_name = MyApp
+//   port = 8080
+//   debug = true
+//
+// Since Clarity doesn't yet have Map<K,V>, we use List<ConfigEntry> with
+// O(n) lookup. This is fine for typical config files (< 100 entries).
+//
+// Demonstrates: file parsing, string processing, List of records.
+
+type ConfigEntry = {
+  key: String,
+  value: String
+}
+
+type Config = List<ConfigEntry>
+
+// =============================================================================
+// Config operations
+// =============================================================================
+
+// Create an empty config
+function empty_config() -> Config {
+  []
+}
+
+// Look up a key in the config. Returns the value or a default if not found.
+function get_config(config: Config, key: String, default: String) -> String {
+  match is_empty(config) {
+    True -> default,
+    False -> {
+      let entry = head(config);
+      match string_eq(entry.key, key) {
+        True -> entry.value,
+        False -> get_config(tail(config), key, default)
+      }
+    }
+  }
+}
+
+// Set a key-value pair. If key exists, update it; otherwise append.
+function set_config(config: Config, key: String, value: String) -> Config {
+  let removed = remove_key(config, key);
+  append(removed, { key: key, value: value })
+}
+
+// Remove a key from the config
+function remove_key(config: Config, key: String) -> Config {
+  match is_empty(config) {
+    True -> [],
+    False -> {
+      let entry = head(config);
+      match string_eq(entry.key, key) {
+        True -> tail(config),
+        False -> concat([entry], remove_key(tail(config), key))
+      }
+    }
+  }
+}
+
+// Get all keys
+function get_keys(config: Config) -> List<String> {
+  match is_empty(config) {
+    True -> [],
+    False -> concat([head(config).key], get_keys(tail(config)))
+  }
+}
+
+// =============================================================================
+// String utilities
+// =============================================================================
+
+// Check if a string starts with a prefix
+function starts_with(s: String, prefix: String) -> Bool {
+  let s_len = string_length(s);
+  let p_len = string_length(prefix);
+  match p_len > s_len {
+    True -> False,
+    False -> string_eq(substring(s, 0, p_len), prefix)
+  }
+}
+
+// Trim whitespace from both ends of a string
+function trim_whitespace(s: String) -> String {
+  trim(s)
+}
+
+// Check if a string is empty or whitespace-only
+function is_blank(s: String) -> Bool {
+  string_eq(trim_whitespace(s), "")
+}
+
+// =============================================================================
+// INI parsing
+// =============================================================================
+
+// Parse a single line: "key = value" -> [entry] or []
+// Returns a list with 0 or 1 elements to avoid Option type inference issues
+function parse_line(line: String) -> List<ConfigEntry> {
+  let trimmed = trim_whitespace(line);
+
+  // Check if it's a comment or blank
+  let is_comment = is_blank(trimmed) or starts_with(trimmed, "#") or starts_with(trimmed, ";");
+
+  match is_comment {
+    True -> [],
+    False -> {
+      // Split on '='
+      let parts = split(trimmed, "=");
+      match length(parts) >= 2 {
+        True -> {
+          let key = trim_whitespace(head(parts));
+          let rest = tail(parts);
+          // Join remaining parts (in case value contains '=')
+          let value = join_strings(rest, "=");
+          [{ key: key, value: trim_whitespace(value) }]
+        },
+        False -> []
+      }
+    }
+  }
+}
+
+// Join a list of strings with a separator
+function join_strings(strs: List<String>, sep: String) -> String {
+  match is_empty(strs) {
+    True -> "",
+    False -> match is_empty(tail(strs)) {
+      True -> head(strs),
+      False -> head(strs) ++ sep ++ join_strings(tail(strs), sep)
+    }
+  }
+}
+
+// Parse all lines into a config
+function parse_lines(lines: List<String>, config: Config) -> Config {
+  match is_empty(lines) {
+    True -> config,
+    False -> {
+      let parsed = parse_line(head(lines));
+      match is_empty(parsed) {
+        True -> parse_lines(tail(lines), config),
+        False -> {
+          let entry = head(parsed);
+          let new_config = set_config(config, entry.key, entry.value);
+          parse_lines(tail(lines), new_config)
+        }
+      }
+    }
+  }
+}
+
+// Parse an INI file content into a Config
+function parse_ini(content: String) -> Config {
+  let lines = split(content, "\n");
+  parse_lines(lines, empty_config())
+}
+
+// Load config from a file
+effect[FileSystem] function load_config(filename: String) -> Config {
+  let content = read_file(filename);
+  parse_ini(content)
+}
+
+// =============================================================================
+// Printing
+// =============================================================================
+
+// Print a config entry
+effect[Log] function print_entry(entry: ConfigEntry) -> Unit {
+  print_string(entry.key ++ " = " ++ entry.value)
+}
+
+// Print all config entries
+effect[Log] function print_config_helper(config: Config) -> Unit {
+  match is_empty(config) {
+    True -> {},
+    False -> {
+      print_entry(head(config));
+      print_config_helper(tail(config))
+    }
+  }
+}
+
+effect[Log] function print_config(config: Config) -> Unit {
+  print_string("Configuration:");
+  print_config_helper(config)
+}
+
+// =============================================================================
+// Demo
+// =============================================================================
+
+effect[Log] function demo() -> Unit {
+  let sample_ini = """
+# Application Configuration
+app_name = MyWebApp
+version = 1.0.0
+port = 8080
+
+# Database Settings
+db_host = localhost
+db_port = 5432
+db_name = myapp_db
+
+# Feature Flags
+debug = true
+logging = enabled
+""";
+
+  let config = parse_ini(sample_ini);
+  print_config(config);
+  print_string("");
+
+  print_string("Lookups:");
+  print_string("app_name: " ++ get_config(config, "app_name", "unknown"));
+  print_string("port: " ++ get_config(config, "port", "3000"));
+  print_string("missing_key: " ++ get_config(config, "missing_key", "default_value"));
+  print_string("");
+
+  print_string("All keys:");
+  let keys = get_keys(config);
+  print_keys(keys)
+}
+
+effect[Log] function print_keys(keys: List<String>) -> Unit {
+  match is_empty(keys) {
+    True -> {},
+    False -> {
+      print_string("  - " ++ head(keys));
+      print_keys(tail(keys))
+    }
+  }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+effect[Test] function test_empty_config() -> Unit {
+  let config = empty_config();
+  assert_eq(length(config), 0);
+  assert_eq_string(get_config(config, "key", "default"), "default")
+}
+
+effect[Test] function test_set_and_get() -> Unit {
+  let config = empty_config();
+  let c1 = set_config(config, "name", "Alice");
+  assert_eq_string(get_config(c1, "name", ""), "Alice");
+  assert_eq_string(get_config(c1, "age", "0"), "0")
+}
+
+effect[Test] function test_update_existing() -> Unit {
+  let config = empty_config();
+  let c1 = set_config(config, "key", "value1");
+  let c2 = set_config(c1, "key", "value2");
+  assert_eq_string(get_config(c2, "key", ""), "value2")
+}
+
+effect[Test] function test_parse_simple_line() -> Unit {
+  let line = "key = value";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 1);
+  let entry = head(parsed);
+  assert_eq_string(entry.key, "key");
+  assert_eq_string(entry.value, "value")
+}
+
+effect[Test] function test_parse_line_with_spaces() -> Unit {
+  let line = "  name  =  Alice  ";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 1);
+  let entry = head(parsed);
+  assert_eq_string(entry.key, "name");
+  assert_eq_string(entry.value, "Alice")
+}
+
+effect[Test] function test_parse_comment_line() -> Unit {
+  let line = "# This is a comment";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 0)
+}
+
+effect[Test] function test_parse_blank_line() -> Unit {
+  let line = "   ";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 0)
+}
+
+effect[Test] function test_parse_semicolon_comment() -> Unit {
+  let line = "; Comment with semicolon";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 0)
+}
+
+effect[Test] function test_parse_value_with_equals() -> Unit {
+  let line = "url = http://example.com?a=1&b=2";
+  let parsed = parse_line(line);
+  assert_eq(length(parsed), 1);
+  let entry = head(parsed);
+  assert_eq_string(entry.key, "url");
+  assert_eq_string(entry.value, "http://example.com?a=1&b=2")
+}
+
+effect[Test] function test_parse_full_ini() -> Unit {
+  let ini = """
+# Config
+name = Test
+port = 8080
+""";
+  let config = parse_ini(ini);
+  assert_eq_string(get_config(config, "name", ""), "Test");
+  assert_eq_string(get_config(config, "port", ""), "8080")
+}
+
+effect[Test] function test_get_keys() -> Unit {
+  let config = empty_config();
+  let c1 = set_config(config, "a", "1");
+  let c2 = set_config(c1, "b", "2");
+  let keys = get_keys(c2);
+  assert_eq(length(keys), 2)
+}
+
+effect[Test] function test_starts_with() -> Unit {
+  assert_true(starts_with("hello world", "hello"));
+  assert_false(starts_with("hello", "hello world"));
+  assert_true(starts_with("#comment", "#"));
+  assert_false(starts_with("text", "#"))
+}

@@ -96,6 +96,12 @@ function circle_area(radius: Float64) -> Float64 {
   pi * radius * radius
 }
 
+// Circumference of circle: 2 * pi * r
+function circle_circumference(radius: Float64) -> Float64 {
+  let pi = 3.141592653589793;
+  2.0 * pi * radius
+}
+
 // Area of triangle using Heron's formula
 function triangle_area(a: Float64, b: Float64, c: Float64) -> Float64 {
   let s = (a + b + c) / 2.0;
@@ -145,6 +151,75 @@ function mean(values: List<Int64>) -> Float64 {
   int_to_float(s) / int_to_float(count)
 }
 
+// Minimum value in list
+function min_list(values: List<Int64>) -> Int64 {
+  match is_empty(values) {
+    True -> 0,
+    False -> match is_empty(tail(values)) {
+      True -> head(values),
+      False -> {
+        let first = head(values);
+        let rest_min = min_list(tail(values));
+        match first < rest_min {
+          True -> first,
+          False -> rest_min
+        }
+      }
+    }
+  }
+}
+
+// Maximum value in list
+function max_list(values: List<Int64>) -> Int64 {
+  match is_empty(values) {
+    True -> 0,
+    False -> match is_empty(tail(values)) {
+      True -> head(values),
+      False -> {
+        let first = head(values);
+        let rest_max = max_list(tail(values));
+        match first > rest_max {
+          True -> first,
+          False -> rest_max
+        }
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Demo
+// =============================================================================
+
+effect[Log] function demo() -> Unit {
+  print_string("=== Math Toolkit Demo ===");
+  print_string("");
+
+  print_string("Integer Math:");
+  print_string("  factorial(5) = " ++ int_to_string(factorial(5)));
+  print_string("  gcd(48, 18) = " ++ int_to_string(gcd(48, 18)));
+  print_string("  lcm(4, 6) = " ++ int_to_string(lcm(4, 6)));
+  print_string("  is_prime(17) = " ++ match is_prime(17) { True -> "true", False -> "false" });
+  print_string("  power(2, 10) = " ++ int_to_string(power(2, 10)));
+  print_string("  fib_fast(10) = " ++ int_to_string(fib_fast(10)));
+  print_string("");
+
+  print_string("Float Math:");
+  print_string("  distance(0,0 to 3,4) = " ++ float_to_string(distance(0.0, 0.0, 3.0, 4.0)));
+  print_string("  hypotenuse(3, 4) = " ++ float_to_string(hypotenuse(3.0, 4.0)));
+  print_string("  circle_area(2) = " ++ float_to_string(circle_area(2.0)));
+  print_string("  triangle_area(3,4,5) = " ++ float_to_string(triangle_area(3.0, 4.0, 5.0)));
+  print_string("");
+
+  print_string("List Operations:");
+  let nums = [1, 2, 3, 4, 5];
+  print_string("  sum([1,2,3,4,5]) = " ++ int_to_string(sum_list(nums)));
+  print_string("  mean([1,2,3,4,5]) = " ++ float_to_string(mean(nums)));
+  print_string("  product([1,2,3,4,5]) = " ++ int_to_string(product_list(nums)));
+  print_string("  min([1,2,3,4,5]) = " ++ int_to_string(min_list(nums)));
+  print_string("  max([1,2,3,4,5]) = " ++ int_to_string(max_list(nums)))
+}
+
 // =============================================================================
 // Test Suite
 // =============================================================================
@@ -170,6 +245,8 @@ effect[Test] function test_lcm() -> Unit {
 effect[Test] function test_is_prime() -> Unit {
   assert_false(is_prime(1));
   assert_true(is_prime(2));
+  assert_true(is_prime(3));
+  assert_false(is_prime(4));
   assert_true(is_prime(17));
   assert_false(is_prime(18));
   assert_true(is_prime(97));
@@ -221,4 +298,29 @@ effect[Test] function test_product_list() -> Unit {
 effect[Test] function test_mean() -> Unit {
   let nums = [2, 4, 6, 8, 10];
   assert_eq_float(mean(nums), 6.0)
+}
+
+effect[Test] function test_circle_circumference() -> Unit {
+  let pi = 3.141592653589793;
+  assert_eq_float(circle_circumference(1.0), 2.0 * pi);
+  assert_eq_float(circle_circumference(5.0), 10.0 * pi)
+}
+
+effect[Test] function test_hypotenuse() -> Unit {
+  assert_eq_float(hypotenuse(3.0, 4.0), 5.0);
+  assert_eq_float(hypotenuse(5.0, 12.0), 13.0)
+}
+
+effect[Test] function test_min_list() -> Unit {
+  let nums = [5, 2, 8, 1, 9];
+  assert_eq(min_list(nums), 1);
+  let single = [42];
+  assert_eq(min_list(single), 42)
+}
+
+effect[Test] function test_max_list() -> Unit {
+  let nums = [5, 2, 8, 1, 9];
+  assert_eq(max_list(nums), 9);
+  let single = [42];
+  assert_eq(max_list(single), 42)
 }
