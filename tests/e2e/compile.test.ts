@@ -2325,3 +2325,234 @@ describe("Example: Log Analyzer (12)", () => {
     expect(failed).toBe(0);
   });
 });
+
+describe("Generic HOF monomorphization (List<T> type param fix)", () => {
+  it("map over List<Int64> with Int64->Int64 function produces correct results", async () => {
+    const source = `
+      module Test
+      function double(x: Int64) -> Int64 { x * 2 }
+      function map_list<T, U>(xs: List<T>, f: (T) -> U) -> List<U> {
+        match is_empty(xs) {
+          True -> [],
+          False -> concat([f(head(xs))], map_list(tail(xs), f))
+        }
+      }
+      function test_len() -> Int64 {
+        let result = map_list([1, 2, 3], double);
+        length(result)
+      }
+      function test_first() -> Int64 {
+        let result = map_list([1, 2, 3], double);
+        nth(result, 0)
+      }
+      function test_last() -> Int64 {
+        let result = map_list([1, 2, 3], double);
+        nth(result, 2)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_last as () => bigint)()).toBe(6n);
+  });
+
+  it("filter over List<Int64> preserves order and correctness", async () => {
+    const source = `
+      module Test
+      function is_even(x: Int64) -> Bool { x % 2 == 0 }
+      function filter_list<T>(xs: List<T>, pred: (T) -> Bool) -> List<T> {
+        match is_empty(xs) {
+          True -> [],
+          False -> {
+            let h = head(xs);
+            let rest = filter_list(tail(xs), pred);
+            match pred(h) {
+              True -> concat([h], rest),
+              False -> rest
+            }
+          }
+        }
+      }
+      function test_len() -> Int64 {
+        let result = filter_list([1, 2, 3, 4, 5, 6], is_even);
+        length(result)
+      }
+      function test_first() -> Int64 {
+        let result = filter_list([1, 2, 3, 4, 5, 6], is_even);
+        nth(result, 0)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(2n);
+  });
+
+  it("fold_left with List<Int64> accumulator and Int64 elements", async () => {
+    const source = `
+      module Test
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      function fold_left<T, A>(xs: List<T>, init: A, f: (A, T) -> A) -> A {
+        match is_empty(xs) {
+          True -> init,
+          False -> fold_left(tail(xs), f(init, head(xs)), f)
+        }
+      }
+      function test_sum() -> Int64 { fold_left([1, 2, 3, 4], 0, add) }
+      function test_empty() -> Int64 {
+        let empty: List<Int64> = [];
+        fold_left(empty, 99, add)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_sum as () => bigint)()).toBe(10n);
+    expect((instance.exports.test_empty as () => bigint)()).toBe(99n);
+  });
+});
+
+describe("Standard library: std/list", () => {
+  // setupModuleTest creates a temp dir; we also need std/list.clarity there.
+  function setupListTest(mainSource: string): string {
+    const listSrc = fs.readFileSync(path.resolve("std/list.clarity"), "utf-8");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-list-test-"));
+    fs.mkdirSync(path.join(dir, "std"));
+    fs.writeFileSync(path.join(dir, "std", "list.clarity"), listSrc);
+    fs.writeFileSync(path.join(dir, "main.clarity"), mainSource);
+    return dir;
+  }
+
+  it("compiles without errors", () => {
+    const result = compileFile(path.resolve("std/list.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("map produces correct values in order", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { map } from "std/list"
+      function double(x: Int64) -> Int64 { x * 2 }
+      function test_len() -> Int64 { length(map([1, 2, 3], double)) }
+      function test_first() -> Int64 { nth(map([1, 2, 3], double), 0) }
+      function test_last() -> Int64 { nth(map([1, 2, 3], double), 2) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_last as () => bigint)()).toBe(6n);
+  });
+
+  it("filter keeps matching elements in order", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { filter } from "std/list"
+      function is_even(x: Int64) -> Bool { x % 2 == 0 }
+      function test_len() -> Int64 { length(filter([1, 2, 3, 4, 5], is_even)) }
+      function test_first() -> Int64 { nth(filter([1, 2, 3, 4, 5], is_even), 0) }
+      function test_second() -> Int64 { nth(filter([1, 2, 3, 4, 5], is_even), 1) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_len as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_second as () => bigint)()).toBe(4n);
+  });
+
+  it("fold_left sums correctly and respects empty list", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { fold_left } from "std/list"
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      function test_sum() -> Int64 { fold_left([1, 2, 3, 4], 0, add) }
+      function test_empty() -> Int64 {
+        let empty: List<Int64> = [];
+        fold_left(empty, 99, add)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_sum as () => bigint)()).toBe(10n);
+    expect((instance.exports.test_empty as () => bigint)()).toBe(99n);
+  });
+
+  it("any, all, count_where work correctly", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { any, all, count_where } from "std/list"
+      function is_even(x: Int64) -> Bool { x % 2 == 0 }
+      function test_any_t() -> Bool { any([1, 3, 4, 7], is_even) }
+      function test_any_f() -> Bool { any([1, 3, 5, 7], is_even) }
+      function test_all_t() -> Bool { all([2, 4, 6], is_even) }
+      function test_all_f() -> Bool { all([2, 4, 5], is_even) }
+      function test_count() -> Int64 { count_where([1, 2, 3, 4, 5, 6], is_even) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_any_t as () => number)()).toBe(1);
+    expect((instance.exports.test_any_f as () => number)()).toBe(0);
+    expect((instance.exports.test_all_t as () => number)()).toBe(1);
+    expect((instance.exports.test_all_f as () => number)()).toBe(0);
+    expect((instance.exports.test_count as () => bigint)()).toBe(3n);
+  });
+
+  it("zip_with, take, drop work correctly", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { zip_with, take, drop } from "std/list"
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      function test_zip_first() -> Int64 { nth(zip_with([1, 2, 3], [10, 20, 30], add), 0) }
+      function test_zip_last() -> Int64 { nth(zip_with([1, 2, 3], [10, 20, 30], add), 2) }
+      function test_take_len() -> Int64 { length(take([1, 2, 3, 4, 5], 3)) }
+      function test_take_first() -> Int64 { nth(take([1, 2, 3, 4, 5], 3), 0) }
+      function test_drop_len() -> Int64 { length(drop([1, 2, 3, 4, 5], 2)) }
+      function test_drop_first() -> Int64 { nth(drop([1, 2, 3, 4, 5], 2), 0) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_zip_first as () => bigint)()).toBe(11n);
+    expect((instance.exports.test_zip_last as () => bigint)()).toBe(33n);
+    expect((instance.exports.test_take_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_take_first as () => bigint)()).toBe(1n);
+    expect((instance.exports.test_drop_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_drop_first as () => bigint)()).toBe(3n);
+  });
+
+  it("sum, product, maximum, minimum, range, replicate work correctly", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { sum, product, maximum, minimum, range, replicate } from "std/list"
+      function test_sum() -> Int64 { sum([1, 2, 3, 4, 5]) }
+      function test_product() -> Int64 { product([1, 2, 3, 4]) }
+      function test_max() -> Int64 { maximum([3, 1, 4, 1, 5, 9], 0) }
+      function test_min() -> Int64 { minimum([3, 1, 4, 1, 5, 9], 9) }
+      function test_range_len() -> Int64 { length(range(1, 6)) }
+      function test_range_first() -> Int64 { nth(range(1, 6), 0) }
+      function test_range_sum() -> Int64 { sum(range(1, 6)) }
+      function test_rep_len() -> Int64 { length(replicate(7, 4)) }
+      function test_rep_sum() -> Int64 { sum(replicate(7, 4)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_sum as () => bigint)()).toBe(15n);
+    expect((instance.exports.test_product as () => bigint)()).toBe(24n);
+    expect((instance.exports.test_max as () => bigint)()).toBe(9n);
+    expect((instance.exports.test_min as () => bigint)()).toBe(1n);
+    expect((instance.exports.test_range_len as () => bigint)()).toBe(5n);
+    expect((instance.exports.test_range_first as () => bigint)()).toBe(1n);
+    expect((instance.exports.test_range_sum as () => bigint)()).toBe(15n);
+    expect((instance.exports.test_rep_len as () => bigint)()).toBe(4n);
+    expect((instance.exports.test_rep_sum as () => bigint)()).toBe(28n);
+  });
+});
