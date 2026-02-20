@@ -1,6 +1,6 @@
 # Template Engine (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing string interpolation or template function
+**Status:** ✅ **IMPLEMENTED** (custom `{{key}}` renderer using current built-ins)
 **Complexity:** Intermediate
 **Category:** Text Processing, String Manipulation
 
@@ -77,11 +77,11 @@ effect[FileSystem, Log] function send_welcome_email(name: String, email: String)
 ## Dependencies
 
 **Option 1:**
-- ❌ String interpolation syntax `${var}` (PREFERRED)
+- ⚠️ String interpolation syntax `${var}` (optional language ergonomics)
 
 **Option 2:**
-- ❌ Map type
-- ❌ String split/replace operations
+- ✅ Map type and map built-ins
+- ✅ String operations (`contains`, `index_of`, `substring`, concatenation)
 - ⚠️ Regex for finding {{var}} patterns
 
 ## Impact

@@ -2220,9 +2220,11 @@ export class CodeGenerator {
       // String ops
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
-      contains: BOOL, index_of: INT64, trim: { kind: "String" },
+      contains: BOOL, string_starts_with: BOOL, string_ends_with: BOOL, index_of: INT64, trim: { kind: "String" },
       char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
       split: { kind: "List", element: { kind: "String" } } as ClarityType,
+      string_replace: { kind: "String" } as ClarityType,
+      string_repeat: { kind: "String" } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
@@ -2230,9 +2232,22 @@ export class CodeGenerator {
       string_to_float: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Math
       abs_int: INT64, min_int: INT64, max_int: INT64,
+      int_clamp: INT64, float_clamp: FLOAT64,
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
+      // Random
+      random_int: INT64, random_float: FLOAT64,
+      // Network
+      http_get: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      http_post: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      http_listen: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      // JSON
+      json_parse_object: { kind: "Union", name: "Result<Map<String, String>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      json_stringify_object: { kind: "String" } as ClarityType,
+      // DB
+      db_execute: { kind: "Union", name: "Result<Int64, String>", variants: [{ name: "Ok", fields: new Map([["value", INT64]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      db_query: { kind: "Union", name: "Result<List<Map<String, String>>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
       // I/O primitives
       read_line: { kind: "String" }, read_all_stdin: { kind: "String" },
       read_file: { kind: "String" }, write_file: UNIT,
@@ -2245,12 +2260,26 @@ export class CodeGenerator {
       bytes_new: BYTES, bytes_length: INT64, bytes_get: INT64,
       bytes_set: BYTES, bytes_slice: BYTES, bytes_concat: BYTES,
       bytes_from_string: BYTES, bytes_to_string: { kind: "String" } as ClarityType,
+      // Regex
+      regex_match: BOOL,
+      regex_captures: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Timestamp
       now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
       timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
+      timestamp_parse_iso: { kind: "Union", name: "Option<Timestamp>", variants: [{ name: "Some", fields: new Map([["value", TIMESTAMP]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       timestamp_add: TIMESTAMP, timestamp_diff: INT64,
       // Crypto
       sha256: { kind: "String" } as ClarityType,
+      // JSON
+      json_parse: {
+        kind: "Union",
+        name: "Option<Map<String, String>>",
+        variants: [
+          { name: "Some", fields: new Map([["value", { kind: "Map", key: { kind: "String" }, value: { kind: "String" } } as ClarityType]]) },
+          { name: "None", fields: new Map() },
+        ],
+      } as ClarityType,
+      json_stringify: { kind: "String" } as ClarityType,
       // Map ops — return i32 handle or bool/int; exact type inferred from Map type args
       map_new: { kind: "Map", key: INT64, value: INT64 } as ClarityType, // placeholder
       map_size: INT64, map_has: BOOL,

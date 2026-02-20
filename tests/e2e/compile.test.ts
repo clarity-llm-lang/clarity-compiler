@@ -34,7 +34,7 @@ describe("end-to-end compilation", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const add = instance.exports.add as (a: bigint, b: bigint) => bigint;
     expect(add(2n, 3n)).toBe(5n);
   });
@@ -47,7 +47,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const sub = instance.exports.sub as (a: bigint, b: bigint) => bigint;
     expect(sub(10n, 3n)).toBe(7n);
   });
@@ -60,7 +60,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const mul = instance.exports.mul as (a: bigint, b: bigint) => bigint;
     expect(mul(6n, 7n)).toBe(42n);
   });
@@ -73,7 +73,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const div = instance.exports.div as (a: bigint, b: bigint) => bigint;
     expect(div(42n, 6n)).toBe(7n);
   });
@@ -733,6 +733,148 @@ describe("end-to-end compilation", () => {
   // Phase 1.5: I/O Primitives
   // ============================================================
 
+  it("string_starts_with and string_ends_with work", async () => {
+    const source = `
+      module Test
+      function starts(s: String) -> Bool { string_starts_with(s, "clar") }
+      function ends(s: String) -> Bool { string_ends_with(s, "ity") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const starts = instance.exports.starts as (ptr: number) => number;
+    const ends = instance.exports.ends as (ptr: number) => number;
+    expect(starts(runtime.writeString("clarity"))).toBe(1);
+    expect(starts(runtime.writeString("lang"))).toBe(0);
+    expect(ends(runtime.writeString("clarity"))).toBe(1);
+    expect(ends(runtime.writeString("clar"))).toBe(0);
+  });
+
+  it("string_repeat repeats and handles non-positive counts", async () => {
+    const source = `
+      module Test
+      function rep(s: String, n: Int64) -> String { string_repeat(s, n) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rep = instance.exports.rep as (ptr: number, n: bigint) => number;
+    expect(runtime.readString(rep(runtime.writeString("ab"), 3n))).toBe("ababab");
+    expect(runtime.readString(rep(runtime.writeString("ab"), 0n))).toBe("");
+  });
+
+  it("int_clamp and float_clamp work", async () => {
+    const source = `
+      module Test
+      function ci(v: Int64) -> Int64 { int_clamp(v, 0, 10) }
+      function cf(v: Float64) -> Float64 { float_clamp(v, 0.0, 1.0) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const ci = instance.exports.ci as (v: bigint) => bigint;
+    const cf = instance.exports.cf as (v: number) => number;
+    expect(ci(-5n)).toBe(0n);
+    expect(ci(12n)).toBe(10n);
+    expect(ci(7n)).toBe(7n);
+    expect(cf(-1.2)).toBeCloseTo(0.0);
+    expect(cf(1.8)).toBeCloseTo(1.0);
+    expect(cf(0.33)).toBeCloseTo(0.33);
+  });
+
+  it("string_replace replaces all occurrences", async () => {
+    const source = `
+      module Test
+      function rewrite(s: String) -> String {
+        string_replace(s, "-", ":")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rewrite = instance.exports.rewrite as (ptr: number) => number;
+    const ptr = rewrite(runtime.writeString("a-b-c"));
+    expect(runtime.readString(ptr)).toBe("a:b:c");
+  });
+
+  it("random_int and random_float require Random effect and run", async () => {
+    const source = `
+      module Test
+      effect[Random] function roll() -> Bool {
+        let r = random_int(1, 6);
+        let f = random_float();
+        r >= 1 and r <= 6 and f >= 0.0 and f < 1.0
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const roll = instance.exports.roll as () => number;
+    expect(roll()).toBe(1);
+  });
+
+  it("rejects random_int without Random effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        random_int(1, 10)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Random");
+  });
+
+  it("timestamp_parse_iso returns Some for valid and None for invalid input", async () => {
+    const source = `
+      module Test
+      function parse_ok() -> Bool {
+        match timestamp_parse_iso("2026-02-20T00:00:00.000Z") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+
+      function parse_bad() -> Bool {
+        match timestamp_parse_iso("not-a-date") {
+          Some(_) -> False,
+          None -> True
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const parse_ok = instance.exports.parse_ok as () => number;
+    const parse_bad = instance.exports.parse_bad as () => number;
+    expect(parse_ok()).toBe(1);
+    expect(parse_bad()).toBe(1);
+  });
+
+  it("regex builtins match and capture", async () => {
+    const source = `
+      module Test
+      function has_digits(s: String) -> Bool {
+        regex_match("[0-9]+", s)
+      }
+
+      function first_capture(s: String) -> String {
+        match regex_captures("([0-9]+)", s) {
+          None -> "none",
+          Some(groups) -> nth(groups, 1)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const has_digits = instance.exports.has_digits as (ptr: number) => number;
+    const first_capture = instance.exports.first_capture as (ptr: number) => number;
+    expect(has_digits(runtime.writeString("abc123"))).toBe(1);
+    expect(has_digits(runtime.writeString("abc"))).toBe(0);
+    expect(runtime.readString(first_capture(runtime.writeString("id=42")))).toBe("42");
+  });
+
   it("read_line reads from stdin config", async () => {
     const source = `
       module Test
@@ -777,6 +919,115 @@ describe("end-to-end compilation", () => {
     const { instance } = await instantiate(result.wasm!, { argv: ["hello", "world", "foo"] });
     const arg_count = instance.exports.arg_count as () => bigint;
     expect(arg_count()).toBe(3n);
+  });
+
+
+  it("json_parse_object parses object and map_size is accessible", async () => {
+    const source = `
+      module Test
+      function count_fields() -> Int64 {
+        match json_parse_object("{\\"a\\":1,\\"b\\":\\"x\\"}") {
+          Err(e) -> 0,
+          Ok(obj) -> map_size(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const count_fields = instance.exports.count_fields as () => bigint;
+    expect(count_fields()).toBe(2n);
+  });
+
+  it("json_stringify_object serializes parsed object", async () => {
+    const source = `
+      module Test
+      function render() -> String {
+        match json_parse_object("{\\"name\\":\\"alice\\"}") {
+          Err(e) -> e,
+          Ok(obj) -> json_stringify_object(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const render = instance.exports.render as () => number;
+    const out = runtime.readString(render());
+    expect(out).toContain('"name"');
+    expect(out).toContain('"alice"');
+  });
+
+  it("http_listen requires Network effect", () => {
+    const source = `
+      module Test
+      function bad() -> String {
+        match http_listen(8080) {
+          Ok(v) -> v,
+          Err(e) -> e
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
+  });
+
+  it("db_execute requires DB effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        match db_execute("DELETE FROM users", []) {
+          Ok(n) -> n,
+          Err(e) -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("DB");
+  });
+
+  it("http_get works with Network effect", async () => {
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-get-"));
+    const filePath = path.join(tmpDir, "payload.txt");
+    fs.writeFileSync(filePath, "pong", "utf-8");
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fetchFn = instance.exports.fetch as (urlPtr: number) => number;
+    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const bodyPtr = fetchFn(urlPtr);
+    expect(runtime.readString(bodyPtr)).toBe("pong");
+  });
+
+  it("rejects http_get without Network effect", () => {
+    const source = `
+      module Test
+      function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
   });
 
   it("read_file reads file content via config fs", async () => {
@@ -1810,6 +2061,37 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_blank as () => number)()).toBe(1);
     expect((instance.exports.test_to_int as () => bigint)()).toBe(99n);
   });
+
+  it("imports std/list functions", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { size, first, rest, push, join, reversed, empty, get, set_at } from "std/list"
+      function test_size() -> Int64 { size([1, 2, 3]) }
+      function test_first() -> Int64 { first([42, 7]) }
+      function test_rest_head() -> Int64 { first(rest([9, 8, 7])) }
+      function test_push_get() -> Int64 { get(push([1, 2], 3), 2) }
+      function test_join_get() -> Int64 { get(join([1, 2], [3, 4]), 3) }
+      function test_reversed_first() -> Int64 { first(reversed([1, 2, 3])) }
+      function test_empty() -> Bool { empty(rest([5])) }
+      function test_set_at() -> Int64 { get(set_at([1, 2, 3], 1, 99), 1) }
+      function test_string_head() -> String { first(["a", "b"]) }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_first as () => bigint)()).toBe(42n);
+    expect((instance.exports.test_rest_head as () => bigint)()).toBe(8n);
+    expect((instance.exports.test_push_get as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_join_get as () => bigint)()).toBe(4n);
+    expect((instance.exports.test_reversed_first as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_empty as () => number)()).toBe(1);
+    expect((instance.exports.test_set_at as () => bigint)()).toBe(99n);
+    expect(runtime.readString((instance.exports.test_string_head as () => number)())).toBe("a");
+  });
 });
 
 describe("String interning", () => {
@@ -2224,6 +2506,72 @@ describe("Map builtins", () => {
     expect(result.errors).toHaveLength(0);
     const { instance } = await instantiate(result.wasm!);
     expect((instance.exports.test_original_unchanged as () => bigint)()).toBe(0n);
+  });
+});
+
+describe("JSON builtins", () => {
+  it("json_parse parses flat object scalars into Map<String, String>", async () => {
+    const source = `
+      module Test
+      function get_name() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42,\\"ok\\":true,\\"none\\":null}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "name") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+      function get_age() -> String {
+        match json_parse("{\\"name\\":\\"Alice\\",\\"age\\":42}") {
+          None -> "ERROR",
+          Some(m) -> match map_get(m, "age") { None -> "MISSING", Some(v) -> v }
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.get_name as () => number)())).toBe("Alice");
+    expect(runtime.readString((instance.exports.get_age as () => number)())).toBe("42");
+  });
+
+  it("json_parse returns None for invalid or unsupported input", async () => {
+    const source = `
+      module Test
+      function invalid_json_is_none() -> Bool {
+        match json_parse("not json") { None -> True, Some(_) -> False }
+      }
+      function nested_object_is_none() -> Bool {
+        match json_parse("{\\"outer\\":{\\"inner\\":1}}") { None -> True, Some(_) -> False }
+      }
+      function array_root_is_none() -> Bool {
+        match json_parse("[1,2,3]") { None -> True, Some(_) -> False }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.invalid_json_is_none as () => number)()).toBe(1);
+    expect((instance.exports.nested_object_is_none as () => number)()).toBe(1);
+    expect((instance.exports.array_root_is_none as () => number)()).toBe(1);
+  });
+
+  it("json_stringify serializes Map<String, String> with literal detection", async () => {
+    const source = `
+      module Test
+      function test() -> String {
+        let m: Map<String, String> = map_new();
+        let m1 = map_set(m, "name", "Alice");
+        let m2 = map_set(m1, "age", "42");
+        let m3 = map_set(m2, "active", "true");
+        let m4 = map_set(m3, "middle", "null");
+        json_stringify(m4)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe(
+      "{\"name\":\"Alice\",\"age\":42,\"active\":true,\"middle\":null}",
+    );
   });
 });
 

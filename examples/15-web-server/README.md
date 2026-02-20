@@ -1,6 +1,6 @@
 # Web Server (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing HTTP server built-ins, Map type
+**Status:** ⚠️ **BLOCKED** - Missing HTTP server built-ins
 **Complexity:** Advanced
 **Category:** Network, Web Development
 
@@ -113,7 +113,7 @@ function response_404() -> Response {
 ## Dependencies
 
 - ❌ HTTP server built-ins (CRITICAL)
-- ❌ Map type (CRITICAL)
+- ✅ Map type
 - ⚠️ Higher-order functions with closures (or pass named functions)
 - ⚠️ Async/event loop (currently blocking execution)
 
