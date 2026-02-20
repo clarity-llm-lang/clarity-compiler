@@ -2200,6 +2200,13 @@ export class CodeGenerator {
       // Network
       http_get: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
       http_post: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      http_listen: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      // JSON
+      json_parse_object: { kind: "Union", name: "Result<Map<String, String>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      json_stringify_object: { kind: "String" } as ClarityType,
+      // DB
+      db_execute: { kind: "Union", name: "Result<Int64, String>", variants: [{ name: "Ok", fields: new Map([["value", INT64]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      db_query: { kind: "Union", name: "Result<List<Map<String, String>>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
       // I/O primitives
       read_line: { kind: "String" }, read_all_stdin: { kind: "String" },
       read_file: { kind: "String" }, write_file: UNIT,

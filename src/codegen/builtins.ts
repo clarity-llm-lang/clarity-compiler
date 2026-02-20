@@ -85,9 +85,18 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "random_float", importModule: "env", importName: "random_float", params: binaryen.none, result: f64 },
 
     // --- Network operations ---
-    // http_get/http_post return Result<String, String> as heap-allocated union pointer (i32).
+    // http_get/http_post/http_listen return Result<*, String> as heap-allocated union pointer (i32).
     { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
     { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
+    { name: "http_listen", importModule: "env", importName: "http_listen", params: i64, result: i32 },
+
+    // --- JSON helpers ---
+    { name: "json_parse_object", importModule: "env", importName: "json_parse_object", params: i32, result: i32 },
+    { name: "json_stringify_object", importModule: "env", importName: "json_stringify_object", params: i32, result: i32 },
+
+    // --- DB operations ---
+    { name: "db_execute", importModule: "env", importName: "db_execute", params: pair_i32, result: i32 },
+    { name: "db_query", importModule: "env", importName: "db_query", params: pair_i32, result: i32 },
 
     // --- I/O primitives ---
     { name: "read_line", importModule: "env", importName: "read_line", params: binaryen.none, result: i32 },

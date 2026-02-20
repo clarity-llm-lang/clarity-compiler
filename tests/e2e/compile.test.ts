@@ -922,6 +922,72 @@ describe("end-to-end compilation", () => {
   });
 
 
+  it("json_parse_object parses object and map_size is accessible", async () => {
+    const source = `
+      module Test
+      function count_fields() -> Int64 {
+        match json_parse_object("{\\"a\\":1,\\"b\\":\\"x\\"}") {
+          Err(e) -> 0,
+          Ok(obj) -> map_size(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const count_fields = instance.exports.count_fields as () => bigint;
+    expect(count_fields()).toBe(2n);
+  });
+
+  it("json_stringify_object serializes parsed object", async () => {
+    const source = `
+      module Test
+      function render() -> String {
+        match json_parse_object("{\\"name\\":\\"alice\\"}") {
+          Err(e) -> e,
+          Ok(obj) -> json_stringify_object(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const render = instance.exports.render as () => number;
+    const out = runtime.readString(render());
+    expect(out).toContain('"name"');
+    expect(out).toContain('"alice"');
+  });
+
+  it("http_listen requires Network effect", () => {
+    const source = `
+      module Test
+      function bad() -> String {
+        match http_listen(8080) {
+          Ok(v) -> v,
+          Err(e) -> e
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
+  });
+
+  it("db_execute requires DB effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        match db_execute("DELETE FROM users", []) {
+          Ok(n) -> n,
+          Err(e) -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("DB");
+  });
+
   it("http_get works with Network effect", async () => {
     const source = `
       module Test

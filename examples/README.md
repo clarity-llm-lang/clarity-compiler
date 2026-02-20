@@ -170,12 +170,14 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ### Milestone B — Unlock example 15 (Web server)
 
+4. 🚧 Started HTTP server surface with `http_listen(port)` scaffold (currently returns not-implemented).
 4. Add `http_listen(port, handler)` with named-handler callback support.
 5. Add host bridge types (`Request`, `Response`) and header map helpers.
 6. Add integration tests for routing and status/header correctness.
 
 ### Milestone C — Unlock example 16 (Database CRUD)
 
+7. 🚧 Started DB surface with `db_execute(sql, params)` and `db_query(sql, params)` scaffolds (currently return not-implemented).
 7. Add `db_execute(sql, params)` and `db_query(sql, params)` under `effect[DB]`.
 8. Define stable `DbError` shape and row-to-map conversion semantics.
 9. Add CRUD e2e tests (create/read/update/delete + error handling).

@@ -364,7 +364,7 @@ clarity/
 - Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
 - Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
-- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split, string_replace
+- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, string_starts_with, string_ends_with, index_of, trim, split, string_replace, string_repeat
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, int_clamp, float_clamp, sqrt, pow, floor, ceil)

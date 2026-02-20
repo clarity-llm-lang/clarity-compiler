@@ -29,6 +29,11 @@ describe("builtins registry", () => {
     expect(names).toContain("string_repeat");
     expect(names).toContain("int_clamp");
     expect(names).toContain("float_clamp");
+    expect(names).toContain("json_parse_object");
+    expect(names).toContain("json_stringify_object");
+    expect(names).toContain("db_execute");
+    expect(names).toContain("db_query");
+    expect(names).toContain("http_listen");
   });
 
   it("contains all expected effects", () => {

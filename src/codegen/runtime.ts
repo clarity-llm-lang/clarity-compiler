@@ -137,6 +137,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return ptr;
   }
 
+  // Allocate a Result<*, String> where both payload forms are i32 pointers.
+  function allocResultI32(ok: boolean, valuePtr: number): number {
 
   // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
   // tag 0 = Ok(value), tag 1 = Err(error_message)
@@ -151,6 +153,31 @@ export function createRuntime(config: RuntimeConfig = {}) {
     view.setInt32(ptr, ok ? 0 : 1, true);
     view.setInt32(ptr + 4, valuePtr, true);
     return ptr;
+  }
+
+  // Allocate a Result<Int64, String> union: [tag:i32][payload:i64/i32] = 12 bytes.
+  function allocResultI64(ok: boolean, value: bigint, errPtr = 0): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 12;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, ok ? 0 : 1, true);
+    if (ok) {
+      view.setBigInt64(ptr + 4, value, true);
+    } else {
+      view.setInt32(ptr + 4, errPtr, true);
+    }
+    return ptr;
+  }
+
+
+  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // tag 0 = Ok(value), tag 1 = Err(error_message)
+  function allocResultString(ok: boolean, valuePtr: number): number {
+    return allocResultI32(ok, valuePtr);
   }
 
   // Allocate a List<i32> on the heap: [count:i32][elements:i32...]
@@ -1019,6 +1046,52 @@ export function createRuntime(config: RuntimeConfig = {}) {
           const msg = e instanceof Error ? e.message : String(e);
           return allocResultString(false, writeString(msg));
         }
+      },
+
+      http_listen(_port: bigint): number {
+        return allocResultString(false, writeString("http_listen not implemented yet"));
+      },
+
+      json_parse_object(ptr: number): number {
+        try {
+          const parsed = JSON.parse(readString(ptr));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return allocResultString(false, writeString("Expected JSON object"));
+          }
+          const m = new Map<string | bigint, number | bigint>();
+          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof v === "string") {
+              m.set(k, writeString(v));
+            } else if (v === null || typeof v === "number" || typeof v === "boolean") {
+              m.set(k, writeString(String(v)));
+            } else {
+              m.set(k, writeString(JSON.stringify(v)));
+            }
+          }
+          const handle = nextMapHandle++;
+          mapTable.set(handle, m);
+          return allocResultI32(true, handle);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultI32(false, writeString(msg));
+        }
+      },
+
+      json_stringify_object(handle: number): number {
+        const m = mapTable.get(handle) ?? new Map();
+        const obj: Record<string, string> = {};
+        for (const [k, v] of m.entries()) {
+          obj[String(k)] = typeof v === "number" ? readString(v) : String(v);
+        }
+        return writeString(JSON.stringify(obj));
+      },
+
+      db_execute(_sqlPtr: number, _paramsPtr: number): number {
+        return allocResultI64(false, 0n, writeString("db_execute not implemented yet"));
+      },
+
+      db_query(_sqlPtr: number, _paramsPtr: number): number {
+        return allocResultI32(false, writeString("db_query not implemented yet"));
       },
 
       // --- I/O primitives ---
