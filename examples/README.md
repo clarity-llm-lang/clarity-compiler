@@ -20,7 +20,7 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 ## All Examples (20 Total)
 
-### ✅ Implemented Examples (13 total)
+### ✅ Implemented Examples (17 total)
 
 | # | Name | Complexity | Category | Tests | Status |
 |---|------|------------|----------|-------|--------|
@@ -33,24 +33,24 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 | 07 | [String Toolkit](07-string-toolkit/) | Intermediate | Text Processing | 13 | ✅ Implemented* |
 | 09 | [CSV Processor](09-csv-processor/) | Intermediate | Data Processing | 9 | ✅ Implemented |
 | 10 | [Config Parser](10-config-parser/) | Intermediate | Parsing | 12 | ✅ Implemented |
+| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | 21 | ✅ Implemented |
+| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | 22 | ✅ Implemented |
+| 13 | [Template Engine](13-template-engine/) | Intermediate | Text | 12 | ✅ Implemented |
 | 14 | [Tic-Tac-Toe](14-tic-tac-toe/) | Intermediate | Games, AI | 8 | ✅ Implemented |
 | 17 | [Linear Regression](17-linear-regression/) | Advanced | ML, Numeric | 6 | ✅ Implemented |
 | 18 | [Merkle Tree](18-merkle-tree/) | Advanced | Blockchain, Crypto | 12 | ✅ Implemented |
+| 19 | [JSON Parser](19-json-parser/) | Advanced | Parsing | 17 | ✅ Implemented |
 | 20 | [Expression Evaluator](20-expr-evaluator/) | Advanced | Compilers | 9 | ✅ Implemented |
 
 \* *String Toolkit: Implemented without case conversion (requires `char_code()` builtin)*
 
-### 📋 Requirements Documentation (7 remaining)
+### 📋 Requirements Documentation (3 remaining)
 
 | # | Name | Complexity | Category | Blocked By |
 |---|------|------------|----------|------------|
-| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP, JSON, Map |
-| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | JSON, Map |
-| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | Regex, Map, DateTime |
-| 13 | [Template Engine](13-template-engine/) | Intermediate | Text | String interpolation |
-| 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server, Map |
-| 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins, Map |
-| 19 | [JSON Parser](19-json-parser/) | Advanced | Parsing | char_code, Map |
+| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP client |
+| 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server |
+| 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins |
 
 ## Examples by Complexity
 
@@ -271,6 +271,43 @@ Based on the examples catalog, Clarity needs these features to be production-rea
 - AST evaluator computing numeric results
 - Demonstrates all phases of a simple interpreter
 
+### ✅ 11-todo-cli (21 tests)
+
+**Implemented with:**
+- Pipe-delimited persistence format (`id|done|text`) using file I/O
+- `Map<String, String>` for in-memory storage
+- Commands: add, list, done, delete, help
+- Argument parsing from `get_args()`
+- Serialize/deserialize round-trip tested
+
+### ✅ 12-log-analyzer (22 tests)
+
+**Implemented with:**
+- Apache/Nginx Common Log Format parsing (no regex — pure string ops)
+- IP extraction from first whitespace-delimited field
+- Status code extraction by scanning past the quoted request field
+- `Map<String, Int64>` for per-IP and per-status-code counts
+- Error detection (4xx/5xx) and error count aggregation
+- Reads log file content; reports total/valid/error line counts
+
+### ✅ 13-template-engine (12 tests)
+
+**Implemented with:**
+- `{{key}}` placeholder substitution using `contains` + `index_of`
+- `Map<String, String>` variable store
+- Unknown placeholders preserved in output
+- Key extraction and deduplication
+- Recursive rendering handles adjacent and repeated placeholders
+
+### ✅ 19-json-parser (17 tests)
+
+**Implemented with:**
+- Flat JSON object parser: `{" key": "value", "count": 42}`
+- Parses strings (with escape sequences), numbers, booleans, null
+- Returns `Map<String, String>` (all values as their raw string repr)
+- Uses `char_code()` for digit classification
+- No regex — pure recursive descent string processing
+
 ## Contributing New Examples
 
 When adding examples to this catalog:
@@ -310,19 +347,19 @@ NN-example-name/
 - [07-string-toolkit](07-string-toolkit/) - ✅ String manipulation (13 tests, partial)
 - [09-csv-processor](09-csv-processor/) - ✅ CSV parsing (9 tests)
 - [10-config-parser](10-config-parser/) - ✅ INI parsing (12 tests)
+- [11-todo-cli](11-todo-cli/) - ✅ Todo CLI with persistence (21 tests)
+- [12-log-analyzer](12-log-analyzer/) - ✅ Apache log analysis (22 tests)
+- [13-template-engine](13-template-engine/) - ✅ Template rendering (12 tests)
 - [14-tic-tac-toe](14-tic-tac-toe/) - ✅ Game AI with minimax (8 tests)
 - [17-linear-regression](17-linear-regression/) - ✅ ML/numeric computing (6 tests)
 - [18-merkle-tree](18-merkle-tree/) - ✅ Cryptography (12 tests)
+- [19-json-parser](19-json-parser/) - ✅ Flat JSON object parser (17 tests)
 - [20-expr-evaluator](20-expr-evaluator/) - ✅ Lexer/parser/interpreter (9 tests)
 
 ### Requirements (Not Yet Implemented)
-- [08-json-api](08-json-api/) - **REQUIRES:** HTTP, JSON, Map
-- [11-todo-cli](11-todo-cli/) - **REQUIRES:** JSON, Map
-- [12-log-analyzer](12-log-analyzer/) - **REQUIRES:** Regex, Map, DateTime
-- [13-template-engine](13-template-engine/) - **REQUIRES:** String interpolation
-- [15-web-server](15-web-server/) - **REQUIRES:** HTTP server, Map
-- [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins, Map
-- [19-json-parser](19-json-parser/) - **REQUIRES:** char_code, Map
+- [08-json-api](08-json-api/) - **REQUIRES:** HTTP client
+- [15-web-server](15-web-server/) - **REQUIRES:** HTTP server
+- [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins
 
 ## Questions or Feedback?
 
@@ -337,5 +374,5 @@ Please open an issue or discussion in the clarity-compiler repository.
 ---
 
 **Last updated:** 2026-02-20
-**Total examples:** 20 (13 implemented, 7 requirements)
-**Total tests:** 93 (across all implemented examples with test suites)
+**Total examples:** 20 (17 implemented, 3 requirements)
+**Total tests:** 165 (across all implemented examples with test suites)
