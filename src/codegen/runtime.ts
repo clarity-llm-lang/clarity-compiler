@@ -139,6 +139,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
   // Allocate a Result<*, String> where both payload forms are i32 pointers.
   function allocResultI32(ok: boolean, valuePtr: number): number {
+
+  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // tag 0 = Ok(value), tag 1 = Err(error_message)
+  function allocResultString(ok: boolean, valuePtr: number): number {
     heapPtr = (heapPtr + 3) & ~3;
     const ptr = heapPtr;
     heapPtr = ptr + 8;

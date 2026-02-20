@@ -145,6 +145,7 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 | Gap | Blocks | Why it matters |
 |-----|--------|----------------|
+| **HTTP client built-ins** (`http_get`, `http_post`) | 08 | Required to make outbound API requests under `effect[Network]`. |
 | **JSON runtime built-ins** (`json_parse`, `json_stringify`, typed `JsonValue`) | 08 | Needed for general API payload handling (beyond example-level parsers). |
 | **HTTP server built-ins** (`http_listen`, request/response host bridge) | 15 | Required for long-running network services and routing examples. |
 | **DB built-ins** (`db_query`, `db_execute`, typed DB errors) | 16 | Required for relational CRUD workflows under `effect[DB]`. |
@@ -162,21 +163,22 @@ The examples in this directory are treated as requirements for Clarity. This sec
 ### Milestone A — Finish example 08 (JSON API client)
 
 1. ✅ Added `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
-2. 🚧 Started JSON runtime surface with object helpers:
-   - `json_parse_object(s) -> Result<Map<String, String>, String>`
-   - `json_stringify_object(obj) -> String`
-   - Remaining: full typed `JsonValue` support (`json_parse`/`json_stringify`).
+2. Add built-in JSON runtime surface:
+   - `json_parse(s) -> Result<JsonValue, String>`
+   - `json_stringify(v) -> String`
 3. Add e2e tests for parse failure paths and JSON traversal.
 
 ### Milestone B — Unlock example 15 (Web server)
 
 4. 🚧 Started HTTP server surface with `http_listen(port)` scaffold (currently returns not-implemented).
+4. Add `http_listen(port, handler)` with named-handler callback support.
 5. Add host bridge types (`Request`, `Response`) and header map helpers.
 6. Add integration tests for routing and status/header correctness.
 
 ### Milestone C — Unlock example 16 (Database CRUD)
 
 7. 🚧 Started DB surface with `db_execute(sql, params)` and `db_query(sql, params)` scaffolds (currently return not-implemented).
+7. Add `db_execute(sql, params)` and `db_query(sql, params)` under `effect[DB]`.
 8. Define stable `DbError` shape and row-to-map conversion semantics.
 9. Add CRUD e2e tests (create/read/update/delete + error handling).
 
