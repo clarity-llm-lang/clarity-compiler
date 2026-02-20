@@ -220,6 +220,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Split a string by a delimiter, returning a list of substrings.",
     category: "string",
   },
+  {
+    name: "string_replace",
+    params: [STRING, STRING, STRING],
+    paramNames: ["s", "search", "replacement"],
+    returnType: STRING,
+    effects: [],
+    doc: "Replace all occurrences of search in s with replacement.",
+    category: "string",
+  },
 
   {
     name: "char_code",
@@ -467,6 +476,26 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "list",
   },
 
+  // --- Random operations (require Random effect) ---
+  {
+    name: "random_int",
+    params: [INT64, INT64],
+    paramNames: ["min", "max"],
+    returnType: INT64,
+    effects: ["Random"],
+    doc: "Return a random Int64 between min and max inclusive. If max < min, returns min.",
+    category: "random",
+  },
+  {
+    name: "random_float",
+    params: [],
+    paramNames: [],
+    returnType: FLOAT64,
+    effects: ["Random"],
+    doc: "Return a random Float64 in the range [0.0, 1.0).",
+    category: "random",
+  },
+
   // --- I/O primitives (require FileSystem effect) ---
   {
     name: "read_line",
@@ -521,6 +550,41 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: ["FileSystem"],
     doc: "Exit the process with the given status code.",
     category: "io",
+  },
+
+
+  // --- Network operations (require Network effect) ---
+  {
+    name: "http_get",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP GET request. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
+  },
+  {
+    name: "http_post",
+    params: [STRING, STRING],
+    paramNames: ["url", "body"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP POST request with a text body. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
   },
 
   // --- Test assertions (require Test effect) ---
@@ -729,6 +793,33 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "map",
   },
 
+  // --- Regex operations ---
+  {
+    name: "regex_match",
+    params: [STRING, STRING],
+    paramNames: ["pattern", "text"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if pattern matches text.",
+    category: "regex",
+  },
+  {
+    name: "regex_captures",
+    params: [STRING, STRING],
+    paramNames: ["pattern", "text"],
+    returnType: {
+      kind: "Union",
+      name: "Option<List<String>>",
+      variants: [
+        { name: "Some", fields: new Map([["value", LIST_STRING]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Return Some(list) with full match and capture groups when matched, None otherwise.",
+    category: "regex",
+  },
+
   // --- Timestamp builtins ---
   {
     name: "now",
@@ -764,6 +855,22 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: TIMESTAMP,
     effects: [],
     doc: "Create a Timestamp from milliseconds since epoch.",
+    category: "time",
+  },
+  {
+    name: "timestamp_parse_iso",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: {
+      kind: "Union",
+      name: "Option<Timestamp>",
+      variants: [
+        { name: "Some", fields: new Map([["value", TIMESTAMP]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Parse an ISO-8601 string into a Timestamp. Returns Some(timestamp) on success, None on failure.",
     category: "time",
   },
   {
