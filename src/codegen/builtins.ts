@@ -35,9 +35,13 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "substring", importModule: "env", importName: "substring", params: str_i64_i64, result: i32 },
     { name: "char_at", importModule: "env", importName: "char_at", params: binaryen.createType([i32, i64]), result: i32 },
     { name: "contains", importModule: "env", importName: "contains", params: pair_i32, result: i32 },
+    { name: "string_starts_with", importModule: "env", importName: "string_starts_with", params: pair_i32, result: i32 },
+    { name: "string_ends_with", importModule: "env", importName: "string_ends_with", params: pair_i32, result: i32 },
     { name: "index_of", importModule: "env", importName: "index_of", params: pair_i32, result: i64 },
     { name: "trim", importModule: "env", importName: "trim", params: i32, result: i32 },
     { name: "split", importModule: "env", importName: "split", params: pair_i32, result: i32 },
+    { name: "string_replace", importModule: "env", importName: "string_replace", params: binaryen.createType([i32, i32, i32]), result: i32 },
+    { name: "string_repeat", importModule: "env", importName: "string_repeat", params: binaryen.createType([i32, i64]), result: i32 },
 
     { name: "char_code", importModule: "env", importName: "char_code", params: i32, result: i64 },
     { name: "char_from_code", importModule: "env", importName: "char_from_code", params: i64, result: i32 },
@@ -55,6 +59,8 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "abs_int", importModule: "env", importName: "abs_int", params: i64, result: i64 },
     { name: "min_int", importModule: "env", importName: "min_int", params: pair_i64, result: i64 },
     { name: "max_int", importModule: "env", importName: "max_int", params: pair_i64, result: i64 },
+    { name: "int_clamp", importModule: "env", importName: "int_clamp", params: binaryen.createType([i64, i64, i64]), result: i64 },
+    { name: "float_clamp", importModule: "env", importName: "float_clamp", params: binaryen.createType([f64, f64, f64]), result: f64 },
     { name: "sqrt", importModule: "env", importName: "sqrt", params: f64, result: f64 },
     { name: "pow", importModule: "env", importName: "pow", params: pair_f64, result: f64 },
     { name: "floor", importModule: "env", importName: "floor", params: f64, result: f64 },
@@ -73,6 +79,24 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "list_reverse", importModule: "env", importName: "list_reverse", params: pair_i32, result: i32 },
     { name: "list_set_i64", importModule: "env", importName: "list_set_i64", params: str_i64_i64, result: i32 },
     { name: "list_set_i32", importModule: "env", importName: "list_set_i32", params: binaryen.createType([i32, i64, i32]), result: i32 },
+
+    // --- Random operations ---
+    { name: "random_int", importModule: "env", importName: "random_int", params: pair_i64, result: i64 },
+    { name: "random_float", importModule: "env", importName: "random_float", params: binaryen.none, result: f64 },
+
+    // --- Network operations ---
+    // http_get/http_post/http_listen return Result<*, String> as heap-allocated union pointer (i32).
+    { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
+    { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
+    { name: "http_listen", importModule: "env", importName: "http_listen", params: i64, result: i32 },
+
+    // --- JSON helpers ---
+    { name: "json_parse_object", importModule: "env", importName: "json_parse_object", params: i32, result: i32 },
+    { name: "json_stringify_object", importModule: "env", importName: "json_stringify_object", params: i32, result: i32 },
+
+    // --- DB operations ---
+    { name: "db_execute", importModule: "env", importName: "db_execute", params: pair_i32, result: i32 },
+    { name: "db_query", importModule: "env", importName: "db_query", params: pair_i32, result: i32 },
 
     // --- I/O primitives ---
     { name: "read_line", importModule: "env", importName: "read_line", params: binaryen.none, result: i32 },
@@ -125,11 +149,16 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "map_keys_i64", importModule: "env", importName: "map_keys_i64", params: i32, result: i32 },
     { name: "map_values_i64", importModule: "env", importName: "map_values_i64", params: i32, result: i32 },
 
+    // --- Regex operations ---
+    { name: "regex_match", importModule: "env", importName: "regex_match", params: pair_i32, result: i32 },
+    { name: "regex_captures", importModule: "env", importName: "regex_captures", params: pair_i32, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },
     { name: "timestamp_to_int", importModule: "env", importName: "timestamp_to_int", params: i64, result: i64 },
     { name: "timestamp_from_int", importModule: "env", importName: "timestamp_from_int", params: i64, result: i64 },
+    { name: "timestamp_parse_iso", importModule: "env", importName: "timestamp_parse_iso", params: i32, result: i32 },
     { name: "timestamp_add", importModule: "env", importName: "timestamp_add", params: binaryen.createType([i64, i64]), result: i64 },
     { name: "timestamp_diff", importModule: "env", importName: "timestamp_diff", params: binaryen.createType([i64, i64]), result: i64 },
   ];

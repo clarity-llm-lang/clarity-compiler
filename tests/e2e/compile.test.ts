@@ -733,6 +733,148 @@ describe("end-to-end compilation", () => {
   // Phase 1.5: I/O Primitives
   // ============================================================
 
+  it("string_starts_with and string_ends_with work", async () => {
+    const source = `
+      module Test
+      function starts(s: String) -> Bool { string_starts_with(s, "clar") }
+      function ends(s: String) -> Bool { string_ends_with(s, "ity") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const starts = instance.exports.starts as (ptr: number) => number;
+    const ends = instance.exports.ends as (ptr: number) => number;
+    expect(starts(runtime.writeString("clarity"))).toBe(1);
+    expect(starts(runtime.writeString("lang"))).toBe(0);
+    expect(ends(runtime.writeString("clarity"))).toBe(1);
+    expect(ends(runtime.writeString("clar"))).toBe(0);
+  });
+
+  it("string_repeat repeats and handles non-positive counts", async () => {
+    const source = `
+      module Test
+      function rep(s: String, n: Int64) -> String { string_repeat(s, n) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rep = instance.exports.rep as (ptr: number, n: bigint) => number;
+    expect(runtime.readString(rep(runtime.writeString("ab"), 3n))).toBe("ababab");
+    expect(runtime.readString(rep(runtime.writeString("ab"), 0n))).toBe("");
+  });
+
+  it("int_clamp and float_clamp work", async () => {
+    const source = `
+      module Test
+      function ci(v: Int64) -> Int64 { int_clamp(v, 0, 10) }
+      function cf(v: Float64) -> Float64 { float_clamp(v, 0.0, 1.0) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const ci = instance.exports.ci as (v: bigint) => bigint;
+    const cf = instance.exports.cf as (v: number) => number;
+    expect(ci(-5n)).toBe(0n);
+    expect(ci(12n)).toBe(10n);
+    expect(ci(7n)).toBe(7n);
+    expect(cf(-1.2)).toBeCloseTo(0.0);
+    expect(cf(1.8)).toBeCloseTo(1.0);
+    expect(cf(0.33)).toBeCloseTo(0.33);
+  });
+
+  it("string_replace replaces all occurrences", async () => {
+    const source = `
+      module Test
+      function rewrite(s: String) -> String {
+        string_replace(s, "-", ":")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rewrite = instance.exports.rewrite as (ptr: number) => number;
+    const ptr = rewrite(runtime.writeString("a-b-c"));
+    expect(runtime.readString(ptr)).toBe("a:b:c");
+  });
+
+  it("random_int and random_float require Random effect and run", async () => {
+    const source = `
+      module Test
+      effect[Random] function roll() -> Bool {
+        let r = random_int(1, 6);
+        let f = random_float();
+        r >= 1 and r <= 6 and f >= 0.0 and f < 1.0
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const roll = instance.exports.roll as () => number;
+    expect(roll()).toBe(1);
+  });
+
+  it("rejects random_int without Random effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        random_int(1, 10)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Random");
+  });
+
+  it("timestamp_parse_iso returns Some for valid and None for invalid input", async () => {
+    const source = `
+      module Test
+      function parse_ok() -> Bool {
+        match timestamp_parse_iso("2026-02-20T00:00:00.000Z") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+
+      function parse_bad() -> Bool {
+        match timestamp_parse_iso("not-a-date") {
+          Some(_) -> False,
+          None -> True
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const parse_ok = instance.exports.parse_ok as () => number;
+    const parse_bad = instance.exports.parse_bad as () => number;
+    expect(parse_ok()).toBe(1);
+    expect(parse_bad()).toBe(1);
+  });
+
+  it("regex builtins match and capture", async () => {
+    const source = `
+      module Test
+      function has_digits(s: String) -> Bool {
+        regex_match("[0-9]+", s)
+      }
+
+      function first_capture(s: String) -> String {
+        match regex_captures("([0-9]+)", s) {
+          None -> "none",
+          Some(groups) -> nth(groups, 1)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const has_digits = instance.exports.has_digits as (ptr: number) => number;
+    const first_capture = instance.exports.first_capture as (ptr: number) => number;
+    expect(has_digits(runtime.writeString("abc123"))).toBe(1);
+    expect(has_digits(runtime.writeString("abc"))).toBe(0);
+    expect(runtime.readString(first_capture(runtime.writeString("id=42")))).toBe("42");
+  });
+
   it("read_line reads from stdin config", async () => {
     const source = `
       module Test
@@ -777,6 +919,115 @@ describe("end-to-end compilation", () => {
     const { instance } = await instantiate(result.wasm!, { argv: ["hello", "world", "foo"] });
     const arg_count = instance.exports.arg_count as () => bigint;
     expect(arg_count()).toBe(3n);
+  });
+
+
+  it("json_parse_object parses object and map_size is accessible", async () => {
+    const source = `
+      module Test
+      function count_fields() -> Int64 {
+        match json_parse_object("{\\"a\\":1,\\"b\\":\\"x\\"}") {
+          Err(e) -> 0,
+          Ok(obj) -> map_size(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const count_fields = instance.exports.count_fields as () => bigint;
+    expect(count_fields()).toBe(2n);
+  });
+
+  it("json_stringify_object serializes parsed object", async () => {
+    const source = `
+      module Test
+      function render() -> String {
+        match json_parse_object("{\\"name\\":\\"alice\\"}") {
+          Err(e) -> e,
+          Ok(obj) -> json_stringify_object(obj)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const render = instance.exports.render as () => number;
+    const out = runtime.readString(render());
+    expect(out).toContain('"name"');
+    expect(out).toContain('"alice"');
+  });
+
+  it("http_listen requires Network effect", () => {
+    const source = `
+      module Test
+      function bad() -> String {
+        match http_listen(8080) {
+          Ok(v) -> v,
+          Err(e) -> e
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
+  });
+
+  it("db_execute requires DB effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        match db_execute("DELETE FROM users", []) {
+          Ok(n) -> n,
+          Err(e) -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("DB");
+  });
+
+  it("http_get works with Network effect", async () => {
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-get-"));
+    const filePath = path.join(tmpDir, "payload.txt");
+    fs.writeFileSync(filePath, "pong", "utf-8");
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fetchFn = instance.exports.fetch as (urlPtr: number) => number;
+    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const bodyPtr = fetchFn(urlPtr);
+    expect(runtime.readString(bodyPtr)).toBe("pong");
+  });
+
+  it("rejects http_get without Network effect", () => {
+    const source = `
+      module Test
+      function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
   });
 
   it("read_file reads file content via config fs", async () => {
