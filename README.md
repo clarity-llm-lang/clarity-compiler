@@ -286,7 +286,7 @@ npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
 
 ### Run compiler tests
 ```bash
-npm test    # 237 tests across lexer, parser, type checker, and end-to-end
+npm test    # comprehensive test suite across lexer, parser, checker, and e2e
 ```
 
 ---
@@ -341,7 +341,7 @@ clarity/
 │   ├── language-spec.md    # Full language specification
 │   └── grammar.peg         # Formal PEG grammar
 ├── examples/               # Example Clarity programs
-└── tests/                  # 237 tests
+└── tests/                  # compiler and e2e tests
 ```
 
 ---
@@ -364,11 +364,16 @@ clarity/
 - Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
 - Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
+- JSON builtins — `json_parse : String -> Option<Map<String, String>>`, `json_stringify : Map<String, String> -> String` (flat objects with scalar values)
 - String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
+- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, string_starts_with, string_ends_with, index_of, trim, split, string_replace, string_repeat
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
-- Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
+- Math builtins (abs_int, min_int, max_int, int_clamp, float_clamp, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
+- HTTP client primitives: `http_get`, `http_post` (Network effect)
+- Random builtins: `random_int`, `random_float`
+- Regex builtins: `regex_match`, `regex_captures`
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
 - Higher-order functions (pass named functions as arguments, function type syntax)
 - Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
@@ -412,7 +417,7 @@ Make the type system robust enough for real programs.
 Support programs larger than a single file.
 - ~~Import/export syntax~~ (done — `import { X } from "module"`, `export function`, `export type`)
 - ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
-- ~~Standard library~~ (done — `std/math` and `std/string` modules; `std/list` deferred until cross-module generics)
+- ~~Standard library~~ (done — `std/math`, `std/string`, and `std/list` modules)
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable for real workloads.
@@ -424,8 +429,18 @@ Make programs viable for real workloads.
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
 - ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
-- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string)
+- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
 - REPL / browser playground
+
+### Phase 6 — Native AI Interop Requirements (v0.7+)
+Make agent ecosystems and model APIs first-class language/runtime capabilities.
+- Add new effects: `A2A`, `MCP`, `Model`, `Secret`
+- Add required std modules: `std/a2a`, `std/mcp`, `std/llm`, `std/secret`
+- Enforce typed protocol errors via `Result<T, InteropError>` across all interop APIs
+- Require streaming + cancellation semantics for model and agent operations
+- Require runtime policy controls (endpoint allowlists, effect-family deny, structured audit logs)
+- Ship provider adapters for at least one OpenAI-compatible API and one local runtime (Ollama)
+- Ship end-to-end examples that compose `std/llm` with `std/mcp` and optional `std/a2a`
 
 ---
 

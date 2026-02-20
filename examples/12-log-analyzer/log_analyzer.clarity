@@ -1,0 +1,398 @@
+module LogAnalyzer
+
+// Log Analyzer — parse Apache/Nginx access logs and produce statistics.
+//
+// Supported log format (Common Log Format / Combined Log Format):
+//   IP - - [timestamp] "METHOD /path HTTP/1.1" STATUS size
+//   127.0.0.1 - - [10/Oct/2000:13:55:36 -0700] "GET /index.html HTTP/1.0" 200 2326
+//
+// Features:
+//   - Count requests per IP address
+//   - Identify HTTP error responses (4xx, 5xx)
+//   - Count requests per status code
+//   - Report top metrics
+//
+// Uses string splitting (no regex) — IP is first whitespace-delimited field,
+// status code is the field after the closing quote of the request line.
+
+// --- Field extraction from a single log line ---
+
+// Extract the first whitespace-delimited token from a string starting at `pos`.
+// Returns the token and the position after it.
+type Token = { value: String, next_pos: Int64 }
+
+function skip_spaces(s: String, pos: Int64) -> Int64 {
+  match pos >= string_length(s) {
+    True -> pos,
+    False -> match string_eq(char_at(s, pos), " ") {
+      True -> skip_spaces(s, pos + 1),
+      False -> pos
+    }
+  }
+}
+
+function read_token(s: String, pos: Int64) -> Token {
+  let start = skip_spaces(s, pos);
+  read_token_end(s, start, start)
+}
+
+function read_token_end(s: String, start: Int64, pos: Int64) -> Token {
+  match pos >= string_length(s) {
+    True -> { value: substring(s, start, pos - start), next_pos: pos },
+    False -> match string_eq(char_at(s, pos), " ") {
+      True -> { value: substring(s, start, pos - start), next_pos: pos },
+      False -> read_token_end(s, start, pos + 1)
+    }
+  }
+}
+
+// Extract the IP address (first field) from a log line.
+// Returns "" if line is empty or malformed.
+function extract_ip(line: String) -> String {
+  match string_length(line) == 0 {
+    True -> "",
+    False -> {
+      let tok = read_token(line, 0);
+      tok.value
+    }
+  }
+}
+
+// Find the closing double-quote of the request field, starting after the opening quote.
+// Apache log lines look like: ... "GET /path HTTP/1.1" STATUS ...
+// We skip past the request field to find the status code.
+function find_closing_quote(s: String, pos: Int64) -> Int64 {
+  match pos >= string_length(s) {
+    True -> 0 - 1,
+    False -> match string_eq(char_at(s, pos), "\"") {
+      True -> pos,
+      False -> match string_eq(char_at(s, pos), "\\") {
+        True -> find_closing_quote(s, pos + 2),
+        False -> find_closing_quote(s, pos + 1)
+      }
+    }
+  }
+}
+
+// Find the first '"' at or after pos in string s.
+function find_open_quote(s: String, pos: Int64) -> Int64 {
+  match pos >= string_length(s) {
+    True -> 0 - 1,
+    False -> match string_eq(char_at(s, pos), "\"") {
+      True -> pos,
+      False -> find_open_quote(s, pos + 1)
+    }
+  }
+}
+
+// Extract the HTTP status code from a log line.
+// Status is the first numeric token after the closing '"' of the request field.
+function extract_status(line: String) -> String {
+  let open = find_open_quote(line, 0);
+  match open == 0 - 1 {
+    True -> "",
+    False -> {
+      let close = find_closing_quote(line, open + 1);
+      match close == 0 - 1 {
+        True -> "",
+        False -> {
+          let after_quote = skip_spaces(line, close + 1);
+          let tok = read_token(line, after_quote);
+          tok.value
+        }
+      }
+    }
+  }
+}
+
+// Check if a status code string represents an error (4xx or 5xx).
+function is_error_status(status: String) -> Bool {
+  match string_length(status) == 0 {
+    True -> False,
+    False -> {
+      let first = char_at(status, 0);
+      string_eq(first, "4") or string_eq(first, "5")
+    }
+  }
+}
+
+// --- Map helpers ---
+
+// Increment the count for a key in a Map<String, Int64> (default 0 if absent).
+function increment(counts: Map<String, Int64>, key: String) -> Map<String, Int64> {
+  let current = match map_get(counts, key) {
+    None -> 0,
+    Some(n) -> n
+  };
+  map_set(counts, key, current + 1)
+}
+
+// --- Line-by-line analysis ---
+
+type LogStats = {
+  total_lines: Int64,
+  valid_lines: Int64,
+  error_count: Int64,
+  ip_counts: Map<String, Int64>,
+  status_counts: Map<String, Int64>
+}
+
+function empty_stats() -> LogStats {
+  let empty_ip: Map<String, Int64> = map_new();
+  let empty_st: Map<String, Int64> = map_new();
+  {
+    total_lines: 0,
+    valid_lines: 0,
+    error_count: 0,
+    ip_counts: empty_ip,
+    status_counts: empty_st
+  }
+}
+
+function analyze_line(line: String, stats: LogStats) -> LogStats {
+  let trimmed = trim(line);
+  match string_length(trimmed) == 0 {
+    True -> {
+      total_lines: stats.total_lines + 1,
+      valid_lines: stats.valid_lines,
+      error_count: stats.error_count,
+      ip_counts: stats.ip_counts,
+      status_counts: stats.status_counts
+    },
+    False -> {
+      let ip = extract_ip(trimmed);
+      let status = extract_status(trimmed);
+      let has_ip = string_length(ip) > 0;
+      let has_status = string_length(status) > 0;
+      let new_ip_counts = match has_ip {
+        False -> stats.ip_counts,
+        True -> increment(stats.ip_counts, ip)
+      };
+      let new_status_counts = match has_status {
+        False -> stats.status_counts,
+        True -> increment(stats.status_counts, status)
+      };
+      let is_error = has_status and is_error_status(status);
+      let new_error_count = match is_error {
+        True -> stats.error_count + 1,
+        False -> stats.error_count
+      };
+      let new_valid = match has_ip {
+        True -> stats.valid_lines + 1,
+        False -> stats.valid_lines
+      };
+      {
+        total_lines: stats.total_lines + 1,
+        valid_lines: new_valid,
+        error_count: new_error_count,
+        ip_counts: new_ip_counts,
+        status_counts: new_status_counts
+      }
+    }
+  }
+}
+
+function analyze_lines(lines: List<String>, stats: LogStats) -> LogStats {
+  match is_empty(lines) {
+    True -> stats,
+    False -> {
+      let updated = analyze_line(head(lines), stats);
+      analyze_lines(tail(lines), updated)
+    }
+  }
+}
+
+// Analyze a full log file content string.
+function analyze_log(content: String) -> LogStats {
+  let lines = split(content, "\n");
+  analyze_lines(lines, empty_stats())
+}
+
+// --- Reporting ---
+
+effect[Log] function print_stats(stats: LogStats) -> Unit {
+  print_string("=== Log Analysis Report ===");
+  print_string("Total lines:  " ++ int_to_string(stats.total_lines));
+  print_string("Valid lines:  " ++ int_to_string(stats.valid_lines));
+  print_string("Error count:  " ++ int_to_string(stats.error_count));
+  print_string("");
+  print_string("--- Requests per IP ---");
+  print_map_counts(map_keys(stats.ip_counts), stats.ip_counts);
+  print_string("");
+  print_string("--- Status code distribution ---");
+  print_map_counts(map_keys(stats.status_counts), stats.status_counts)
+}
+
+effect[Log] function print_map_counts(keys: List<String>, counts: Map<String, Int64>) -> Unit {
+  match is_empty(keys) {
+    True -> print_string("(none)"),
+    False -> print_counts_loop(keys, counts)
+  }
+}
+
+effect[Log] function print_counts_loop(keys: List<String>, counts: Map<String, Int64>) -> Unit {
+  match is_empty(keys) {
+    True -> print_string(""),
+    False -> {
+      let k = head(keys);
+      let n = match map_get(counts, k) { None -> 0, Some(v) -> v };
+      print_string("  " ++ k ++ ": " ++ int_to_string(n));
+      print_counts_loop(tail(keys), counts)
+    }
+  }
+}
+
+// --- Main entry point ---
+
+effect[FileSystem, Log] function main() -> Unit {
+  let args = get_args();
+  match is_empty(args) {
+    True -> print_string("Usage: log_analyzer <logfile>"),
+    False -> {
+      match is_empty(tail(args)) {
+        True -> print_string("Usage: log_analyzer <logfile>"),
+        False -> {
+          let filename = head(tail(args));
+          let content = read_file(filename);
+          let stats = analyze_log(content);
+          print_stats(stats)
+        }
+      }
+    }
+  }
+}
+
+// --- Tests ---
+
+// Sample Apache log lines for testing
+function sample_line_200() -> String {
+  "127.0.0.1 - - [10/Oct/2000:13:55:36 -0700] \"GET /index.html HTTP/1.0\" 200 2326"
+}
+
+function sample_line_404() -> String {
+  "10.0.0.2 - - [10/Oct/2000:14:00:00 -0700] \"GET /missing.html HTTP/1.0\" 404 512"
+}
+
+function sample_line_500() -> String {
+  "192.168.1.1 - - [10/Oct/2000:14:01:00 -0700] \"POST /api/data HTTP/1.1\" 500 0"
+}
+
+function sample_line_301() -> String {
+  "127.0.0.1 - - [10/Oct/2000:14:02:00 -0700] \"GET /old HTTP/1.1\" 301 0"
+}
+
+effect[Test] function test_extract_ip_standard() -> Unit {
+  assert_eq_string(extract_ip(sample_line_200()), "127.0.0.1")
+}
+
+effect[Test] function test_extract_ip_different_ips() -> Unit {
+  assert_eq_string(extract_ip(sample_line_404()), "10.0.0.2");
+  assert_eq_string(extract_ip(sample_line_500()), "192.168.1.1")
+}
+
+effect[Test] function test_extract_ip_empty_line() -> Unit {
+  assert_eq_string(extract_ip(""), "")
+}
+
+effect[Test] function test_extract_status_200() -> Unit {
+  assert_eq_string(extract_status(sample_line_200()), "200")
+}
+
+effect[Test] function test_extract_status_404() -> Unit {
+  assert_eq_string(extract_status(sample_line_404()), "404")
+}
+
+effect[Test] function test_extract_status_500() -> Unit {
+  assert_eq_string(extract_status(sample_line_500()), "500")
+}
+
+effect[Test] function test_extract_status_301() -> Unit {
+  assert_eq_string(extract_status(sample_line_301()), "301")
+}
+
+effect[Test] function test_is_error_200() -> Unit {
+  assert_false(is_error_status("200"))
+}
+
+effect[Test] function test_is_error_301() -> Unit {
+  assert_false(is_error_status("301"))
+}
+
+effect[Test] function test_is_error_404() -> Unit {
+  assert_true(is_error_status("404"))
+}
+
+effect[Test] function test_is_error_500() -> Unit {
+  assert_true(is_error_status("500"))
+}
+
+effect[Test] function test_is_error_empty() -> Unit {
+  assert_false(is_error_status(""))
+}
+
+effect[Test] function test_analyze_single_line_200() -> Unit {
+  let stats = analyze_log(sample_line_200());
+  assert_eq(stats.total_lines, 1);
+  assert_eq(stats.valid_lines, 1);
+  assert_eq(stats.error_count, 0)
+}
+
+effect[Test] function test_analyze_single_line_404() -> Unit {
+  let stats = analyze_log(sample_line_404());
+  assert_eq(stats.error_count, 1)
+}
+
+effect[Test] function test_analyze_counts_ips() -> Unit {
+  let log = sample_line_200() ++ "\n" ++ sample_line_301() ++ "\n" ++ sample_line_404();
+  let stats = analyze_log(log);
+  let count_127 = match map_get(stats.ip_counts, "127.0.0.1") { None -> 0, Some(n) -> n };
+  assert_eq(count_127, 2)
+}
+
+effect[Test] function test_analyze_counts_status_codes() -> Unit {
+  let log = sample_line_200() ++ "\n" ++ sample_line_200() ++ "\n" ++ sample_line_404();
+  let stats = analyze_log(log);
+  let count_200 = match map_get(stats.status_counts, "200") { None -> 0, Some(n) -> n };
+  let count_404 = match map_get(stats.status_counts, "404") { None -> 0, Some(n) -> n };
+  assert_eq(count_200, 2);
+  assert_eq(count_404, 1)
+}
+
+effect[Test] function test_analyze_empty_lines_skipped() -> Unit {
+  let log = sample_line_200() ++ "\n\n" ++ sample_line_404();
+  let stats = analyze_log(log);
+  assert_eq(stats.total_lines, 3);
+  assert_eq(stats.valid_lines, 2)
+}
+
+effect[Test] function test_analyze_multiple_errors() -> Unit {
+  let log = sample_line_404() ++ "\n" ++ sample_line_500() ++ "\n" ++ sample_line_200();
+  let stats = analyze_log(log);
+  assert_eq(stats.error_count, 2)
+}
+
+effect[Test] function test_analyze_total_lines() -> Unit {
+  let log = sample_line_200() ++ "\n" ++ sample_line_301() ++ "\n" ++ sample_line_404() ++ "\n" ++ sample_line_500();
+  let stats = analyze_log(log);
+  assert_eq(stats.total_lines, 4)
+}
+
+effect[Test] function test_increment_new_key() -> Unit {
+  let empty: Map<String, Int64> = map_new();
+  let m = increment(empty, "foo");
+  let v = match map_get(m, "foo") { None -> 0, Some(n) -> n };
+  assert_eq(v, 1)
+}
+
+effect[Test] function test_increment_existing_key() -> Unit {
+  let empty: Map<String, Int64> = map_new();
+  let m = increment(empty, "foo");
+  let m2 = increment(m, "foo");
+  let v = match map_get(m2, "foo") { None -> 0, Some(n) -> n };
+  assert_eq(v, 2)
+}
+
+effect[Test] function test_skip_spaces() -> Unit {
+  assert_eq(skip_spaces("  hello", 0), 2);
+  assert_eq(skip_spaces("hello", 0), 0)
+}

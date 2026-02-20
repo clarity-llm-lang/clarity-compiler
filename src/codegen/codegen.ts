@@ -3,7 +3,7 @@ import type {
   ModuleDecl, FunctionDecl, Expr, BinaryOp, UnaryOp,
 } from "../ast/nodes.js";
 import type { ClarityType, ClarityVariant } from "../checker/types.js";
-import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
+import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, STRING, typeToString, containsTypeVar, substituteTypeVars, unifyTypes } from "../checker/types.js";
 import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
@@ -40,6 +40,11 @@ export class CodeGenerator {
   // Monomorphization tracking for generic functions
   private generatedMonomorphs: Set<string> = new Set();
 
+  // Current type-variable substitution in effect while generating a monomorphized body.
+  // inferExprType applies this to checker-annotated resolvedTypes so that TypeVars
+  // carried from the generic declaration are replaced with their concrete types.
+  private typeVarSubst: Map<string, ClarityType> = new Map();
+
   generate(module: ModuleDecl, checker: Checker): Uint8Array {
     this.mod = new binaryen.Module();
     this.checker = checker;
@@ -51,6 +56,7 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.typeVarSubst = new Map();
 
     this.setupModule(module);
 
@@ -1112,11 +1118,37 @@ export class CodeGenerator {
     return this.mod.call(name, args, this.inferWasmReturnType(name));
   }
 
-  // Resolve a type reference with type parameter names treated as TypeVars
+  // Resolve a type reference with type parameter names treated as TypeVars.
+  // Recursively handles generic wrapper types (List<T>, Option<T>, Result<T,E>,
+  // Map<K,V>) and function types ((T)->U) so that nested type parameters are
+  // preserved as TypeVar nodes rather than being dropped as "unknown".
   private resolveTypeRefWithTypeParams(node: import("../ast/nodes.js").TypeNode, typeParams: string[]): ClarityType {
+    // Function type: (T) -> U
+    if (node.kind === "FunctionType") {
+      return {
+        kind: "Function",
+        params: node.paramTypes.map(pt => this.resolveTypeRefWithTypeParams(pt, typeParams)),
+        returnType: this.resolveTypeRefWithTypeParams(node.returnType, typeParams),
+        effects: new Set(),
+      };
+    }
+
+    // Bare type parameter: T
     if (node.kind === "TypeRef" && typeParams.includes(node.name) && node.typeArgs.length === 0) {
       return { kind: "TypeVar", name: node.name };
     }
+
+    // Generic wrapper type with type arguments: List<T>, Option<T>, etc.
+    if (node.kind === "TypeRef" && node.typeArgs.length > 0) {
+      const args = node.typeArgs.map(a => this.resolveTypeRefWithTypeParams(a, typeParams));
+      switch (node.name) {
+        case "List":   return { kind: "List", element: args[0] ?? INT64 };
+        case "Option": return { kind: "Option", inner: args[0] ?? INT64 };
+        case "Result": return { kind: "Result", ok: args[0] ?? INT64, err: args[1] ?? STRING };
+        case "Map":    return { kind: "Map", key: args[0] ?? STRING, value: args[1] ?? INT64 };
+      }
+    }
+
     return this.checker.resolveTypeRef(node) ?? INT64;
   }
 
@@ -1150,12 +1182,16 @@ export class CodeGenerator {
       const savedLocalIndex = this.localIndex;
       const savedAdditionalLocals = this.additionalLocals;
       const savedCurrentFunction = this.currentFunction;
+      const savedTypeVarSubst = this.typeVarSubst;
 
       // Set up new function context
       this.locals = new Map();
       this.localIndex = 0;
       this.additionalLocals = [];
       this.currentFunction = genericDecl;
+      // Install the concrete type bindings so that inferExprType substitutes
+      // TypeVars that the checker left in resolvedType annotations inside this body.
+      this.typeVarSubst = bindings;
 
       const paramWasmTypes: binaryen.Type[] = [];
       for (const param of genericDecl.params) {
@@ -1190,6 +1226,7 @@ export class CodeGenerator {
       this.localIndex = savedLocalIndex;
       this.additionalLocals = savedAdditionalLocals;
       this.currentFunction = savedCurrentFunction;
+      this.typeVarSubst = savedTypeVarSubst;
     }
 
     // Generate the call to the monomorphized function
@@ -2022,8 +2059,12 @@ export class CodeGenerator {
 
   private inferExprType(expr: Expr): ClarityType {
     // Use the resolved type from the checker if available (preferred path).
+    // If we're inside a monomorphized body, substitute any TypeVars that the
+    // checker left in the resolvedType with their concrete bindings.
     if (expr.resolvedType && expr.resolvedType.kind !== "Error") {
-      return expr.resolvedType;
+      return this.typeVarSubst.size > 0
+        ? substituteTypeVars(expr.resolvedType, this.typeVarSubst)
+        : expr.resolvedType;
     }
 
     // Fallback for expressions not annotated by the checker (e.g., codegen
@@ -2179,9 +2220,11 @@ export class CodeGenerator {
       // String ops
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
-      contains: BOOL, index_of: INT64, trim: { kind: "String" },
+      contains: BOOL, string_starts_with: BOOL, string_ends_with: BOOL, index_of: INT64, trim: { kind: "String" },
       char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
       split: { kind: "List", element: { kind: "String" } } as ClarityType,
+      string_replace: { kind: "String" } as ClarityType,
+      string_repeat: { kind: "String" } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
@@ -2189,9 +2232,22 @@ export class CodeGenerator {
       string_to_float: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Math
       abs_int: INT64, min_int: INT64, max_int: INT64,
+      int_clamp: INT64, float_clamp: FLOAT64,
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
+      // Random
+      random_int: INT64, random_float: FLOAT64,
+      // Network
+      http_get: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      http_post: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      http_listen: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      // JSON
+      json_parse_object: { kind: "Union", name: "Result<Map<String, String>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      json_stringify_object: { kind: "String" } as ClarityType,
+      // DB
+      db_execute: { kind: "Union", name: "Result<Int64, String>", variants: [{ name: "Ok", fields: new Map([["value", INT64]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
+      db_query: { kind: "Union", name: "Result<List<Map<String, String>>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
       // I/O primitives
       read_line: { kind: "String" }, read_all_stdin: { kind: "String" },
       read_file: { kind: "String" }, write_file: UNIT,
@@ -2204,12 +2260,26 @@ export class CodeGenerator {
       bytes_new: BYTES, bytes_length: INT64, bytes_get: INT64,
       bytes_set: BYTES, bytes_slice: BYTES, bytes_concat: BYTES,
       bytes_from_string: BYTES, bytes_to_string: { kind: "String" } as ClarityType,
+      // Regex
+      regex_match: BOOL,
+      regex_captures: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Timestamp
       now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
       timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
+      timestamp_parse_iso: { kind: "Union", name: "Option<Timestamp>", variants: [{ name: "Some", fields: new Map([["value", TIMESTAMP]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       timestamp_add: TIMESTAMP, timestamp_diff: INT64,
       // Crypto
       sha256: { kind: "String" } as ClarityType,
+      // JSON
+      json_parse: {
+        kind: "Union",
+        name: "Option<Map<String, String>>",
+        variants: [
+          { name: "Some", fields: new Map([["value", { kind: "Map", key: { kind: "String" }, value: { kind: "String" } } as ClarityType]]) },
+          { name: "None", fields: new Map() },
+        ],
+      } as ClarityType,
+      json_stringify: { kind: "String" } as ClarityType,
       // Map ops — return i32 handle or bool/int; exact type inferred from Map type args
       map_new: { kind: "Map", key: INT64, value: INT64 } as ClarityType, // placeholder
       map_size: INT64, map_has: BOOL,

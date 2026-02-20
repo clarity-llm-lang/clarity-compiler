@@ -20,7 +20,7 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 ## All Examples (20 Total)
 
-### ✅ Implemented Examples (16 total)
+### ✅ Implemented Examples (17 total)
 
 | # | Name | Complexity | Category | Tests | Status |
 |---|------|------------|----------|-------|--------|
@@ -33,7 +33,8 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 | 07 | [String Toolkit](07-string-toolkit/) | Intermediate | Text Processing | 13 | ✅ Implemented* |
 | 09 | [CSV Processor](09-csv-processor/) | Intermediate | Data Processing | 9 | ✅ Implemented |
 | 10 | [Config Parser](10-config-parser/) | Intermediate | Parsing | 12 | ✅ Implemented |
-| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | 14 | ✅ Implemented |
+| 11 | [Todo CLI](11-todo-cli/) | Intermediate | CLI, CRUD | 21 | ✅ Implemented |
+| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | 22 | ✅ Implemented |
 | 13 | [Template Engine](13-template-engine/) | Intermediate | Text | 12 | ✅ Implemented |
 | 14 | [Tic-Tac-Toe](14-tic-tac-toe/) | Intermediate | Games, AI | 8 | ✅ Implemented |
 | 17 | [Linear Regression](17-linear-regression/) | Advanced | ML, Numeric | 6 | ✅ Implemented |
@@ -43,12 +44,11 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 \* *String Toolkit: Implemented without case conversion (requires `char_code()` builtin)*
 
-### 📋 Requirements Documentation (4 remaining)
+### 📋 Requirements Documentation (3 remaining)
 
 | # | Name | Complexity | Category | Blocked By |
 |---|------|------------|----------|------------|
-| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP client |
-| 12 | [Log Analyzer](12-log-analyzer/) | Intermediate→Advanced | Analysis | Regex |
+| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | JSON runtime built-ins |
 | 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server |
 | 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins |
 
@@ -129,119 +129,62 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 ### Test Effect
 - 05-sudoku-solver, 06-math-toolkit, 07-string-toolkit, 17-linear-regression, 19-json-parser, 20-expr-evaluator
 
-## Missing Language Features
+## Language Requirements Gap (Examples-Driven)
 
-Based on the examples catalog, Clarity needs these features to be production-ready:
+The examples in this directory are treated as requirements for Clarity. This section tracks the gap between:
 
-### 🚨 Critical (Blocking Basic Examples)
+1. what the examples require, and
+2. what the language/runtime currently provides.
 
-| Feature | Required By | Priority | Impact |
-|---------|-------------|----------|--------|
-| **Array<T> with indexed access** | 05, 14, 17 | CRITICAL | Enables algorithms requiring O(1) random access |
-| **char_code / char_from_code** | 07, 19 | CRITICAL | Enables case conversion, character classification |
-| **parse_int returning Result** | 05, many | CRITICAL | Proper error handling for parsing |
+### ✅ Requirements satisfied today
 
-### ⚠️ High Priority (Needed for Real Applications)
+- 17/20 examples are fully implemented and type-check in the current toolchain.
+- Core enablers are present: `Map<K, V>`, `split`, `char_code`/`char_from_code`, list/map transforms, `sha256`, `Timestamp`, effect system, and test runner.
 
-| Feature | Required By | Priority | Impact |
-|---------|-------------|----------|--------|
-| **Map<K, V> type** | 08, 10, 11, 12, 15, 16, 19 | HIGH | Key-value storage, configuration, JSON objects |
-| **string_split** | 07, 09, 10, many | HIGH | Text parsing, CSV, configuration |
-| **JSON support** | 08, 11 | HIGH | API clients, data serialization |
-| **HTTP client** | 08 | HIGH | REST APIs, web services |
-| **Regex** | 10, 12 | HIGH | Pattern matching, log parsing |
+### 🚧 Remaining hard gaps (blocking unimplemented examples)
 
-### 📊 Medium Priority (Ergonomics & Advanced Features)
+| Gap | Blocks | Why it matters |
+|-----|--------|----------------|
+| **HTTP client built-ins** (`http_get`, `http_post`) | 08 | Required to make outbound API requests under `effect[Network]`. |
+| **JSON runtime built-ins** (`json_parse`, `json_stringify`, typed `JsonValue`) | 08 | Needed for general API payload handling (beyond example-level parsers). |
+| **HTTP server built-ins** (`http_listen`, request/response host bridge) | 15 | Required for long-running network services and routing examples. |
+| **DB built-ins** (`db_query`, `db_execute`, typed DB errors) | 16 | Required for relational CRUD workflows under `effect[DB]`. |
 
-| Feature | Required By | Priority | Impact |
-|---------|-------------|----------|--------|
-| **String interpolation** | 13 | MEDIUM | Cleaner string construction |
-| **map/filter/reduce** | 09 | MEDIUM | Functional list operations |
-| **Set<T>** | - | MEDIUM | Unique collections |
-| **Tuple types** | - | MEDIUM | Fixed-size heterogeneous data |
-| **DateTime type** | 12 | MEDIUM | Time parsing, arithmetic |
-| **Random numbers** | 14 | MEDIUM | Games, simulations |
-| **HTTP server** | 15 | MEDIUM | Web applications |
-| **DB built-ins** | 16 | MEDIUM | Database operations |
-| **Matrix type** | 17 | MEDIUM | Numerical computing, ML |
-| **Crypto (sha256, etc.)** | 18 | MEDIUM | Blockchain, security |
+### ⚙️ Secondary gaps (not blocking current 17 implemented examples)
 
-### 💡 Low Priority (Nice to Have)
+| Gap | Notes |
+|-----|------|
+| **Structured DateTime parsing/format directives** | `Timestamp` exists; richer parse/format APIs are still a capability gap for log/time-heavy workloads. |
+| **Regex built-ins** | Current examples show regex-free alternatives; regex would improve ergonomics and portability of parsing tasks. |
+| **Closures/lambdas** | Named-function HOFs work, but closures would simplify callback-heavy server/database code. |
 
-- Multi-line strings
-- Destructuring syntax
-- Async/await
-- Streaming I/O
-- List comprehensions
+## Next Implementation Roadmap (examples-first)
 
-## Implementation Roadmap
+### Milestone A — Finish example 08 (JSON API client)
 
-### Phase 1: Critical Language Features (Q1 2026)
+1. ✅ Added `http_get(url)` and `http_post(url, body)` under `effect[Network]`.
+2. Add built-in JSON runtime surface:
+   - `json_parse(s) -> Result<JsonValue, String>`
+   - `json_stringify(v) -> String`
+3. Add e2e tests for parse failure paths and JSON traversal.
 
-**Goal:** Enable examples 05-07
+### Milestone B — Unlock example 15 (Web server)
 
-1. ✅ **Add Array<T> type**
-   ```clarity
-   type Array<T>
-   function array_new<T>(size: Int64, initial: T) -> Array<T>
-   function array_get<T>(arr: Array<T>, index: Int64) -> Option<T>
-   function array_set<T>(arr: Array<T>, index: Int64, value: T) -> Array<T>
-   ```
-   - Enables: Sudoku solver, Tic-Tac-Toe, Linear Regression
+4. 🚧 Started HTTP server surface with `http_listen(port)` scaffold (currently returns not-implemented).
+4. Add `http_listen(port, handler)` with named-handler callback support.
+5. Add host bridge types (`Request`, `Response`) and header map helpers.
+6. Add integration tests for routing and status/header correctness.
 
-2. ✅ **Add char_code operations**
-   ```clarity
-   function char_code(ch: String) -> Int64
-   function char_from_code(code: Int64) -> String
-   ```
-   - Enables: String toolkit, JSON parser
+### Milestone C — Unlock example 16 (Database CRUD)
 
-3. ✅ **Improve parse_int/parse_float**
-   ```clarity
-   function parse_int(s: String) -> Result<Int64, String>
-   function parse_float(s: String) -> Result<Float64, String>
-   ```
-   - Enables: Better error handling everywhere
+7. 🚧 Started DB surface with `db_execute(sql, params)` and `db_query(sql, params)` scaffolds (currently return not-implemented).
+7. Add `db_execute(sql, params)` and `db_query(sql, params)` under `effect[DB]`.
+8. Define stable `DbError` shape and row-to-map conversion semantics.
+9. Add CRUD e2e tests (create/read/update/delete + error handling).
 
-### Phase 2: Data Structures (Q2 2026)
+### Suggested next task
 
-**Goal:** Enable examples 08-13
-
-4. ✅ **Add Map<K, V> type**
-   - Enables: JSON API, Config Parser, Todo CLI, Log Analyzer, Web Server, DB CRUD
-
-5. ✅ **Add string_split**
-   - Enables: CSV Processor, Config Parser, many text processing tasks
-
-6. ✅ **Add map/filter/reduce**
-   - Enables: Functional data processing patterns
-
-### Phase 3: I/O & Network (Q3 2026)
-
-**Goal:** Enable examples 08, 15, 16
-
-7. ✅ **Add HTTP client** (Network effect)
-8. ✅ **Add JSON parsing** (json_parse, json_stringify)
-9. ✅ **Add HTTP server** (Network effect)
-10. ✅ **Add DB operations** (DB effect)
-
-### Phase 4: Advanced Features (Q4 2026)
-
-**Goal:** Enable examples 12, 17, 18
-
-11. ✅ **Add Regex support**
-12. ✅ **Add Matrix operations**
-13. ✅ **Add Crypto functions** (sha256, etc.)
-14. ✅ **Add DateTime support**
-
-### Phase 5: Polish & Ergonomics (2027)
-
-15. ✅ String interpolation
-16. ✅ Random number generation
-17. ✅ Multi-line strings
-18. ✅ Set<T> type
-19. ✅ Async/await
-20. ✅ Streaming I/O
+**Next task: complete Milestone A by implementing JSON runtime built-ins (`json_parse`/`json_stringify`) and update example 08 from partially blocked to implemented.**
 
 ## Recently Implemented Examples
 
@@ -270,6 +213,43 @@ Based on the examples catalog, Clarity needs these features to be production-rea
 - Handles strings with escape sequences, numbers, booleans, null
 - Error signaling via sentinel `next_pos = -1`
 
+### ✅ 11-todo-cli (21 tests)
+
+**Implemented with:**
+- Pipe-delimited persistence format (`id|done|text`) using file I/O
+- `Map<String, String>` for in-memory storage
+- Commands: add, list, done, delete, help
+- Argument parsing from `get_args()`
+- Serialize/deserialize round-trip tested
+
+### ✅ 12-log-analyzer (22 tests)
+
+**Implemented with:**
+- Apache/Nginx Common Log Format parsing (no regex — pure string ops)
+- IP extraction from first whitespace-delimited field
+- Status code extraction by scanning past the quoted request field
+- `Map<String, Int64>` for per-IP and per-status-code counts
+- Error detection (4xx/5xx) and error count aggregation
+- Reads log file content; reports total/valid/error line counts
+
+### ✅ 13-template-engine (12 tests)
+
+**Implemented with:**
+- `{{key}}` placeholder substitution using `contains` + `index_of`
+- `Map<String, String>` variable store
+- Unknown placeholders preserved in output
+- Key extraction and deduplication
+- Recursive rendering handles adjacent and repeated placeholders
+
+### ✅ 19-json-parser (17 tests)
+
+**Implemented with:**
+- Flat JSON object parser: `{" key": "value", "count": 42}`
+- Parses strings (with escape sequences), numbers, booleans, null
+- Returns `Map<String, String>` (all values as their raw string repr)
+- Uses `char_code()` for digit classification
+- No regex — pure recursive descent string processing
+
 ## Contributing New Examples
 
 When adding examples to this catalog:
@@ -282,7 +262,7 @@ When adding examples to this catalog:
    - Learning objectives
    - Dependencies
 3. **Update this root README** with links and status
-4. **If blocked:** Document missing features in "Missing Language Features" section
+4. **If blocked:** Document missing features in "Language Requirements Gap" section
 5. **If ready:** Implement the .clarity file and tests
 
 ## Example Structure
@@ -309,17 +289,17 @@ NN-example-name/
 - [07-string-toolkit](07-string-toolkit/) - ✅ String manipulation (13 tests, partial)
 - [09-csv-processor](09-csv-processor/) - ✅ CSV parsing (9 tests)
 - [10-config-parser](10-config-parser/) - ✅ INI parsing (12 tests)
-- [11-todo-cli](11-todo-cli/) - ✅ Todo CRUD with file persistence (14 tests)
-- [13-template-engine](13-template-engine/) - ✅ {{key}} template substitution (12 tests)
+- [11-todo-cli](11-todo-cli/) - ✅ Todo CLI with persistence (21 tests)
+- [12-log-analyzer](12-log-analyzer/) - ✅ Apache log analysis (22 tests)
+- [13-template-engine](13-template-engine/) - ✅ Template rendering (12 tests)
 - [14-tic-tac-toe](14-tic-tac-toe/) - ✅ Game AI with minimax (8 tests)
 - [17-linear-regression](17-linear-regression/) - ✅ ML/numeric computing (6 tests)
 - [18-merkle-tree](18-merkle-tree/) - ✅ Cryptography (12 tests)
-- [19-json-parser](19-json-parser/) - ✅ Recursive JSON object parser (17 tests)
+- [19-json-parser](19-json-parser/) - ✅ Flat JSON object parser (17 tests)
 - [20-expr-evaluator](20-expr-evaluator/) - ✅ Lexer/parser/interpreter (9 tests)
 
 ### Requirements (Not Yet Implemented)
 - [08-json-api](08-json-api/) - **REQUIRES:** HTTP client
-- [12-log-analyzer](12-log-analyzer/) - **REQUIRES:** Regex
 - [15-web-server](15-web-server/) - **REQUIRES:** HTTP server
 - [16-database-crud](16-database-crud/) - **REQUIRES:** DB built-ins
 
@@ -336,5 +316,5 @@ Please open an issue or discussion in the clarity-compiler repository.
 ---
 
 **Last updated:** 2026-02-20
-**Total examples:** 20 (16 implemented, 4 requirements)
-**Total tests:** 136 (across all implemented examples with test suites)
+**Total examples:** 20 (17 implemented, 3 requirements)
+**Total tests:** 165 (across all implemented examples with test suites)

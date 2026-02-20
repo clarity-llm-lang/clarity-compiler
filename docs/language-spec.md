@@ -583,6 +583,17 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `to_int(s: String) -> Option<Int64>` — Parse to integer
 - `to_float(s: String) -> Option<Float64>` — Parse to float
 
+**std/list** — Generic list utilities
+- `size<T>(items: List<T>) -> Int64` — List length
+- `first<T>(items: List<T>) -> T` — First element (traps on empty)
+- `rest<T>(items: List<T>) -> List<T>` — Tail (all but first element)
+- `push<T>(items: List<T>, value: T) -> List<T>` — Append one element
+- `join<T>(a: List<T>, b: List<T>) -> List<T>` — Concatenate two lists
+- `reversed<T>(items: List<T>) -> List<T>` — Reverse a list
+- `empty<T>(items: List<T>) -> Bool` — Empty-check
+- `get<T>(items: List<T>, index: Int64) -> T` — Index lookup (traps if out of bounds)
+- `set_at<T>(items: List<T>, index: Int64, value: T) -> List<T>` — Immutable index update (traps if out of bounds)
+
 ---
 
 ## 11. Error Model
@@ -759,6 +770,15 @@ match map_get(m2, "score") {
 }
 ```
 
+### 11.10 JSON Operations
+
+JSON builtins currently support flat JSON objects with scalar values only (`String`, `Number`, `Bool`, `null`).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `json_parse(s)` | `String -> Option<Map<String, String>>` | Parse flat JSON object. Returns `Some(map)` on success, `None` on invalid JSON / non-object / nested values |
+| `json_stringify(m)` | `Map<String, String> -> String` | Serialize map to JSON object. `null`/`true`/`false`/number-looking values are emitted as literals; others as strings |
+
 ---
 
 ## 12. Self-Healing Test System
@@ -830,6 +850,211 @@ clarityc introspect --types      # built-in types
 Output is JSON designed for LLM consumption. LLMs can query the compiler's capabilities before generating code or proposing extensions.
 
 All built-in functions and effects are defined in a single registry file (`src/registry/builtins-registry.ts`). See `CLAUDE.md` for the contributor protocol for adding new built-ins.
+
+---
+
+## 14. Native Agent and Model Interop Requirements (A2A, MCP, LLM APIs)
+
+Clarity v0.7+ MUST provide native interop for:
+1. **A2A** (agent-to-agent task exchange)
+2. **MCP** (Model Context Protocol tool/resource integration)
+3. **LLM provider APIs** (OpenAI-compatible, Anthropic-style, local runtimes)
+
+This is a language/runtime requirement, not a framework convention.
+
+### 14.1 Design Constraints
+
+1. No provider-specific syntax in the core grammar. Interop is exposed through typed std modules and built-ins.
+2. All network/protocol operations are effect-checked and return `Result<T, InteropError>`.
+3. Runtime errors are represented as values (`Err`) and never as language-level exceptions.
+4. Timeouts and cancellation are required for every remote call.
+5. Payload schemas exchanged with tools/agents/models are JSON strings validated at runtime boundaries.
+
+### 14.2 Required New Effects (v0.7+)
+
+| Effect | Description |
+|--------|-------------|
+| `A2A` | Agent discovery, task submit/poll/cancel, agent message exchange |
+| `MCP` | MCP session connect/list/read/call operations |
+| `Model` | LLM completion/stream operations |
+| `Secret` | Secret retrieval for API credentials and tokens |
+
+### 14.3 Required Interop Types
+
+```clarity
+type Json = String
+type Metadata = Map<String, String>
+
+type InteropError = {
+  code: String,
+  message: String,
+  retryable: Bool,
+  provider: Option<String>,
+}
+
+type MessageRole =
+  | System
+  | User
+  | Assistant
+  | Tool
+
+type MessagePart =
+  | Text(value: String)
+  | Binary(data: Bytes, mime_type: String)
+  | JsonPart(value: Json)
+
+type ChatMessage = {
+  role: MessageRole,
+  parts: List<MessagePart>,
+  name: Option<String>,
+  metadata: Metadata,
+}
+```
+
+### 14.4 Required Standard Modules and APIs
+
+#### `std/a2a`
+
+```clarity
+type AgentCard = {
+  id: String,
+  name: String,
+  endpoint: String,
+  skills_json: Json,
+}
+
+type A2ATaskState =
+  | Queued
+  | Running
+  | Succeeded
+  | Failed(reason: String)
+  | Cancelled
+
+type A2ATask = {
+  id: String,
+  agent_id: String,
+  state: A2ATaskState,
+  output_json: Option<Json>,
+  metadata: Metadata,
+}
+
+effect[A2A] function a2a_discover(registry_url: String) -> Result<List<AgentCard>, InteropError>
+effect[A2A] function a2a_send_task(agent_endpoint: String, task_input_json: Json, correlation_id: String) -> Result<A2ATask, InteropError>
+effect[A2A] function a2a_get_task(agent_endpoint: String, task_id: String) -> Result<A2ATask, InteropError>
+effect[A2A] function a2a_cancel_task(agent_endpoint: String, task_id: String) -> Result<Unit, InteropError>
+```
+
+#### `std/mcp`
+
+```clarity
+type MCPConnection = {
+  id: String,
+  transport: String,
+  endpoint: String,
+}
+
+type MCPTool = {
+  name: String,
+  description: String,
+  input_schema_json: Json,
+  output_schema_json: Json,
+}
+
+effect[MCP] function mcp_connect_stdio(command: String, args: List<String>) -> Result<MCPConnection, InteropError>
+effect[MCP] function mcp_connect_http(endpoint: String, headers: Metadata) -> Result<MCPConnection, InteropError>
+effect[MCP] function mcp_list_tools(conn: MCPConnection) -> Result<List<MCPTool>, InteropError>
+effect[MCP] function mcp_call_tool(conn: MCPConnection, tool_name: String, arguments_json: Json) -> Result<Json, InteropError>
+effect[MCP] function mcp_close(conn: MCPConnection) -> Unit
+```
+
+#### `std/llm`
+
+```clarity
+type ModelProvider =
+  | OpenAI
+  | Anthropic
+  | Ollama
+  | Custom(name: String)
+
+type LLMRequest = {
+  model: String,
+  messages: List<ChatMessage>,
+  temperature: Float64,
+  max_tokens: Int64,
+  metadata: Metadata,
+}
+
+type LLMToolCall = {
+  id: String,
+  name: String,
+  arguments_json: Json,
+}
+
+type LLMResponse = {
+  text: String,
+  finish_reason: String,
+  tool_calls: List<LLMToolCall>,
+  prompt_tokens: Int64,
+  completion_tokens: Int64,
+}
+
+type LLMStreamEvent =
+  | Delta(text: String)
+  | ToolCall(call: LLMToolCall)
+  | Done(response: LLMResponse)
+  | StreamError(error: InteropError)
+
+type StreamHandle = String
+
+effect[Model] function llm_complete(
+  provider: ModelProvider,
+  api_base: String,
+  api_key_name: String,
+  request: LLMRequest,
+) -> Result<LLMResponse, InteropError>
+
+effect[Model] function llm_stream_start(
+  provider: ModelProvider,
+  api_base: String,
+  api_key_name: String,
+  request: LLMRequest,
+) -> Result<StreamHandle, InteropError>
+
+effect[Model] function llm_stream_next(handle: StreamHandle) -> Result<LLMStreamEvent, InteropError>
+effect[Model] function llm_stream_close(handle: StreamHandle) -> Unit
+```
+
+#### `std/secret`
+
+```clarity
+effect[Secret] function secret_get(name: String) -> Result<String, InteropError>
+```
+
+### 14.5 Security and Policy Requirements
+
+1. API keys/tokens MUST be loaded via `secret_get` or runtime-injected secure env bindings, never hardcoded in source.
+2. Runtime MUST support endpoint allowlists for `A2A`, `MCP`, and `Model` effects.
+3. Runtime MUST emit structured audit logs (endpoint, operation, latency, status, correlation id) for effectful interop calls.
+4. Host can deny specific effect families at runtime even if code type-checks.
+
+### 14.6 Streaming and Cancellation Requirements
+
+1. Streaming APIs MUST be pull-based (`llm_stream_next`) for deterministic WASM host integration.
+2. Streams MUST terminate with exactly one terminal event (`Done` or `StreamError`).
+3. Cancellation MUST be supported for A2A tasks and active model streams.
+
+### 14.7 Minimal Implementation Plan
+
+1. **Phase 6.1: Registry + Effects**
+   - Add `A2A`, `MCP`, `Model`, `Secret` effects to registry and introspection.
+2. **Phase 6.2: MCP Client Core**
+   - Implement stdio/http MCP sessions, tool listing, and tool invocation.
+3. **Phase 6.3: LLM Provider Layer**
+   - Implement `std/llm` with at least one OpenAI-compatible adapter and one local adapter (Ollama).
+4. **Phase 6.4: A2A Client Core**
+   - Implement discovery + task lifecycle (submit/poll/cancel) and typed result mapping.
+5. **Phase 6.5: Integration Quality**
+   - Add e2e tests, policy enforcement tests, and example programs combining `std/llm` + `std/mcp` + `std/a2a`.
 
 ---
 

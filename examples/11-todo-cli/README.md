@@ -1,27 +1,22 @@
 # Todo List CLI
 
-**Status:** ✅ **Implemented** (14 tests)
+**Status:** ✅ **IMPLEMENTED** (using line-based persistence; JSON optional)
 **Complexity:** Intermediate
 **Category:** CLI Application, CRUD, Persistence
 
 ## Overview
 
-Command-line todo list with file persistence. Demonstrates CRUD operations,
-command parsing from argv, `Map<String, String>` for in-memory storage, and
-a custom tab-separated text format for persistence.
+Command-line todo list with persistence. Demonstrates CRUD operations, command parsing, and data persistence.
 
 ## Usage
 
-```bash
-# Run with the Clarity compiler
-npx clarityc run examples/11-todo-cli/todo.clarity -f main -a add "Buy milk"
-npx clarityc run examples/11-todo-cli/todo.clarity -f main -a list
-npx clarityc run examples/11-todo-cli/todo.clarity -f main -a done 1
-npx clarityc run examples/11-todo-cli/todo.clarity -f main -a delete 1
-npx clarityc run examples/11-todo-cli/todo.clarity -f main -a help
+### 1. Persistence Format
 
-# Run tests
-npx clarityc test examples/11-todo-cli/todo.clarity
+```clarity
+// Current implementation uses: id|done|text lines
+// Optional enhancement: JSON persistence built-ins
+function json_parse(s: String) -> Result<JsonValue, String>      // optional
+function json_stringify(val: JsonValue) -> String                // optional
 ```
 
 ## Implementation Details
@@ -35,7 +30,7 @@ Todos are stored in `todos.txt`, one per line:
 Each line is `id<TAB>text|done`. The `|` separator uses the **last** pipe in the
 entry, so todo text may safely contain `|` characters.
 
-### Data model
+### 3. Better Command Parsing (optional enhancement)
 
 ```clarity
 // In-memory: Map<String, String>  key=string-id, value=entry
@@ -78,32 +73,17 @@ effect[FileSystem, Log] function main() -> Unit {
 }
 ```
 
-## Language Features Demonstrated
+## Learning Objectives
 
-- `Map<String, String>` for key-value storage
-- `get_args()` for CLI argument parsing
-- `read_file` / `write_file` for persistence
-- `split()`, `trim()`, `index_of()`, `substring()` for text parsing
-- `string_to_int()` returning `Option<Int64>` for safe ID parsing
-- Union types (`Command`) for structured dispatch
-- Tail-recursive helpers for list and map traversal
-- `last_index_of` helper to handle text containing `|` characters
+- CLI application structure
+- Command parsing from arguments
+- CRUD operations
+- JSON persistence
+- Map-based data storage
 
-## Tests (14)
+## Dependencies
 
-| Test | Covers |
-|------|--------|
-| `test_make_entry` | Entry encoding |
-| `test_entry_text` | Text extraction (incl. pipes in text) |
-| `test_entry_done` | Done-status extraction |
-| `test_parse_command_add` | `add <text>` command |
-| `test_parse_command_list` | `list` command |
-| `test_parse_command_done` | `done <id>` command |
-| `test_parse_command_delete` | `delete <id>` command |
-| `test_parse_command_help` | `help` and no-args → HelpCmd |
-| `test_parse_command_error` | Missing id, bad id, unknown command |
-| `test_next_id_empty` | ID=1 for empty store |
-| `test_next_id` | max+1 for populated store |
-| `test_roundtrip` | serialize → parse round-trip |
-| `test_parse_todos_empty` | Empty file → empty store |
-| `test_parse_todos_multiline` | Multi-line file parsing |
+- ✅ `Map<K, V>` and map built-ins
+- ✅ File I/O + `get_args()`
+- ⚠️ JSON built-ins (optional; would simplify interoperability)
+- ⚠️ Structured command parser type (ergonomics improvement)

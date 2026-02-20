@@ -1,0 +1,244 @@
+module List
+
+// Standard list library for Clarity.
+//
+// Exports two groups of functions:
+//   1. Friendly aliases for built-in list operations (size, first, rest, push, ...)
+//   2. Higher-order operations that take named function references (map, filter, fold_left, ...)
+//
+// Import example:
+//   import { map, filter, fold_left, size, first, any } from "std/list"
+
+// --- Friendly aliases for built-in list operations ---
+
+// Number of elements in a list.
+export function size<T>(xs: List<T>) -> Int64 { length(xs) }
+
+// First element of a list (head).
+export function first<T>(xs: List<T>) -> T { head(xs) }
+
+// All elements after the first (tail).
+export function rest<T>(xs: List<T>) -> List<T> { tail(xs) }
+
+// Append one element to the end of a list.
+export function push<T>(xs: List<T>, x: T) -> List<T> { append(xs, x) }
+
+// Concatenate two lists.
+export function join<T>(xs: List<T>, ys: List<T>) -> List<T> { concat(xs, ys) }
+
+// Return a reversed copy of a list.
+export function reversed<T>(xs: List<T>) -> List<T> { reverse(xs) }
+
+// True if the list has no elements.
+export function empty<T>(xs: List<T>) -> Bool { is_empty(xs) }
+
+// Get element at index i (0-based).
+export function get<T>(xs: List<T>, i: Int64) -> T { nth(xs, i) }
+
+// Return a new list with the element at index i replaced by value.
+export function set_at<T>(xs: List<T>, i: Int64, value: T) -> List<T> { list_set(xs, i, value) }
+
+// --- Transformation ---
+
+// Apply f to every element, returning a new list of results in the same order.
+// map([1,2,3], double)  ->  [2,4,6]
+export function map<T, U>(xs: List<T>, f: (T) -> U) -> List<U> {
+  match is_empty(xs) {
+    True -> [],
+    False -> concat([f(head(xs))], map(tail(xs), f))
+  }
+}
+
+// Keep only elements for which pred returns True, preserving order.
+// filter([1,2,3,4], is_even)  ->  [2,4]
+export function filter<T>(xs: List<T>, pred: (T) -> Bool) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> {
+      let h = head(xs);
+      let rest = filter(tail(xs), pred);
+      match pred(h) {
+        True -> concat([h], rest),
+        False -> rest
+      }
+    }
+  }
+}
+
+// Left fold: fold_left([1,2,3], 0, add)  ->  6
+// Processes left to right: f(f(f(init, x0), x1), x2) ...
+export function fold_left<T, A>(xs: List<T>, init: A, f: (A, T) -> A) -> A {
+  match is_empty(xs) {
+    True -> init,
+    False -> fold_left(tail(xs), f(init, head(xs)), f)
+  }
+}
+
+// Right fold: fold_right([1,2,3], 0, add)  ->  6
+// Processes right to left: f(x0, f(x1, f(x2, init)))
+export function fold_right<T, A>(xs: List<T>, init: A, f: (T, A) -> A) -> A {
+  match is_empty(xs) {
+    True -> init,
+    False -> f(head(xs), fold_right(tail(xs), init, f))
+  }
+}
+
+// --- Predicates ---
+
+// True if pred returns True for at least one element.
+// any([1,2,3], is_even)  ->  True
+export function any<T>(xs: List<T>, pred: (T) -> Bool) -> Bool {
+  match is_empty(xs) {
+    True -> False,
+    False -> match pred(head(xs)) {
+      True -> True,
+      False -> any(tail(xs), pred)
+    }
+  }
+}
+
+// True if pred returns True for all elements (vacuously True for empty list).
+// all([2,4,6], is_even)  ->  True
+export function all<T>(xs: List<T>, pred: (T) -> Bool) -> Bool {
+  match is_empty(xs) {
+    True -> True,
+    False -> match pred(head(xs)) {
+      False -> False,
+      True -> all(tail(xs), pred)
+    }
+  }
+}
+
+// Count elements satisfying a predicate.
+// count_where([1,2,3,4], is_even)  ->  2
+export function count_where<T>(xs: List<T>, pred: (T) -> Bool) -> Int64 {
+  match is_empty(xs) {
+    True -> 0,
+    False -> {
+      let rest = count_where(tail(xs), pred);
+      match pred(head(xs)) {
+        True -> rest + 1,
+        False -> rest
+      }
+    }
+  }
+}
+
+// --- Combination ---
+
+// Apply f to corresponding pairs from two lists; stops at the shorter.
+// zip_with([1,2,3], [10,20,30], add)  ->  [11,22,33]
+export function zip_with<A, B, C>(xs: List<A>, ys: List<B>, f: (A, B) -> C) -> List<C> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match is_empty(ys) {
+      True -> [],
+      False -> concat([f(head(xs), head(ys))], zip_with(tail(xs), tail(ys), f))
+    }
+  }
+}
+
+// Flatten a list of lists into a single list, preserving order.
+// flatten([[1,2],[3,4]])  ->  [1,2,3,4]
+export function flatten<T>(xss: List<List<T>>) -> List<T> {
+  match is_empty(xss) {
+    True -> [],
+    False -> concat(head(xss), flatten(tail(xss)))
+  }
+}
+
+// Take the first n elements, preserving order.
+// take([1,2,3,4,5], 3)  ->  [1,2,3]
+export function take<T>(xs: List<T>, n: Int64) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match n <= 0 {
+      True -> [],
+      False -> concat([head(xs)], take(tail(xs), n - 1))
+    }
+  }
+}
+
+// Drop the first n elements.
+// drop([1,2,3,4,5], 2)  ->  [3,4,5]
+export function drop<T>(xs: List<T>, n: Int64) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match n <= 0 {
+      True -> xs,
+      False -> drop(tail(xs), n - 1)
+    }
+  }
+}
+
+// --- Numeric specializations ---
+
+// Sum a list of integers.
+// sum([1,2,3])  ->  6
+export function sum(xs: List<Int64>) -> Int64 {
+  match is_empty(xs) {
+    True -> 0,
+    False -> head(xs) + sum(tail(xs))
+  }
+}
+
+// Product of a list of integers.
+// product([1,2,3,4])  ->  24
+export function product(xs: List<Int64>) -> Int64 {
+  match is_empty(xs) {
+    True -> 1,
+    False -> head(xs) * product(tail(xs))
+  }
+}
+
+// Maximum element; returns init if the list is empty.
+// maximum([3,1,4,1,5,9], 0)  ->  9
+export function maximum(xs: List<Int64>, init: Int64) -> Int64 {
+  match is_empty(xs) {
+    True -> init,
+    False -> {
+      let h = head(xs);
+      let rest_max = maximum(tail(xs), init);
+      match h > rest_max {
+        True -> h,
+        False -> rest_max
+      }
+    }
+  }
+}
+
+// Minimum element; returns init if the list is empty.
+// minimum([3,1,4,1,5,9], 9)  ->  1
+export function minimum(xs: List<Int64>, init: Int64) -> Int64 {
+  match is_empty(xs) {
+    True -> init,
+    False -> {
+      let h = head(xs);
+      let rest_min = minimum(tail(xs), init);
+      match h < rest_min {
+        True -> h,
+        False -> rest_min
+      }
+    }
+  }
+}
+
+// --- Generators ---
+
+// Range: generate [start, start+1, ..., end_exclusive-1].
+// range(1, 5)  ->  [1,2,3,4]
+export function range(start: Int64, end_exclusive: Int64) -> List<Int64> {
+  match start >= end_exclusive {
+    True -> [],
+    False -> concat([start], range(start + 1, end_exclusive))
+  }
+}
+
+// Repeat a value n times.
+// replicate(7, 3)  ->  [7,7,7]
+export function replicate<T>(value: T, n: Int64) -> List<T> {
+  match n <= 0 {
+    True -> [],
+    False -> concat([value], replicate(value, n - 1))
+  }
+}

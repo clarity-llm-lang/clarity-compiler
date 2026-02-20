@@ -74,6 +74,15 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
 
 const LIST_INT: ClarityType = { kind: "List", element: INT64 };
 const LIST_STRING: ClarityType = { kind: "List", element: STRING };
+const MAP_STRING_STRING: ClarityType = { kind: "Map", key: STRING, value: STRING };
+const OPTION_MAP_STRING_STRING: ClarityType = {
+  kind: "Union",
+  name: "Option<Map<String, String>>",
+  variants: [
+    { name: "Some", fields: new Map([["value", MAP_STRING_STRING]]) },
+    { name: "None", fields: new Map() },
+  ],
+};
 
 // Generic type variable for polymorphic list operations
 const T: ClarityType = { kind: "TypeVar", name: "T" };
@@ -194,6 +203,24 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "string",
   },
   {
+    name: "string_starts_with",
+    params: [STRING, STRING],
+    paramNames: ["s", "prefix"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if s starts with prefix.",
+    category: "string",
+  },
+  {
+    name: "string_ends_with",
+    params: [STRING, STRING],
+    paramNames: ["s", "suffix"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if s ends with suffix.",
+    category: "string",
+  },
+  {
     name: "index_of",
     params: [STRING, STRING],
     paramNames: ["haystack", "needle"],
@@ -218,6 +245,24 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: LIST_STRING,
     effects: [],
     doc: "Split a string by a delimiter, returning a list of substrings.",
+    category: "string",
+  },
+  {
+    name: "string_replace",
+    params: [STRING, STRING, STRING],
+    paramNames: ["s", "search", "replacement"],
+    returnType: STRING,
+    effects: [],
+    doc: "Replace all occurrences of search in s with replacement.",
+    category: "string",
+  },
+  {
+    name: "string_repeat",
+    params: [STRING, INT64],
+    paramNames: ["s", "count"],
+    returnType: STRING,
+    effects: [],
+    doc: "Repeat a string count times. Negative counts return an empty string.",
     category: "string",
   },
 
@@ -336,6 +381,24 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: INT64,
     effects: [],
     doc: "Return the larger of two integers.",
+    category: "math",
+  },
+  {
+    name: "int_clamp",
+    params: [INT64, INT64, INT64],
+    paramNames: ["value", "min", "max"],
+    returnType: INT64,
+    effects: [],
+    doc: "Clamp an integer into the inclusive range [min, max].",
+    category: "math",
+  },
+  {
+    name: "float_clamp",
+    params: [FLOAT64, FLOAT64, FLOAT64],
+    paramNames: ["value", "min", "max"],
+    returnType: FLOAT64,
+    effects: [],
+    doc: "Clamp a float into the inclusive range [min, max].",
     category: "math",
   },
   {
@@ -467,6 +530,26 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "list",
   },
 
+  // --- Random operations (require Random effect) ---
+  {
+    name: "random_int",
+    params: [INT64, INT64],
+    paramNames: ["min", "max"],
+    returnType: INT64,
+    effects: ["Random"],
+    doc: "Return a random Int64 between min and max inclusive. If max < min, returns min.",
+    category: "random",
+  },
+  {
+    name: "random_float",
+    params: [],
+    paramNames: [],
+    returnType: FLOAT64,
+    effects: ["Random"],
+    doc: "Return a random Float64 in the range [0.0, 1.0).",
+    category: "random",
+  },
+
   // --- I/O primitives (require FileSystem effect) ---
   {
     name: "read_line",
@@ -521,6 +604,118 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: ["FileSystem"],
     doc: "Exit the process with the given status code.",
     category: "io",
+  },
+
+
+  // --- Network operations (require Network effect) ---
+  {
+    name: "http_get",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP GET request. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
+  },
+  {
+    name: "http_post",
+    params: [STRING, STRING],
+    paramNames: ["url", "body"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP POST request with a text body. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
+  },
+  {
+    name: "http_listen",
+    params: [INT64],
+    paramNames: ["port"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Start an HTTP server on the given port. Current runtime returns Err(not implemented).",
+    category: "network",
+  },
+
+  // --- JSON object operations (phase 1 helpers) ---
+  {
+    name: "json_parse_object",
+    params: [STRING],
+    paramNames: ["json"],
+    returnType: {
+      kind: "Union",
+      name: "Result<Map<String, String>, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", { kind: "Map", key: STRING, value: STRING }]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: [],
+    doc: "Parse a JSON object string into Map<String, String>. Returns Err(message) on parse/type errors.",
+    category: "json",
+  },
+  {
+    name: "json_stringify_object",
+    params: [{ kind: "Map", key: STRING, value: STRING }],
+    paramNames: ["obj"],
+    returnType: STRING,
+    effects: [],
+    doc: "Serialize Map<String, String> to a JSON object string.",
+    category: "json",
+  },
+
+  // --- DB operations (scaffold) ---
+  {
+    name: "db_execute",
+    params: [STRING, LIST_STRING],
+    paramNames: ["sql", "params"],
+    returnType: {
+      kind: "Union",
+      name: "Result<Int64, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", INT64]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["DB"],
+    doc: "Execute a non-query SQL statement. Current runtime returns Err(not implemented).",
+    category: "db",
+  },
+  {
+    name: "db_query",
+    params: [STRING, LIST_STRING],
+    paramNames: ["sql", "params"],
+    returnType: {
+      kind: "Union",
+      name: "Result<List<Map<String, String>>, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: STRING, value: STRING } }]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["DB"],
+    doc: "Execute a query SQL statement. Current runtime returns Err(not implemented).",
+    category: "db",
   },
 
   // --- Test assertions (require Test effect) ---
@@ -655,6 +850,26 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "crypto",
   },
 
+  // --- JSON builtins ---
+  {
+    name: "json_parse",
+    params: [STRING],
+    paramNames: ["json"],
+    returnType: OPTION_MAP_STRING_STRING,
+    effects: [],
+    doc: "Parse a flat JSON object into Some(Map<String, String>). Returns None for invalid JSON, non-object roots, or nested values.",
+    category: "json",
+  },
+  {
+    name: "json_stringify",
+    params: [MAP_STRING_STRING],
+    paramNames: ["obj"],
+    returnType: STRING,
+    effects: [],
+    doc: "Serialize a Map<String, String> to JSON. Values matching JSON literals (null/true/false/number) are emitted as literals; others are emitted as strings.",
+    category: "json",
+  },
+
   // --- Map<K, V> operations ---
   {
     name: "map_new",
@@ -729,6 +944,33 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "map",
   },
 
+  // --- Regex operations ---
+  {
+    name: "regex_match",
+    params: [STRING, STRING],
+    paramNames: ["pattern", "text"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if pattern matches text.",
+    category: "regex",
+  },
+  {
+    name: "regex_captures",
+    params: [STRING, STRING],
+    paramNames: ["pattern", "text"],
+    returnType: {
+      kind: "Union",
+      name: "Option<List<String>>",
+      variants: [
+        { name: "Some", fields: new Map([["value", LIST_STRING]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Return Some(list) with full match and capture groups when matched, None otherwise.",
+    category: "regex",
+  },
+
   // --- Timestamp builtins ---
   {
     name: "now",
@@ -764,6 +1006,22 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: TIMESTAMP,
     effects: [],
     doc: "Create a Timestamp from milliseconds since epoch.",
+    category: "time",
+  },
+  {
+    name: "timestamp_parse_iso",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: {
+      kind: "Union",
+      name: "Option<Timestamp>",
+      variants: [
+        { name: "Some", fields: new Map([["value", TIMESTAMP]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Parse an ISO-8601 string into a Timestamp. Returns Some(timestamp) on success, None on failure.",
     category: "time",
   },
   {
