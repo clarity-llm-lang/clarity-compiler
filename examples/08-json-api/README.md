@@ -1,6 +1,6 @@
 # JSON API Client (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing HTTP client, JSON parsing, Map type
+**Status:** ⚠️ **PARTIALLY BLOCKED** - Missing JSON parsing/serialization runtime
 **Complexity:** Intermediate
 **Category:** Network, Data Processing
 
@@ -95,8 +95,8 @@ effect[Network, Log] function get_weather(city: String) -> Unit {
 
 ## Dependencies
 
-- ❌ HTTP client (Network effect built-ins)
+- ✅ HTTP client (Network effect built-ins)
 - ❌ JSON parsing (`json_parse`, `json_stringify`)
-- ❌ Map type (`Map<K, V>`)
+- ✅ Map type (`Map<K, V>`)
 - ✅ String operations (already available)
 - ✅ Result type (already available)

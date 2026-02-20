@@ -1,6 +1,6 @@
 # Database CRUD Operations (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing DB effect built-ins, Map type
+**Status:** ⚠️ **BLOCKED** - Missing DB effect built-ins
 **Complexity:** Intermediate-Advanced
 **Category:** Database, Data Persistence
 
@@ -178,7 +178,7 @@ effect[DB, Log] function main() -> Unit {
 ## Dependencies
 
 - ❌ DB effect built-ins (CRITICAL)
-- ❌ Map type (CRITICAL)
+- ✅ Map type
 - ⚠️ Connection pooling (future)
 - ⚠️ Transaction support (future)
 
