@@ -1,12 +1,42 @@
 module List
 
-// Higher-order list operations for Clarity.
+// Standard list library for Clarity.
 //
-// All functions take named function references — Clarity does not have lambdas.
-// Pass a function by name: map(xs, double)
+// Exports two groups of functions:
+//   1. Friendly aliases for built-in list operations (size, first, rest, push, ...)
+//   2. Higher-order operations that take named function references (map, filter, fold_left, ...)
 //
 // Import example:
-//   import { map, filter, fold_left, any, all, count_where, zip_with } from "std/list"
+//   import { map, filter, fold_left, size, first, any } from "std/list"
+
+// --- Friendly aliases for built-in list operations ---
+
+// Number of elements in a list.
+export function size<T>(xs: List<T>) -> Int64 { length(xs) }
+
+// First element of a list (head).
+export function first<T>(xs: List<T>) -> T { head(xs) }
+
+// All elements after the first (tail).
+export function rest<T>(xs: List<T>) -> List<T> { tail(xs) }
+
+// Append one element to the end of a list.
+export function push<T>(xs: List<T>, x: T) -> List<T> { append(xs, x) }
+
+// Concatenate two lists.
+export function join<T>(xs: List<T>, ys: List<T>) -> List<T> { concat(xs, ys) }
+
+// Return a reversed copy of a list.
+export function reversed<T>(xs: List<T>) -> List<T> { reverse(xs) }
+
+// True if the list has no elements.
+export function empty<T>(xs: List<T>) -> Bool { is_empty(xs) }
+
+// Get element at index i (0-based).
+export function get<T>(xs: List<T>, i: Int64) -> T { nth(xs, i) }
+
+// Return a new list with the element at index i replaced by value.
+export function set_at<T>(xs: List<T>, i: Int64, value: T) -> List<T> { list_set(xs, i, value) }
 
 // --- Transformation ---
 
