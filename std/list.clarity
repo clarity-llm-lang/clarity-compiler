@@ -1,46 +1,46 @@
 module StdList
 
 // Number of elements in a list
-export function size_int(items: List<Int64>) -> Int64 {
+export function size<T>(items: List<T>) -> Int64 {
   list_length(items)
 }
 
 // First element of a list (traps on empty list)
-export function first_int(items: List<Int64>) -> Int64 {
+export function first<T>(items: List<T>) -> T {
   head(items)
 }
 
 // List without the first element
-export function rest_int(items: List<Int64>) -> List<Int64> {
+export function rest<T>(items: List<T>) -> List<T> {
   tail(items)
 }
 
 // Append an element to the end of a list
-export function push_int(items: List<Int64>, value: Int64) -> List<Int64> {
+export function push<T>(items: List<T>, value: T) -> List<T> {
   append(items, value)
 }
 
 // Concatenate two lists
-export function join_int(a: List<Int64>, b: List<Int64>) -> List<Int64> {
+export function join<T>(a: List<T>, b: List<T>) -> List<T> {
   concat(a, b)
 }
 
 // Reverse a list
-export function reversed_int(items: List<Int64>) -> List<Int64> {
+export function reversed<T>(items: List<T>) -> List<T> {
   reverse(items)
 }
 
 // Check whether a list has no elements
-export function empty_int(items: List<Int64>) -> Bool {
+export function empty<T>(items: List<T>) -> Bool {
   is_empty(items)
 }
 
 // Read a list element by index (traps if out of bounds)
-export function get_int(items: List<Int64>, index: Int64) -> Int64 {
+export function get<T>(items: List<T>, index: Int64) -> T {
   nth(items, index)
 }
 
 // Return a list with one element replaced (traps if out of bounds)
-export function set_at_int(items: List<Int64>, index: Int64, value: Int64) -> List<Int64> {
+export function set_at<T>(items: List<T>, index: Int64, value: T) -> List<T> {
   list_set(items, index, value)
 }

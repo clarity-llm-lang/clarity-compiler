@@ -1112,11 +1112,60 @@ export class CodeGenerator {
     return this.mod.call(name, args, this.inferWasmReturnType(name));
   }
 
-  // Resolve a type reference with type parameter names treated as TypeVars
+  // Resolve a type reference with type parameter names treated as TypeVars.
+  // Unlike checker.resolveTypeRef(), this resolver can keep nested type vars
+  // inside generic containers (e.g. List<T>, Map<String, T>) during codegen.
   private resolveTypeRefWithTypeParams(node: import("../ast/nodes.js").TypeNode, typeParams: string[]): ClarityType {
-    if (node.kind === "TypeRef" && typeParams.includes(node.name) && node.typeArgs.length === 0) {
+    if (node.kind === "FunctionType") {
+      return {
+        kind: "Function",
+        params: node.paramTypes.map((p) => this.resolveTypeRefWithTypeParams(p, typeParams)),
+        returnType: this.resolveTypeRefWithTypeParams(node.returnType, typeParams),
+        effects: new Set(),
+      };
+    }
+
+    // Type variable
+    if (typeParams.includes(node.name) && node.typeArgs.length === 0) {
       return { kind: "TypeVar", name: node.name };
     }
+
+    // Generic built-ins
+    if (node.name === "List" && node.typeArgs.length === 1) {
+      return { kind: "List", element: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams) };
+    }
+    if (node.name === "Option" && node.typeArgs.length === 1) {
+      return { kind: "Option", inner: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams) };
+    }
+    if (node.name === "Result" && node.typeArgs.length === 2) {
+      return {
+        kind: "Result",
+        ok: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams),
+        err: this.resolveTypeRefWithTypeParams(node.typeArgs[1], typeParams),
+      };
+    }
+    if (node.name === "Map" && node.typeArgs.length === 2) {
+      return {
+        kind: "Map",
+        key: this.resolveTypeRefWithTypeParams(node.typeArgs[0], typeParams),
+        value: this.resolveTypeRefWithTypeParams(node.typeArgs[1], typeParams),
+      };
+    }
+
+    // User-defined generic type instantiation
+    const userType = this.checker.lookupType(node.name);
+    if (userType) {
+      if (node.typeArgs.length === 0) return userType;
+      const declaredTypeParams = (userType as any).__typeParams as string[] | undefined;
+      if (declaredTypeParams && declaredTypeParams.length === node.typeArgs.length) {
+        const bindings = new Map<string, ClarityType>();
+        for (let i = 0; i < declaredTypeParams.length; i++) {
+          bindings.set(declaredTypeParams[i], this.resolveTypeRefWithTypeParams(node.typeArgs[i], typeParams));
+        }
+        return substituteTypeVars(userType, bindings);
+      }
+    }
+
     return this.checker.resolveTypeRef(node) ?? INT64;
   }
 
@@ -2022,7 +2071,10 @@ export class CodeGenerator {
 
   private inferExprType(expr: Expr): ClarityType {
     // Use the resolved type from the checker if available (preferred path).
-    if (expr.resolvedType && expr.resolvedType.kind !== "Error") {
+    // But if the resolved type still contains TypeVars (e.g. inside a generic
+    // function body before monomorphization), fall back to local/codegen
+    // inference so we can use concrete instantiated types.
+    if (expr.resolvedType && expr.resolvedType.kind !== "Error" && !containsTypeVar(expr.resolvedType)) {
       return expr.resolvedType;
     }
 

@@ -583,16 +583,16 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `to_int(s: String) -> Option<Int64>` — Parse to integer
 - `to_float(s: String) -> Option<Float64>` — Parse to float
 
-**std/list** — Int64 list utilities
-- `size_int(items: List<Int64>) -> Int64` — List length
-- `first_int(items: List<Int64>) -> Int64` — First element (traps on empty)
-- `rest_int(items: List<Int64>) -> List<Int64>` — Tail (all but first element)
-- `push_int(items: List<Int64>, value: Int64) -> List<Int64>` — Append one element
-- `join_int(a: List<Int64>, b: List<Int64>) -> List<Int64>` — Concatenate two lists
-- `reversed_int(items: List<Int64>) -> List<Int64>` — Reverse a list
-- `empty_int(items: List<Int64>) -> Bool` — Empty-check
-- `get_int(items: List<Int64>, index: Int64) -> Int64` — Index lookup (traps if out of bounds)
-- `set_at_int(items: List<Int64>, index: Int64, value: Int64) -> List<Int64>` — Immutable index update (traps if out of bounds)
+**std/list** — Generic list utilities
+- `size<T>(items: List<T>) -> Int64` — List length
+- `first<T>(items: List<T>) -> T` — First element (traps on empty)
+- `rest<T>(items: List<T>) -> List<T>` — Tail (all but first element)
+- `push<T>(items: List<T>, value: T) -> List<T>` — Append one element
+- `join<T>(a: List<T>, b: List<T>) -> List<T>` — Concatenate two lists
+- `reversed<T>(items: List<T>) -> List<T>` — Reverse a list
+- `empty<T>(items: List<T>) -> Bool` — Empty-check
+- `get<T>(items: List<T>, index: Int64) -> T` — Index lookup (traps if out of bounds)
+- `set_at<T>(items: List<T>, index: Int64, value: T) -> List<T>` — Immutable index update (traps if out of bounds)
 
 ---
 

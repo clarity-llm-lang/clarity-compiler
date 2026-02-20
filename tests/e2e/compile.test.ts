@@ -34,7 +34,7 @@ describe("end-to-end compilation", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const add = instance.exports.add as (a: bigint, b: bigint) => bigint;
     expect(add(2n, 3n)).toBe(5n);
   });
@@ -47,7 +47,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const sub = instance.exports.sub as (a: bigint, b: bigint) => bigint;
     expect(sub(10n, 3n)).toBe(7n);
   });
@@ -60,7 +60,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const mul = instance.exports.mul as (a: bigint, b: bigint) => bigint;
     expect(mul(6n, 7n)).toBe(42n);
   });
@@ -73,7 +73,7 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     const div = instance.exports.div as (a: bigint, b: bigint) => bigint;
     expect(div(42n, 6n)).toBe(7n);
   });
@@ -1814,22 +1814,23 @@ describe("Standard library (std/)", () => {
   it("imports std/list functions", async () => {
     const dir = setupStdTest(`
       module Main
-      import { size_int, first_int, rest_int, push_int, join_int, reversed_int, empty_int, get_int, set_at_int } from "std/list"
-      function test_size() -> Int64 { size_int([1, 2, 3]) }
-      function test_first() -> Int64 { first_int([42, 7]) }
-      function test_rest_head() -> Int64 { first_int(rest_int([9, 8, 7])) }
-      function test_push_get() -> Int64 { get_int(push_int([1, 2], 3), 2) }
-      function test_join_get() -> Int64 { get_int(join_int([1, 2], [3, 4]), 3) }
-      function test_reversed_first() -> Int64 { first_int(reversed_int([1, 2, 3])) }
-      function test_empty() -> Bool { empty_int(rest_int([5])) }
-      function test_set_at() -> Int64 { get_int(set_at_int([1, 2, 3], 1, 99), 1) }
+      import { size, first, rest, push, join, reversed, empty, get, set_at } from "std/list"
+      function test_size() -> Int64 { size([1, 2, 3]) }
+      function test_first() -> Int64 { first([42, 7]) }
+      function test_rest_head() -> Int64 { first(rest([9, 8, 7])) }
+      function test_push_get() -> Int64 { get(push([1, 2], 3), 2) }
+      function test_join_get() -> Int64 { get(join([1, 2], [3, 4]), 3) }
+      function test_reversed_first() -> Int64 { first(reversed([1, 2, 3])) }
+      function test_empty() -> Bool { empty(rest([5])) }
+      function test_set_at() -> Int64 { get(set_at([1, 2, 3], 1, 99), 1) }
+      function test_string_head() -> String { first(["a", "b"]) }
     `);
 
     const result = compileFile(path.join(dir, "main.clarity"));
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const { instance } = await instantiate(result.wasm!);
+    const { instance, runtime } = await instantiate(result.wasm!);
     expect((instance.exports.test_size as () => bigint)()).toBe(3n);
     expect((instance.exports.test_first as () => bigint)()).toBe(42n);
     expect((instance.exports.test_rest_head as () => bigint)()).toBe(8n);
@@ -1838,6 +1839,7 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_reversed_first as () => bigint)()).toBe(3n);
     expect((instance.exports.test_empty as () => number)()).toBe(1);
     expect((instance.exports.test_set_at as () => bigint)()).toBe(99n);
+    expect(runtime.readString((instance.exports.test_string_head as () => number)())).toBe("a");
   });
 });
 
