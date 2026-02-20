@@ -74,6 +74,11 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "list_set_i64", importModule: "env", importName: "list_set_i64", params: str_i64_i64, result: i32 },
     { name: "list_set_i32", importModule: "env", importName: "list_set_i32", params: binaryen.createType([i32, i64, i32]), result: i32 },
 
+    // --- Network operations ---
+    // http_get/http_post return Result<String, String> as heap-allocated union pointer (i32).
+    { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
+    { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
+
     // --- I/O primitives ---
     { name: "read_line", importModule: "env", importName: "read_line", params: binaryen.none, result: i32 },
     { name: "read_all_stdin", importModule: "env", importName: "read_all_stdin", params: binaryen.none, result: i32 },

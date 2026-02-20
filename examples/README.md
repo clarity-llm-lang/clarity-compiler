@@ -48,7 +48,7 @@ npx clarityc test examples/06-math-toolkit/math.clarity
 
 | # | Name | Complexity | Category | Blocked By |
 |---|------|------------|----------|------------|
-| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | HTTP client |
+| 08 | [JSON API Client](08-json-api/) | Intermediate | Network | JSON runtime built-ins |
 | 15 | [Web Server](15-web-server/) | Advanced | Network | HTTP server |
 | 16 | [Database CRUD](16-database-crud/) | Intermediate→Advanced | Database | DB built-ins |
 

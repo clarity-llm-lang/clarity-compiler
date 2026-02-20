@@ -6,6 +6,7 @@
 
 import * as nodeFs from "node:fs";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
 
 export interface RuntimeExports {
@@ -133,6 +134,22 @@ export function createRuntime(config: RuntimeConfig = {}) {
       view.setInt32(ptr, 0, true); // Some
       view.setBigInt64(ptr + 4, value, true);
     }
+    return ptr;
+  }
+
+
+  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // tag 0 = Ok(value), tag 1 = Err(error_message)
+  function allocResultString(ok: boolean, valuePtr: number): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 8;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, ok ? 0 : 1, true);
+    view.setInt32(ptr + 4, valuePtr, true);
     return ptr;
   }
 
@@ -892,6 +909,39 @@ export function createRuntime(config: RuntimeConfig = {}) {
             expected: "False",
             testFunction: currentTestFunction,
           });
+        }
+      },
+
+
+      // --- Network operations ---
+      http_get(urlPtr: number): number {
+        const url = readString(urlPtr);
+        try {
+          const body = execFileSync(
+            "curl",
+            ["-sS", "-L", "--max-time", "10", "--fail", url],
+            { encoding: "utf-8" },
+          );
+          return allocResultString(true, writeString(body));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      http_post(urlPtr: number, bodyPtr: number): number {
+        const url = readString(urlPtr);
+        const body = readString(bodyPtr);
+        try {
+          const response = execFileSync(
+            "curl",
+            ["-sS", "-L", "--max-time", "10", "--fail", "-X", "POST", "-H", "Content-Type: text/plain", "--data-raw", body, url],
+            { encoding: "utf-8" },
+          );
+          return allocResultString(true, writeString(response));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
         }
       },
 
