@@ -1,20 +1,22 @@
 # Todo List CLI (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing JSON, Map type, better arg parsing
+**Status:** ✅ **IMPLEMENTED** (using line-based persistence; JSON optional)
 **Complexity:** Intermediate
 **Category:** CLI Application, CRUD, Persistence
 
 ## Overview
 
-Command-line todo list with persistence (JSON file storage). Demonstrates CRUD operations, command parsing, and data persistence.
+Command-line todo list with persistence. Demonstrates CRUD operations, command parsing, and data persistence.
 
 ## Required Language Features
 
-### 1. JSON for Persistence
+### 1. Persistence Format
 
 ```clarity
-function json_parse(s: String) -> Result<JsonValue, String>
-function json_stringify(val: JsonValue) -> String
+// Current implementation uses: id|done|text lines
+// Optional enhancement: JSON persistence built-ins
+function json_parse(s: String) -> Result<JsonValue, String>      // optional
+function json_stringify(val: JsonValue) -> String                // optional
 ```
 
 ### 2. Map Type (for storing todos by ID)
@@ -23,7 +25,7 @@ function json_stringify(val: JsonValue) -> String
 type Map<K, V>  // Map<Int64, Todo>
 ```
 
-### 3. Better Command Parsing
+### 3. Better Command Parsing (optional enhancement)
 
 ```clarity
 // Current: get_args() returns List<String>
@@ -94,6 +96,7 @@ function execute_command(cmd: Command, todos: TodoList) -> TodoList {
 
 ## Dependencies
 
-- ❌ JSON parsing/serialization (CRITICAL)
-- ❌ Map type (CRITICAL)
-- ⚠️ Better arg parsing (can implement manually)
+- ✅ `Map<K, V>` and map built-ins
+- ✅ File I/O + `get_args()`
+- ⚠️ JSON built-ins (optional; would simplify interoperability)
+- ⚠️ Structured command parser type (ergonomics improvement)
