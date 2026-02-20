@@ -14,6 +14,13 @@ interface LocalVar {
   clarityType: ClarityType;
 }
 
+function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType {
+  if (type == null) {
+    throw new Error(`Internal compiler error: failed to resolve type for ${context}. This is a bug — the type checker should have caught this.`);
+  }
+  return type;
+}
+
 export class CodeGenerator {
   private mod!: binaryen.Module;
   private locals!: Map<string, LocalVar>;
@@ -564,8 +571,10 @@ export class CodeGenerator {
 
     const paramWasmTypes: binaryen.Type[] = [];
     for (const param of decl.params) {
-      const clarityType = this.checker.resolveTypeRef(param.typeAnnotation);
-      const ct = clarityType ?? INT64;
+      const ct = assertResolvedType(
+        this.checker.resolveTypeRef(param.typeAnnotation),
+        `parameter '${param.name}' in '${decl.name}'`,
+      );
       const wasmType = clarityTypeToWasm(ct);
       this.locals.set(param.name, {
         index: this.localIndex,
@@ -576,7 +585,10 @@ export class CodeGenerator {
       this.localIndex++;
     }
 
-    const returnClarityType = this.checker.resolveTypeRef(decl.returnType) ?? UNIT;
+    const returnClarityType = assertResolvedType(
+      this.checker.resolveTypeRef(decl.returnType),
+      `return type of '${decl.name}'`,
+    );
     const returnWasmType = clarityTypeToWasm(returnClarityType);
     const paramsType = binaryen.createType(paramWasmTypes);
 
@@ -612,8 +624,10 @@ export class CodeGenerator {
 
     const paramWasmTypes: binaryen.Type[] = [];
     for (const param of decl.params) {
-      const clarityType = this.checker.resolveTypeRef(param.typeAnnotation);
-      const ct = clarityType ?? INT64;
+      const ct = assertResolvedType(
+        this.checker.resolveTypeRef(param.typeAnnotation),
+        `parameter '${param.name}' in '${decl.name}'`,
+      );
       const wasmType = clarityTypeToWasm(ct);
       this.locals.set(param.name, {
         index: this.localIndex,
@@ -624,7 +638,10 @@ export class CodeGenerator {
       this.localIndex++;
     }
 
-    const returnClarityType = this.checker.resolveTypeRef(decl.returnType) ?? UNIT;
+    const returnClarityType = assertResolvedType(
+      this.checker.resolveTypeRef(decl.returnType),
+      `return type of '${decl.name}'`,
+    );
     const returnWasmType = clarityTypeToWasm(returnClarityType);
     const paramsType = binaryen.createType(paramWasmTypes);
 
@@ -1142,14 +1159,24 @@ export class CodeGenerator {
     if (node.kind === "TypeRef" && node.typeArgs.length > 0) {
       const args = node.typeArgs.map(a => this.resolveTypeRefWithTypeParams(a, typeParams));
       switch (node.name) {
-        case "List":   return { kind: "List", element: args[0] ?? INT64 };
-        case "Option": return { kind: "Option", inner: args[0] ?? INT64 };
-        case "Result": return { kind: "Result", ok: args[0] ?? INT64, err: args[1] ?? STRING };
-        case "Map":    return { kind: "Map", key: args[0] ?? STRING, value: args[1] ?? INT64 };
+        case "List":
+          return { kind: "List", element: assertResolvedType(args[0], `List element type in '${node.name}'`) };
+        case "Option":
+          return { kind: "Option", inner: assertResolvedType(args[0], `Option inner type in '${node.name}'`) };
+        case "Result":
+          return { kind: "Result",
+            ok: assertResolvedType(args[0], `Result ok type`),
+            err: assertResolvedType(args[1], `Result err type`),
+          };
+        case "Map":
+          return { kind: "Map",
+            key: assertResolvedType(args[0], `Map key type`),
+            value: assertResolvedType(args[1], `Map value type`),
+          };
       }
     }
 
-    return this.checker.resolveTypeRef(node) ?? INT64;
+    return assertResolvedType(this.checker.resolveTypeRef(node), `type '${(node as any).name ?? "unknown"}'`);
   }
 
   private generateMonomorphizedCall(
@@ -2192,18 +2219,23 @@ export class CodeGenerator {
   }
 
   private inferFunctionType(decl: FunctionDecl): ClarityType {
-    const params = decl.params.map(p => this.checker.resolveTypeRef(p.typeAnnotation) ?? INT64);
-    const returnType = this.checker.resolveTypeRef(decl.returnType) ?? INT64;
+    const params = decl.params.map(p =>
+      assertResolvedType(this.checker.resolveTypeRef(p.typeAnnotation), `parameter '${p.name}' in '${decl.name}'`),
+    );
+    const returnType = assertResolvedType(this.checker.resolveTypeRef(decl.returnType), `return type of '${decl.name}'`);
     return { kind: "Function", params, returnType, effects: new Set(decl.effects) };
   }
 
   private inferFunctionReturnType(name: string): ClarityType {
     if (name === this.currentFunction.name) {
-      return this.checker.resolveTypeRef(this.currentFunction.returnType) ?? INT64;
+      return assertResolvedType(
+        this.checker.resolveTypeRef(this.currentFunction.returnType),
+        `return type of '${name}'`,
+      );
     }
     const fn = this.allFunctions.get(name);
     if (fn) {
-      return this.checker.resolveTypeRef(fn.returnType) ?? INT64;
+      return assertResolvedType(this.checker.resolveTypeRef(fn.returnType), `return type of '${name}'`);
     }
 
     // Check if it's a union constructor

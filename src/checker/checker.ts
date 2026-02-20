@@ -179,10 +179,6 @@ export class Checker {
     this.typeParamsInScope = prevTypeParams;
 
     if (type) {
-      // Store the type with its type parameters for later instantiation
-      if (decl.typeParams.length > 0) {
-        (type as any).__typeParams = decl.typeParams;
-      }
       this.env.defineType(decl.name, type);
 
       // If it's a union type, register variant constructors as functions
@@ -196,9 +192,6 @@ export class Checker {
             returnType: type,
             effects: new Set(),
           };
-          if (decl.typeParams.length > 0) {
-            (fnType as any).__typeParams = decl.typeParams;
-          }
           this.env.define(variant.name, {
             name: variant.name,
             type: fnType,
@@ -437,11 +430,6 @@ export class Checker {
       returnType,
       effects: new Set(decl.effects),
     };
-
-    // Tag with type params so call sites can infer them
-    if (decl.typeParams.length > 0) {
-      (fnType as any).__typeParams = decl.typeParams;
-    }
 
     // User-defined functions shadow builtins with the same name
     if (!this.env.define(decl.name, { name: decl.name, type: fnType, mutable: false, defined: decl.span })) {

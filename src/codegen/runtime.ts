@@ -355,7 +355,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
         heapPtr = unionPtr + size;
         const view = new DataView(memory.buffer);
-        if (isNaN(n)) {
+        if (Number.isNaN(n)) {
           view.setInt32(unionPtr, 1, true); // None: tag = 1
         } else {
           view.setInt32(unionPtr, 0, true); // Some: tag = 0
@@ -378,7 +378,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
         heapPtr = unionPtr + size;
         const view = new DataView(memory.buffer);
-        if (isNaN(n)) {
+        if (Number.isNaN(n)) {
           view.setInt32(unionPtr, 1, true); // None: tag = 1
         } else {
           view.setInt32(unionPtr, 0, true); // Some: tag = 0
