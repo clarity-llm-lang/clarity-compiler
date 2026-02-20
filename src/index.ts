@@ -13,7 +13,7 @@ const program = new Command()
   .description("Clarity language compiler — optimized for LLM code generation, compiles to WASM")
   .version("0.2.1");
 
-const DEFAULT_DAEMON_URL = process.env.CLARITYD_URL ?? "http://127.0.0.1:4707";
+const DEFAULT_DAEMON_URL = process.env.CLARITYD_URL ?? "http://localhost:4707";
 
 async function runtimeApi<T>(baseUrl: string, pathname: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${baseUrl}${pathname}`, {
