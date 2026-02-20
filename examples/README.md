@@ -188,31 +188,30 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 ## Recently Implemented Examples
 
-### ✅ 06-math-toolkit (16 tests)
+### ✅ 11-todo-cli (14 tests)
 
 **Implemented with:**
-- Factorial, GCD, LCM, prime checking, integer exponentiation
-- Fibonacci (both naive and tail-recursive)
-- Euclidean distance, hypotenuse, circle area, triangle area
-- List operations: sum, mean, product
-- Comprehensive test suite demonstrating pure functional programming
+- `Map<String, String>` for in-memory todo storage (key = string ID, value = encoded entry)
+- Tab-separated text format for file persistence (`id\ttext|done`)
+- Union type `Command` for structured dispatch on CLI arguments
+- `get_args()`, `read_file`, `write_file` for full CLI application lifecycle
+- `last_index_of` helper to support `|` characters in todo text
 
-### ✅ 10-config-parser (12 tests)
-
-**Implemented with:**
-- INI file parsing with `split()` builtin
-- Comment handling (# and ;)
-- Key-value storage using `List<ConfigEntry>`
-- Whitespace trimming and validation
-- Values containing '=' character
-
-### ✅ 20-expr-evaluator (9 tests)
+### ✅ 13-template-engine (12 tests)
 
 **Implemented with:**
-- Full lexer tokenizing numbers, operators, parentheses
-- Recursive descent parser with operator precedence
-- AST evaluator computing numeric results
-- Demonstrates all phases of a simple interpreter
+- `{{key}}` placeholder substitution using `Map<String, String>`
+- Handles unknown keys (preserves original placeholder)
+- Recursive template rendering with `map_get` lookups
+- HTML/text template examples
+
+### ✅ 19-json-parser (17 tests)
+
+**Implemented with:**
+- Recursive descent parser for flat JSON objects → `Map<String, String>`
+- `char_code()` for character classification (digit, whitespace)
+- Handles strings with escape sequences, numbers, booleans, null
+- Error signaling via sentinel `next_pos = -1`
 
 ### ✅ 11-todo-cli (21 tests)
 

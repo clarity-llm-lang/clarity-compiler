@@ -1,4 +1,4 @@
-# Todo List CLI (REQUIREMENTS)
+# Todo List CLI
 
 **Status:** ✅ **IMPLEMENTED** (using line-based persistence; JSON optional)
 **Complexity:** Intermediate
@@ -8,7 +8,7 @@
 
 Command-line todo list with persistence. Demonstrates CRUD operations, command parsing, and data persistence.
 
-## Required Language Features
+## Usage
 
 ### 1. Persistence Format
 
@@ -19,69 +19,56 @@ function json_parse(s: String) -> Result<JsonValue, String>      // optional
 function json_stringify(val: JsonValue) -> String                // optional
 ```
 
-### 2. Map Type (for storing todos by ID)
+## Implementation Details
 
-```clarity
-type Map<K, V>  // Map<Int64, Todo>
+### Persistence format
+Todos are stored in `todos.txt`, one per line:
 ```
+1	Buy milk|false
+2	Write documentation|true
+```
+Each line is `id<TAB>text|done`. The `|` separator uses the **last** pipe in the
+entry, so todo text may safely contain `|` characters.
 
 ### 3. Better Command Parsing (optional enhancement)
 
 ```clarity
-// Current: get_args() returns List<String>
-// Need: structured command parsing
+// In-memory: Map<String, String>  key=string-id, value=entry
+// Entry encoding: "text|done"  where done = "true" / "false"
 
-type Command =
-  | Add(text: String)
-  | List
-  | Done(id: Int64)
-  | Delete(id: Int64)
-  | Help
-
-function parse_command(args: List<String>) -> Result<Command, String>
+function make_entry(text: String, done: Bool) -> String  // encode
+function entry_text(entry: String) -> String              // decode text
+function entry_done(entry: String) -> Bool                // decode status
 ```
 
-## Example Usage
-
-```bash
-todo add "Buy milk"              # Add new todo
-todo add "Write documentation"
-todo list                         # Show all todos
-todo done 1                       # Mark todo #1 as done
-todo delete 2                     # Delete todo #2
-```
-
-## Example Implementation
+### Command parsing
 
 ```clarity
-type Todo = {
-  id: Int64,
-  text: String,
-  done: Bool
-}
+type Command =
+  | AddCmd(text: String)
+  | ListCmd
+  | DoneCmd(id: Int64)
+  | DeleteCmd(id: Int64)
+  | HelpCmd
+  | ErrorCmd(msg: String)
 
-type TodoList = Map<Int64, Todo>
+function parse_command(args: List<String>) -> Command
+```
 
+### Main dispatch
+
+```clarity
 effect[FileSystem, Log] function main() -> Unit {
   let args = get_args();
-  let todos = load_todos("todos.json");
-
-  match parse_command(args) {
-    Err(msg) -> print_string("Error: " ++ msg),
-    Ok(cmd) -> {
-      let new_todos = execute_command(cmd, todos);
-      save_todos("todos.json", new_todos)
-    }
-  }
-}
-
-function execute_command(cmd: Command, todos: TodoList) -> TodoList {
+  let path = "todos.txt";
+  let cmd  = parse_command(args);
   match cmd {
-    Add(text) -> add_todo(todos, text),
-    List -> { list_todos(todos); todos },
-    Done(id) -> mark_done(todos, id),
-    Delete(id) -> delete_todo(todos, id),
-    Help -> { show_help(); todos }
+    AddCmd(text)  -> cmd_add(path, text),
+    ListCmd       -> cmd_list(path),
+    DoneCmd(id)   -> cmd_done(path, id),
+    DeleteCmd(id) -> cmd_delete(path, id),
+    HelpCmd       -> print_help(),
+    ErrorCmd(msg) -> print_string("Error: " ++ msg)
   }
 }
 ```
