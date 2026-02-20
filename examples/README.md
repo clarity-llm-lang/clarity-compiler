@@ -145,6 +145,7 @@ The examples in this directory are treated as requirements for Clarity. This sec
 
 | Gap | Blocks | Why it matters |
 |-----|--------|----------------|
+| **HTTP client built-ins** (`http_get`, `http_post`) | 08 | Required to make outbound API requests under `effect[Network]`. |
 | **JSON runtime built-ins** (`json_parse`, `json_stringify`, typed `JsonValue`) | 08 | Needed for general API payload handling (beyond example-level parsers). |
 | **HTTP server built-ins** (`http_listen`, request/response host bridge) | 15 | Required for long-running network services and routing examples. |
 | **DB built-ins** (`db_query`, `db_execute`, typed DB errors) | 16 | Required for relational CRUD workflows under `effect[DB]`. |
