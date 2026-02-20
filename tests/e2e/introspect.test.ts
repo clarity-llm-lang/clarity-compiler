@@ -20,6 +20,10 @@ describe("builtins registry", () => {
     expect(names).toContain("read_line");
     expect(names).toContain("http_get");
     expect(names).toContain("assert_eq");
+    expect(names).toContain("random_int");
+    expect(names).toContain("regex_match");
+    expect(names).toContain("timestamp_parse_iso");
+    expect(names).toContain("string_replace");
   });
 
   it("contains all expected effects", () => {

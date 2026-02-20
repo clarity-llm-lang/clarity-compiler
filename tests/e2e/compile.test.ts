@@ -733,6 +733,99 @@ describe("end-to-end compilation", () => {
   // Phase 1.5: I/O Primitives
   // ============================================================
 
+  it("string_replace replaces all occurrences", async () => {
+    const source = `
+      module Test
+      function rewrite(s: String) -> String {
+        string_replace(s, "-", ":")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const rewrite = instance.exports.rewrite as (ptr: number) => number;
+    const ptr = rewrite(runtime.writeString("a-b-c"));
+    expect(runtime.readString(ptr)).toBe("a:b:c");
+  });
+
+  it("random_int and random_float require Random effect and run", async () => {
+    const source = `
+      module Test
+      effect[Random] function roll() -> Bool {
+        let r = random_int(1, 6);
+        let f = random_float();
+        r >= 1 and r <= 6 and f >= 0.0 and f < 1.0
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const roll = instance.exports.roll as () => number;
+    expect(roll()).toBe(1);
+  });
+
+  it("rejects random_int without Random effect", () => {
+    const source = `
+      module Test
+      function bad() -> Int64 {
+        random_int(1, 10)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Random");
+  });
+
+  it("timestamp_parse_iso returns Some for valid and None for invalid input", async () => {
+    const source = `
+      module Test
+      function parse_ok() -> Bool {
+        match timestamp_parse_iso("2026-02-20T00:00:00.000Z") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+
+      function parse_bad() -> Bool {
+        match timestamp_parse_iso("not-a-date") {
+          Some(_) -> False,
+          None -> True
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const parse_ok = instance.exports.parse_ok as () => number;
+    const parse_bad = instance.exports.parse_bad as () => number;
+    expect(parse_ok()).toBe(1);
+    expect(parse_bad()).toBe(1);
+  });
+
+  it("regex builtins match and capture", async () => {
+    const source = `
+      module Test
+      function has_digits(s: String) -> Bool {
+        regex_match("[0-9]+", s)
+      }
+
+      function first_capture(s: String) -> String {
+        match regex_captures("([0-9]+)", s) {
+          None -> "none",
+          Some(groups) -> nth(groups, 1)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const has_digits = instance.exports.has_digits as (ptr: number) => number;
+    const first_capture = instance.exports.first_capture as (ptr: number) => number;
+    expect(has_digits(runtime.writeString("abc123"))).toBe(1);
+    expect(has_digits(runtime.writeString("abc"))).toBe(0);
+    expect(runtime.readString(first_capture(runtime.writeString("id=42")))).toBe("42");
+  });
+
   it("read_line reads from stdin config", async () => {
     const source = `
       module Test

@@ -2182,6 +2182,7 @@ export class CodeGenerator {
       contains: BOOL, index_of: INT64, trim: { kind: "String" },
       char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
       split: { kind: "List", element: { kind: "String" } } as ClarityType,
+      string_replace: { kind: "String" } as ClarityType,
       // Type conversions
       int_to_float: FLOAT64, float_to_int: INT64,
       int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
@@ -2192,6 +2193,8 @@ export class CodeGenerator {
       sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
       // List ops
       list_length: INT64,
+      // Random
+      random_int: INT64, random_float: FLOAT64,
       // Network
       http_get: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
       http_post: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
@@ -2207,9 +2210,13 @@ export class CodeGenerator {
       bytes_new: BYTES, bytes_length: INT64, bytes_get: INT64,
       bytes_set: BYTES, bytes_slice: BYTES, bytes_concat: BYTES,
       bytes_from_string: BYTES, bytes_to_string: { kind: "String" } as ClarityType,
+      // Regex
+      regex_match: BOOL,
+      regex_captures: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       // Timestamp
       now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
       timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
+      timestamp_parse_iso: { kind: "Union", name: "Option<Timestamp>", variants: [{ name: "Some", fields: new Map([["value", TIMESTAMP]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       timestamp_add: TIMESTAMP, timestamp_diff: INT64,
       // Crypto
       sha256: { kind: "String" } as ClarityType,

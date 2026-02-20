@@ -268,6 +268,14 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return listPtr;
       },
 
+      string_replace(sPtr: number, searchPtr: number, replacementPtr: number): number {
+        const s = readString(sPtr);
+        const search = readString(searchPtr);
+        const replacement = readString(replacementPtr);
+        if (search.length === 0) return writeString(s);
+        return writeString(s.split(search).join(replacement));
+      },
+
       char_code(ptr: number): bigint {
         const s = readString(ptr);
         if (s.length === 0) return 0n;
@@ -506,6 +514,29 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(hex);
       },
 
+      // --- Regex operations ---
+      regex_match(patternPtr: number, textPtr: number): number {
+        try {
+          const re = new RegExp(readString(patternPtr));
+          return re.test(readString(textPtr)) ? 1 : 0;
+        } catch {
+          return 0;
+        }
+      },
+
+      regex_captures(patternPtr: number, textPtr: number): number {
+        try {
+          const re = new RegExp(readString(patternPtr));
+          const match = readString(textPtr).match(re);
+          if (!match) return allocOptionI32(null);
+          const ptrs = match.map((m) => writeString(m));
+          const listPtr = allocListI32(ptrs);
+          return allocOptionI32(listPtr);
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
       // --- Timestamp operations ---
       // Timestamp is i64 (milliseconds since Unix epoch)
       now(): bigint {
@@ -522,6 +553,12 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       timestamp_from_int(ms: bigint): bigint {
         return ms;
+      },
+
+      timestamp_parse_iso(ptr: number): number {
+        const ms = Date.parse(readString(ptr));
+        if (Number.isNaN(ms)) return allocOptionI64(null);
+        return allocOptionI64(BigInt(ms));
       },
 
       timestamp_add(t: bigint, ms: bigint): bigint {
@@ -912,6 +949,19 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
       },
 
+
+      // --- Random operations ---
+      random_int(min: bigint, max: bigint): bigint {
+        if (max < min) return min;
+        const minN = Number(min);
+        const maxN = Number(max);
+        const value = Math.floor(Math.random() * (maxN - minN + 1)) + minN;
+        return BigInt(value);
+      },
+
+      random_float(): number {
+        return Math.random();
+      },
 
       // --- Network operations ---
       http_get(urlPtr: number): number {

@@ -364,7 +364,7 @@ clarity/
 - Transparent type aliases (`type UserId = Int64`)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
 - Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
-- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
+- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split, string_replace
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
@@ -425,7 +425,7 @@ Make programs viable for real workloads.
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
 - ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
-- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string)
+- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
 - REPL / browser playground
 
 ---
