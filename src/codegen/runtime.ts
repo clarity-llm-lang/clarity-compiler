@@ -137,12 +137,9 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return ptr;
   }
 
-  // Allocate a Result<*, String> where both payload forms are i32 pointers.
-  function allocResultI32(ok: boolean, valuePtr: number): number {
-
-  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // Allocate a Result<*, i32> union: [tag:i32][value_ptr:i32] = 8 bytes.
   // tag 0 = Ok(value), tag 1 = Err(error_message)
-  function allocResultString(ok: boolean, valuePtr: number): number {
+  function allocResultI32(ok: boolean, valuePtr: number): number {
     heapPtr = (heapPtr + 3) & ~3;
     const ptr = heapPtr;
     heapPtr = ptr + 8;
@@ -153,6 +150,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
     view.setInt32(ptr, ok ? 0 : 1, true);
     view.setInt32(ptr + 4, valuePtr, true);
     return ptr;
+  }
+
+  // Allocate a Result<String, String> union (both payloads are i32 string pointers).
+  function allocResultString(ok: boolean, valuePtr: number): number {
+    return allocResultI32(ok, valuePtr);
   }
 
   // Allocate a Result<Int64, String> union: [tag:i32][payload:i64/i32] = 12 bytes.
@@ -173,12 +175,6 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return ptr;
   }
 
-
-  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
-  // tag 0 = Ok(value), tag 1 = Err(error_message)
-  function allocResultString(ok: boolean, valuePtr: number): number {
-    return allocResultI32(ok, valuePtr);
-  }
 
   // Allocate a List<i32> on the heap: [count:i32][elements:i32...]
   function allocListI32(items: number[]): number {
@@ -626,6 +622,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
 
         return writeString(`{${parts.join(",")}}`);
+      },
+
       // --- Regex operations ---
       regex_match(patternPtr: number, textPtr: number): number {
         try {
