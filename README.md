@@ -370,8 +370,6 @@ clarity/
 - Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
 - HTTP client primitives: `http_get`, `http_post` (Network effect)
-- Random builtins: `random_int`, `random_float`
-- Regex builtins: `regex_match`, `regex_captures`
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
 - Higher-order functions (pass named functions as arguments, function type syntax)
 - Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
