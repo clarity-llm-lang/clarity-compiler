@@ -1,39 +1,29 @@
-# Configuration Parser (REQUIREMENTS)
+# Configuration Parser
 
-**Status:** ⚠️ **BLOCKED** - Missing string_split, Map type, regex
+**Status:** ✅ **IMPLEMENTED**
 **Complexity:** Intermediate
 **Category:** Parsing, Text Processing
 
 ## Overview
 
-Parse INI or TOML configuration files into a Map<String, String>. Demonstrates text parsing and key-value storage.
+Parse INI configuration files into a List<ConfigEntry>. Demonstrates text parsing, string processing, and key-value storage without requiring a Map type.
 
-## Required Language Features
+## Implementation Notes
 
-### 1. String Operations
+Uses `List<ConfigEntry>` instead of `Map<K, V>` to avoid needing a Map type. For typical config files (< 100 entries), O(n) lookup is perfectly acceptable.
 
-```clarity
-function string_split(s: String, delimiter: String) -> List<String>
-function string_trim(s: String) -> String  // Remove whitespace
-```
-
-### 2. Map Type
+### Key Functions
 
 ```clarity
-type Map<K, V>
-function map_new<K, V>() -> Map<K, V>
-function map_set<K, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
-function map_get<K, V>(m: Map<K, V>, key: K) -> Option<V>
+type ConfigEntry = { key: String, value: String }
+type Config = List<ConfigEntry>
+
+function parse_ini(content: String) -> Config
+function get_config(config: Config, key: String, default: String) -> String
+function set_config(config: Config, key: String, value: String) -> Config
 ```
 
-### 3. Regex (Optional but helpful)
-
-```clarity
-function regex_match(pattern: String, text: String) -> Bool
-function regex_captures(pattern: String, text: String) -> Option<List<String>>
-```
-
-## Example Use Case
+## Example Usage
 
 Parse INI file:
 ```ini
@@ -42,57 +32,72 @@ app_name = MyApp
 port = 8080
 debug = true
 
-[database]
-host = localhost
-port = 5432
+# Database settings
+db_host = localhost
+db_port = 5432
 ```
 
 ```clarity
-effect[FileSystem, Log] function load_config(filename: String) -> Map<String, String> {
+effect[FileSystem] function load_config(filename: String) -> Config {
   let content = read_file(filename);
-  let lines = string_split(content, "\n");
-  parse_ini_lines(lines, map_new())
+  parse_ini(content)
 }
 
-function parse_ini_lines(lines: List<String>, config: Map<String, String>) -> Map<String, String> {
-  match length(lines) == 0 {
-    True -> config,
-    False -> {
-      let line = trim(head(lines));
-      let rest = tail(lines);
+effect[Log] function main() -> Unit {
+  let sample = """
+# App config
+app_name = MyApp
+port = 8080
+  """;
 
-      // Skip comments and empty lines
-      match starts_with(line, "#") or string_eq(line, "") {
-        True -> parse_ini_lines(rest, config),
-        False -> {
-          // Parse key = value
-          let parts = string_split(line, "=");
-          match length(parts) == 2 {
-            True -> {
-              let key = trim(head(parts));
-              let value = trim(head(tail(parts)));
-              let new_config = map_set(config, key, value);
-              parse_ini_lines(rest, new_config)
-            },
-            False -> parse_ini_lines(rest, config)  // Skip malformed lines
-          }
-        }
-      }
-    }
-  }
+  let config = parse_ini(sample);
+
+  // Get values with defaults
+  let name = get_config(config, "app_name", "unknown");
+  let port = get_config(config, "port", "3000");
+
+  print_string("App: " ++ name);
+  print_string("Port: " ++ port)
 }
 ```
+
+## Features Demonstrated
+
+- INI file parsing (key=value format)
+- Comment handling (# and ; prefixes)
+- String processing with split, trim, substring
+- List of records as alternative to Map
+- Handling values containing '=' (join remaining parts)
+- Robust whitespace trimming
 
 ## Learning Objectives
 
 - File parsing line-by-line
-- Map-based configuration storage
+- List-based configuration storage
 - String trimming and splitting
 - Handling comments and malformed input
+- O(n) lookup trade-offs
 
-## Dependencies
+## Usage
 
-- ❌ `string_split` (CRITICAL)
-- ❌ `Map<K, V>` (CRITICAL)
-- ⚠️ `string_trim` (can implement with char_at)
-- ⚠️ Regex (NICE TO HAVE)
+```bash
+# Run demo
+npx clarityc run examples/10-config-parser/config.clarity -f demo
+
+# Run tests
+npx clarityc test examples/10-config-parser/config.clarity
+```
+
+## Tests
+
+12 tests covering:
+- Empty config
+- Set and get operations
+- Updating existing keys
+- Parsing simple lines
+- Whitespace handling
+- Comment lines (# and ;)
+- Values containing '='
+- Full INI parsing
+- get_keys operation
+- starts_with utility
