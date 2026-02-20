@@ -6,6 +6,7 @@
 
 import * as nodeFs from "node:fs";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
 
 export interface RuntimeExports {
@@ -136,6 +137,49 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return ptr;
   }
 
+  // Allocate a Result<*, String> where both payload forms are i32 pointers.
+  function allocResultI32(ok: boolean, valuePtr: number): number {
+
+  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // tag 0 = Ok(value), tag 1 = Err(error_message)
+  function allocResultString(ok: boolean, valuePtr: number): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 8;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, ok ? 0 : 1, true);
+    view.setInt32(ptr + 4, valuePtr, true);
+    return ptr;
+  }
+
+  // Allocate a Result<Int64, String> union: [tag:i32][payload:i64/i32] = 12 bytes.
+  function allocResultI64(ok: boolean, value: bigint, errPtr = 0): number {
+    heapPtr = (heapPtr + 3) & ~3;
+    const ptr = heapPtr;
+    heapPtr = ptr + 12;
+    if (heapPtr > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    view.setInt32(ptr, ok ? 0 : 1, true);
+    if (ok) {
+      view.setBigInt64(ptr + 4, value, true);
+    } else {
+      view.setInt32(ptr + 4, errPtr, true);
+    }
+    return ptr;
+  }
+
+
+  // Allocate a Result<String, String> union: [tag:i32][value_ptr:i32] = 8 bytes
+  // tag 0 = Ok(value), tag 1 = Err(error_message)
+  function allocResultString(ok: boolean, valuePtr: number): number {
+    return allocResultI32(ok, valuePtr);
+  }
+
   // Allocate a List<i32> on the heap: [count:i32][elements:i32...]
   function allocListI32(items: number[]): number {
     const len = items.length;
@@ -225,6 +269,14 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return readString(haystackPtr).includes(readString(needlePtr)) ? 1 : 0;
       },
 
+      string_starts_with(sPtr: number, prefixPtr: number): number {
+        return readString(sPtr).startsWith(readString(prefixPtr)) ? 1 : 0;
+      },
+
+      string_ends_with(sPtr: number, suffixPtr: number): number {
+        return readString(sPtr).endsWith(readString(suffixPtr)) ? 1 : 0;
+      },
+
       index_of(haystackPtr: number, needlePtr: number): bigint {
         return BigInt(readString(haystackPtr).indexOf(readString(needlePtr)));
       },
@@ -249,6 +301,20 @@ export function createRuntime(config: RuntimeConfig = {}) {
           view.setInt32(listPtr + 4 + i * 4, ptrs[i], true);
         }
         return listPtr;
+      },
+
+      string_replace(sPtr: number, searchPtr: number, replacementPtr: number): number {
+        const s = readString(sPtr);
+        const search = readString(searchPtr);
+        const replacement = readString(replacementPtr);
+        if (search.length === 0) return writeString(s);
+        return writeString(s.split(search).join(replacement));
+      },
+
+      string_repeat(sPtr: number, count: bigint): number {
+        const n = Number(count);
+        if (n <= 0) return writeString("");
+        return writeString(readString(sPtr).repeat(n));
       },
 
       char_code(ptr: number): bigint {
@@ -336,6 +402,18 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       max_int(a: bigint, b: bigint): bigint {
         return a > b ? a : b;
+      },
+
+      int_clamp(value: bigint, min: bigint, max: bigint): bigint {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+      },
+
+      float_clamp(value: number, min: number, max: number): number {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
       },
 
       sqrt(value: number): number {
@@ -548,6 +626,27 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
 
         return writeString(`{${parts.join(",")}}`);
+      // --- Regex operations ---
+      regex_match(patternPtr: number, textPtr: number): number {
+        try {
+          const re = new RegExp(readString(patternPtr));
+          return re.test(readString(textPtr)) ? 1 : 0;
+        } catch {
+          return 0;
+        }
+      },
+
+      regex_captures(patternPtr: number, textPtr: number): number {
+        try {
+          const re = new RegExp(readString(patternPtr));
+          const match = readString(textPtr).match(re);
+          if (!match) return allocOptionI32(null);
+          const ptrs = match.map((m) => writeString(m));
+          const listPtr = allocListI32(ptrs);
+          return allocOptionI32(listPtr);
+        } catch {
+          return allocOptionI32(null);
+        }
       },
 
       // --- Timestamp operations ---
@@ -566,6 +665,12 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       timestamp_from_int(ms: bigint): bigint {
         return ms;
+      },
+
+      timestamp_parse_iso(ptr: number): number {
+        const ms = Date.parse(readString(ptr));
+        if (Number.isNaN(ms)) return allocOptionI64(null);
+        return allocOptionI64(BigInt(ms));
       },
 
       timestamp_add(t: bigint, ms: bigint): bigint {
@@ -954,6 +1059,98 @@ export function createRuntime(config: RuntimeConfig = {}) {
             testFunction: currentTestFunction,
           });
         }
+      },
+
+
+      // --- Random operations ---
+      random_int(min: bigint, max: bigint): bigint {
+        if (max < min) return min;
+        const minN = Number(min);
+        const maxN = Number(max);
+        const value = Math.floor(Math.random() * (maxN - minN + 1)) + minN;
+        return BigInt(value);
+      },
+
+      random_float(): number {
+        return Math.random();
+      },
+
+      // --- Network operations ---
+      http_get(urlPtr: number): number {
+        const url = readString(urlPtr);
+        try {
+          const body = execFileSync(
+            "curl",
+            ["-sS", "-L", "--max-time", "10", "--fail", url],
+            { encoding: "utf-8" },
+          );
+          return allocResultString(true, writeString(body));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      http_post(urlPtr: number, bodyPtr: number): number {
+        const url = readString(urlPtr);
+        const body = readString(bodyPtr);
+        try {
+          const response = execFileSync(
+            "curl",
+            ["-sS", "-L", "--max-time", "10", "--fail", "-X", "POST", "-H", "Content-Type: text/plain", "--data-raw", body, url],
+            { encoding: "utf-8" },
+          );
+          return allocResultString(true, writeString(response));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      http_listen(_port: bigint): number {
+        return allocResultString(false, writeString("http_listen not implemented yet"));
+      },
+
+      json_parse_object(ptr: number): number {
+        try {
+          const parsed = JSON.parse(readString(ptr));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return allocResultString(false, writeString("Expected JSON object"));
+          }
+          const m = new Map<string | bigint, number | bigint>();
+          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof v === "string") {
+              m.set(k, writeString(v));
+            } else if (v === null || typeof v === "number" || typeof v === "boolean") {
+              m.set(k, writeString(String(v)));
+            } else {
+              m.set(k, writeString(JSON.stringify(v)));
+            }
+          }
+          const handle = nextMapHandle++;
+          mapTable.set(handle, m);
+          return allocResultI32(true, handle);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultI32(false, writeString(msg));
+        }
+      },
+
+      json_stringify_object(handle: number): number {
+        const m = mapTable.get(handle) ?? new Map();
+        const obj: Record<string, string> = {};
+        for (const [k, v] of m.entries()) {
+          obj[String(k)] = typeof v === "number" ? readString(v) : String(v);
+        }
+        return writeString(JSON.stringify(obj));
+      },
+
+      db_execute(_sqlPtr: number, _paramsPtr: number): number {
+        return allocResultI64(false, 0n, writeString("db_execute not implemented yet"));
+      },
+
+      db_query(_sqlPtr: number, _paramsPtr: number): number {
+        return allocResultI32(false, writeString("db_query not implemented yet"));
       },
 
       // --- I/O primitives ---

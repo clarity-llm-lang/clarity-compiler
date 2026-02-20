@@ -366,10 +366,14 @@ clarity/
 - Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
 - JSON builtins — `json_parse : String -> Option<Map<String, String>>`, `json_stringify : Map<String, String> -> String` (flat objects with scalar values)
 - String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
+- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, string_starts_with, string_ends_with, index_of, trim, split, string_replace, string_repeat
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
-- Math builtins (abs_int, min_int, max_int, sqrt, pow, floor, ceil)
+- Math builtins (abs_int, min_int, max_int, int_clamp, float_clamp, sqrt, pow, floor, ceil)
 - Built-in functions (print, logging) via host runtime
+- HTTP client primitives: `http_get`, `http_post` (Network effect)
+- Random builtins: `random_int`, `random_float`
+- Regex builtins: `regex_match`, `regex_captures`
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
 - Higher-order functions (pass named functions as arguments, function type syntax)
 - Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
@@ -425,7 +429,7 @@ Make programs viable for real workloads.
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
 - ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
-- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string)
+- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
 - REPL / browser playground
 
 ### Phase 6 — Native AI Interop Requirements (v0.7+)

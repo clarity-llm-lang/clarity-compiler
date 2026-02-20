@@ -1,6 +1,6 @@
 # JSON Parser (REQUIREMENTS)
 
-**Status:** ⚠️ **PARTIALLY BLOCKED** - Missing char_code, better error handling
+**Status:** ✅ **IMPLEMENTED** (flat-object parser); richer typed JSON remains a roadmap item
 **Complexity:** Advanced
 **Category:** Parsing, Text Processing
 
@@ -212,8 +212,8 @@ function skip_whitespace(p: Parser) -> Parser {
 
 ## Dependencies
 
-- ❌ `char_code` for `is_digit`, `is_whitespace` (CRITICAL)
-- ❌ `Map<K, V>` for JSON objects (CRITICAL)
+- ✅ `char_code` for character classification
+- ✅ `Map<K, V>` for object storage
 - ⚠️ Better error types with source locations (DESIRABLE)
 - ✅ `string_to_float` returns `Option<Float64>` (Some/None)
 
