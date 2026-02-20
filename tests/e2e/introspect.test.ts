@@ -18,6 +18,7 @@ describe("builtins registry", () => {
     expect(names).toContain("abs_int");
     expect(names).toContain("head");
     expect(names).toContain("read_line");
+    expect(names).toContain("http_get");
     expect(names).toContain("assert_eq");
   });
 

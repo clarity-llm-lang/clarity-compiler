@@ -779,6 +779,49 @@ describe("end-to-end compilation", () => {
     expect(arg_count()).toBe(3n);
   });
 
+
+  it("http_get works with Network effect", async () => {
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-get-"));
+    const filePath = path.join(tmpDir, "payload.txt");
+    fs.writeFileSync(filePath, "pong", "utf-8");
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fetchFn = instance.exports.fetch as (urlPtr: number) => number;
+    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const bodyPtr = fetchFn(urlPtr);
+    expect(runtime.readString(bodyPtr)).toBe("pong");
+  });
+
+  it("rejects http_get without Network effect", () => {
+    const source = `
+      module Test
+      function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
+  });
+
   it("read_file reads file content via config fs", async () => {
     const source = `
       module Test

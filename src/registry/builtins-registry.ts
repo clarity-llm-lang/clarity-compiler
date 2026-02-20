@@ -523,6 +523,41 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "io",
   },
 
+
+  // --- Network operations (require Network effect) ---
+  {
+    name: "http_get",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP GET request. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
+  },
+  {
+    name: "http_post",
+    params: [STRING, STRING],
+    paramNames: ["url", "body"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP POST request with a text body. Returns Ok(response_body) on success or Err(message) on failure.",
+    category: "network",
+  },
+
   // --- Test assertions (require Test effect) ---
   {
     name: "assert_eq",
