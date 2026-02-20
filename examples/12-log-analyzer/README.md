@@ -1,6 +1,6 @@
 # Log Analyzer (REQUIREMENTS)
 
-**Status:** ⚠️ **BLOCKED** - Missing regex, Map type, DateTime parsing
+**Status:** ✅ **IMPLEMENTED** (regex-free parser; DateTime parsing remains optional)
 **Complexity:** Intermediate-Advanced
 **Category:** Text Processing, Data Aggregation
 
@@ -96,7 +96,7 @@ function count_by_ip(lines: List<String>, counts: Map<String, Int64>) -> Map<Str
 
 ## Dependencies
 
-- ❌ Regex (CRITICAL)
-- ❌ Map type (CRITICAL)
+- ⚠️ Regex built-ins (optional ergonomics upgrade)
+- ✅ Map type and map built-ins
 - ⚠️ DateTime parsing (NICE TO HAVE)
-- ⚠️ string_split (MEDIUM)
+- ✅ `split` string builtin
