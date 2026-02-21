@@ -1,0 +1,65 @@
+name: Snapshot Package
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: snapshot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate package-lock.json
+        run: node -e "const fs=require('node:fs');const path='package-lock.json';if(!fs.existsSync(path)){throw new Error('package-lock.json is missing');}JSON.parse(fs.readFileSync(path,'utf8'));console.log('package-lock.json is valid JSON');"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Create snapshot package
+        id: snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .snapshot
+          PACKAGE_FILE="$(npm pack)"
+          SHORT_SHA="${GITHUB_SHA::8}"
+          SNAPSHOT_FILE="${PACKAGE_FILE%.tgz}-snapshot.${GITHUB_RUN_NUMBER}+${SHORT_SHA}.tgz"
+          mv "$PACKAGE_FILE" ".snapshot/$SNAPSHOT_FILE"
+          cat > .snapshot/metadata.json <<EOF
+          {
+            "snapshotFile": "$SNAPSHOT_FILE",
+            "runNumber": "${GITHUB_RUN_NUMBER}",
+            "sha": "${GITHUB_SHA}",
+            "ref": "${GITHUB_REF}",
+            "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-snapshot-${{ github.run_number }}-${{ github.sha }}
+          path: .snapshot/
