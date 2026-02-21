@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.5.0](https://github.com/clarity-llm-lang/clarity-compiler/compare/clarity-lang-v0.4.0...clarity-lang-v0.5.0) (2026-02-21)
+
+
+### Features
+
+* A2A support — a2a_discover/submit/poll/cancel + std/a2a ([2d14aa2](https://github.com/clarity-llm-lang/clarity-compiler/commit/2d14aa2eb129233cfccd03db7628b06d5f1e830f))
+* add 5 more scoped builtin workstreams ([98748a2](https://github.com/clarity-llm-lang/clarity-compiler/commit/98748a205808c31d11aa8dffd2814f23e5e0c788))
+* add 5 scoped language builtins workstreams ([c25d5b2](https://github.com/clarity-llm-lang/clarity-compiler/commit/c25d5b25bfbf7536d9c80d57bf68826bc841304e))
+* Add Bytes and Timestamp runtime support (Phase 5.4) ([e2429f1](https://github.com/clarity-llm-lang/clarity-compiler/commit/e2429f163ac633dba11ac30588bbc2d51249d3a3))
+* Add Bytes and Timestamp runtime support (Phase 5.4) ([e1f3577](https://github.com/clarity-llm-lang/clarity-compiler/commit/e1f3577ed65c6b8105ef4ee1fd78e72c998a059d))
+* Add char_code/char_from_code builtins and implement math-toolkit + expr-evaluator examples ([1e13645](https://github.com/clarity-llm-lang/clarity-compiler/commit/1e136453cf7db34f656c854832e5461d96bf3170))
+* add Eval effect + std/eval for LLM output evaluation ([9d16281](https://github.com/clarity-llm-lang/clarity-compiler/commit/9d1628149b9052e0e6fddbf46b67a1775bbae96d))
+* Add list_set builtin and implement 05-sudoku-solver (8 tests) ([54f9012](https://github.com/clarity-llm-lang/clarity-compiler/commit/54f901273cacf85df180b4b6c1010d12a51a0b02))
+* Add multi-line strings, pattern guards, and nested list codegen ([f5a3c34](https://github.com/clarity-llm-lang/clarity-compiler/commit/f5a3c347fc203f6688575a793547d3f552d8b4ec))
+* add Network HTTP client builtins and start Milestone A ([6047788](https://github.com/clarity-llm-lang/clarity-compiler/commit/604778802d8e16f6aa40c97d1ddc1a0968b869cf))
+* add Network HTTP client builtins and tests ([fbafe07](https://github.com/clarity-llm-lang/clarity-compiler/commit/fbafe070c81d2d984eef0995edb155284fae25cf))
+* add random, regex, string_replace, timestamp_parse_iso builtins and E2E tests ([4a8d90d](https://github.com/clarity-llm-lang/clarity-compiler/commit/4a8d90da2fbb604275468b4000cc4a53e42218b4))
+* Add runtime string interning to deduplicate heap strings ([3826c9e](https://github.com/clarity-llm-lang/clarity-compiler/commit/3826c9eb6f5dc7d742fc646554b902961cc2efc0))
+* Add runtime string interning to deduplicate heap strings ([a0a391f](https://github.com/clarity-llm-lang/clarity-compiler/commit/a0a391fbd3aa279e6b0ac49b81321d2e908c9ba0))
+* Add sha256 builtin and implement 18-merkle-tree example (12 tests) ([005dec7](https://github.com/clarity-llm-lang/clarity-compiler/commit/005dec7abf9cbb0ac8d2d7a67dbbbd95f49fb7fb))
+* Add standard library (std/math, std/string) with import resolution ([2b8db26](https://github.com/clarity-llm-lang/clarity-compiler/commit/2b8db260c5178a91a3e95e3c27a873182f499743))
+* Add standard library (std/math, std/string) with import resolution ([a10aee6](https://github.com/clarity-llm-lang/clarity-compiler/commit/a10aee694423392030aa80950b1bb60df7bcf55e))
+* add string_starts_with, string_ends_with, string_repeat, int_clamp, float_clamp builtins ([6dfc7de](https://github.com/clarity-llm-lang/clarity-compiler/commit/6dfc7deb2f2d5ac1d43254b3bab0e26b670ef732))
+* **cli:** enforce explicit agent registration in clarityc start ([b46a37e](https://github.com/clarity-llm-lang/clarity-compiler/commit/b46a37e5c34742f9ef8beab385760fa59ba5b470))
+* **cli:** enforce explicit agent registration in clarityc start ([51358ce](https://github.com/clarity-llm-lang/clarity-compiler/commit/51358ce3215cc4f34ccd2dc263898c0edcdeac24))
+* Fix pattern guard multi-arm bug and implement range patterns ([2925176](https://github.com/clarity-llm-lang/clarity-compiler/commit/2925176d4eb76b046f2367a32721b373f2ff588d))
+* Implement 06-math-toolkit example (16 tests) ([ef72831](https://github.com/clarity-llm-lang/clarity-compiler/commit/ef728311e60be5199a89a3d9fa5f8fe127010b71))
+* Implement 07-string-toolkit example (13 tests passing) ([caad1f1](https://github.com/clarity-llm-lang/clarity-compiler/commit/caad1f1e804dac4cd30a2325e0a9de28623b8621))
+* Implement 09-csv-processor example (9 tests passing) ([09c4094](https://github.com/clarity-llm-lang/clarity-compiler/commit/09c40942d96e22218bf16234d94bc258860e8804))
+* Implement 10-config-parser example (12 tests) ([f747c51](https://github.com/clarity-llm-lang/clarity-compiler/commit/f747c513794d900a741523b4bfbaad457c9df7fd))
+* Implement 11-todo-cli (14 tests) with Map-based CRUD ([77e247b](https://github.com/clarity-llm-lang/clarity-compiler/commit/77e247bd63d0f97a3308ad239b09a7645fa1f210))
+* Implement 11-todo-cli (14 tests) with Map-based CRUD ([8a0bd3e](https://github.com/clarity-llm-lang/clarity-compiler/commit/8a0bd3ed881abf7824bff32cf839fe3a0b7e4f89))
+* Implement 14-tic-tac-toe with minimax AI (8 tests passing) ([8f06a69](https://github.com/clarity-llm-lang/clarity-compiler/commit/8f06a69f99f11a9c73f4762e59179533df3c06cc))
+* Implement 14-tic-tac-toe with minimax AI (8 tests passing) ([b46c451](https://github.com/clarity-llm-lang/clarity-compiler/commit/b46c4516412f86cbef9346b817bdde84fe6585b2))
+* Implement 17-linear-regression example with 6 tests ([653b23c](https://github.com/clarity-llm-lang/clarity-compiler/commit/653b23c83cc692a57d349d84fd55e1b5b6864e0e))
+* Implement 17-linear-regression example with 6 tests ([b863b79](https://github.com/clarity-llm-lang/clarity-compiler/commit/b863b790c77cbef50807595c8492c4864bc264df))
+* Implement examples 11-13 and 19 with vitest integration ([87b5217](https://github.com/clarity-llm-lang/clarity-compiler/commit/87b521750bb2d75b6f4ea867f4f3f86b1fd182ab))
+* Implement examples 11-13 and 19 with vitest integration ([1fd85bc](https://github.com/clarity-llm-lang/clarity-compiler/commit/1fd85bcf2a195a0e547b4e8ac03e66c716978c0d))
+* Implement module system with import/export and multi-file compi… ([cb3dda3](https://github.com/clarity-llm-lang/clarity-compiler/commit/cb3dda3f9ce8a657119141f32ff64ae1e35a9668))
+* Implement module system with import/export and multi-file compilation ([71e5fa8](https://github.com/clarity-llm-lang/clarity-compiler/commit/71e5fa8d7ef601884a38d6afc855ec807ebe4d05))
+* kick off json/http-server/db major tasks with scaffolds ([1d668ba](https://github.com/clarity-llm-lang/clarity-compiler/commit/1d668ba77670fa185de4b851ea17583855ebf745))
+* MCP support — mcp_connect/list_tools/call_tool/disconnect + std… ([17f62af](https://github.com/clarity-llm-lang/clarity-compiler/commit/17f62af19d207f3f0a333bda9e38d4c56a2cd53f))
+* MCP support — mcp_connect/list_tools/call_tool/disconnect + std/mcp ([25e38f0](https://github.com/clarity-llm-lang/clarity-compiler/commit/25e38f0dd85a9e7027f3f739e34dcefcccf1a3af))
+* Phase 6 AI interop — Model/Secret effects, std/llm, LLM builtins, free-list allocator ([991a942](https://github.com/clarity-llm-lang/clarity-compiler/commit/991a9421d1da324144ab7b403d4f22c2c0d059d7))
+* policy + audit — URL allowlists, effect deny, JSONL audit log ([872df66](https://github.com/clarity-llm-lang/clarity-compiler/commit/872df66104840a5854e5b7064363bb9d90b02d98))
+* pull-based LLM streaming + fix Result&lt;Int64,T&gt; constructor codegen bug ([5b8cd6f](https://github.com/clarity-llm-lang/clarity-compiler/commit/5b8cd6f4d4cc44c0a2acb2c0dd1a0c6f0fa9a0ba))
+* replace bump allocator with free-list allocator + arena marks ([bfe2eb0](https://github.com/clarity-llm-lang/clarity-compiler/commit/bfe2eb055f33bcb3821e66de1701bbd0979fb0dd))
+* replace bump allocator with free-list allocator + arena marks ([99bb059](https://github.com/clarity-llm-lang/clarity-compiler/commit/99bb0593753fa8fcfac4c15fdf4e6f5233dd6008))
+* scaffold JSON / HTTP-server / DB builtins, add runtime allocators and tests ([90d5cfa](https://github.com/clarity-llm-lang/clarity-compiler/commit/90d5cfa7d7e96373751d711a57ca49748b1d6d30))
+* std/list + None/[] type inference fixes + substituteTypeVars union name fix ([0fe8ea8](https://github.com/clarity-llm-lang/clarity-compiler/commit/0fe8ea8a57c4f3dc5168598de8437d9f78693272))
+* string_to_int/string_to_float return Option&lt;T&gt; instead of raw v… ([f59e7d2](https://github.com/clarity-llm-lang/clarity-compiler/commit/f59e7d28ee08070a7191ba2ea2873bf2a889aee2))
+* string_to_int/string_to_float return Option&lt;T&gt; instead of raw values ([744a084](https://github.com/clarity-llm-lang/clarity-compiler/commit/744a084d73ede9fc53e3b4162dcff13515f2b011))
+
+
+### Bug Fixes
+
+* address language design debt from Phase 6 audit ([bf3b2a4](https://github.com/clarity-llm-lang/clarity-compiler/commit/bf3b2a4659ed50e73759b08eead39f3818b6eb31))
+* Generic HOF monomorphization + add std/list with 17 functions ([5873ef1](https://github.com/clarity-llm-lang/clarity-compiler/commit/5873ef16ca411505eeb18438b70fafe089286dd3))
+* Generic HOF monomorphization + add std/list with 17 functions ([7c054d4](https://github.com/clarity-llm-lang/clarity-compiler/commit/7c054d48410811e92145f59530e3ee02e2479217))
+* Repair Codex-introduced bugs in runtime.ts and extend std/list a… ([fa66617](https://github.com/clarity-llm-lang/clarity-compiler/commit/fa666172c43c1c629fcf7e302bf3c272a45d2a41))
+* Repair Codex-introduced bugs in runtime.ts and extend std/list aliases ([0e1867d](https://github.com/clarity-llm-lang/clarity-compiler/commit/0e1867dcbd01289772158b13756adeee9fa9ef79))
+
 ## [0.4.0](https://github.com/clarity-llm-lang/clarity-compiler/compare/clarity-lang-v0.3.0...clarity-lang-v0.4.0) (2026-02-21)
 
 
