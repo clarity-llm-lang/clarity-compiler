@@ -417,6 +417,13 @@ The effect system tracks **side effects** at the type level. A function that rea
 | `Log` | Logging output |
 | `FileSystem` | File reads and writes, stdin, command-line arguments, process control |
 | `Test` | Test assertions (used by the self-healing test system) |
+| `Model` | LLM completion via OpenAI-compatible or Anthropic API |
+| `Secret` | Read secrets from environment variables |
+| `MCP` | Connect to MCP tool servers and invoke tools |
+| `A2A` | Communicate with A2A-protocol agents |
+| `Trace` | Structured span tracing for observability |
+| `Persist` | Durable key-value checkpointing for resumable agents |
+| `Embed` | Text embedding and vector similarity (network I/O to embeddings API) |
 
 ### 6.3 Rules
 
@@ -1039,6 +1046,114 @@ Policy is configured entirely via environment variables — no code changes requ
 | `CLARITY_AUDIT_LOG` | Path to a JSONL file. Every network call appends: `{ timestamp, effect, op, url/tool/model, result, duration_ms }` |
 
 Policy enforcement is transparent — calls fail with descriptive `Err` messages when denied.
+
+---
+
+## 15. Agent Orchestration & RAG (v0.8)
+
+Clarity v0.8 adds three new effects and two standard library modules for building production agentic and retrieval-augmented-generation (RAG) workloads.
+
+### 15.1 Multi-Provider LLM Routing
+
+The `call_model` and `call_model_system` builtins automatically route to the correct provider based on the model name prefix:
+
+- Model names starting with `claude-` → Anthropic Messages API (`/v1/messages`). Set `ANTHROPIC_API_KEY` and optionally `ANTHROPIC_BASE_URL`.
+- All other model names → OpenAI-compatible endpoint (`/v1/chat/completions`). Set `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL`.
+
+No Clarity code change is required to switch providers — only the model name and env var change.
+
+### 15.2 Trace Effect
+
+Structured span tracing for observability. Spans are written to the audit log (`CLARITY_AUDIT_LOG`) with duration and inline events.
+
+```clarity
+trace_start(op: String) -> Int64        // start a span; returns span_id
+trace_end(span_id: Int64) -> Unit       // end span; compute and log duration
+trace_log(span_id: Int64, msg: String) -> Unit  // attach an event to an open span
+```
+
+```clarity
+module Main
+
+effect[Trace, Model] function run() -> Unit {
+  let span = trace_start("llm-call");
+  trace_log(span, "sending prompt");
+  let res = call_model("gpt-4o", "hello");
+  trace_end(span)
+}
+```
+
+### 15.3 Persist Effect
+
+Durable key-value checkpointing backed by the filesystem. Checkpoint files are stored in `CLARITY_CHECKPOINT_DIR` (default `.clarity-checkpoints/`).
+
+```clarity
+checkpoint_save(key: String, value: String) -> Result<String, String>
+checkpoint_load(key: String) -> Option<String>
+checkpoint_delete(key: String) -> Unit
+```
+
+### 15.4 Embed Effect
+
+Text embedding and vector similarity for RAG pipelines. `embed_text` calls the configured embeddings API; `cosine_similarity` and `chunk_text` are pure (no network, no effect required).
+
+```clarity
+embed_text(text: String) -> Result<String, String>   // JSON float array; requires Embed
+cosine_similarity(a_json: String, b_json: String) -> Float64  // pure
+chunk_text(text: String, chunk_size: Int64) -> String         // pure; JSON string array
+embed_and_retrieve(query: String, chunks_json: String, top_k: Int64) -> Result<String, String>
+```
+
+Set `CLARITY_EMBED_MODEL` to choose the model (default `text-embedding-ada-002`).
+
+### 15.5 `std/agent` — Resumable Agent Loop
+
+```clarity
+import { run, resume, clear } from "std/agent"
+```
+
+- `run(key: String, initial: String, step: (String) -> String) -> Result<String, String>` — Start (or resume from checkpoint) an agent loop. Calls `step(state)` repeatedly, saving state to a checkpoint after each step. Terminates when the returned state JSON contains `"done":true`. Maximum 10 000 steps.
+- `resume(key: String, step: (String) -> String) -> Result<String, String>` — Resume from existing checkpoint; returns `Err` if no checkpoint exists.
+- `clear(key: String) -> Unit` — Delete the checkpoint for `key`.
+
+State convention: step functions receive and return JSON strings. Signal completion by including `"done":true` in the JSON:
+
+```clarity
+module Main
+import { run } from "std/agent"
+
+function my_step(state: String) -> String {
+  // parse state, do work, return next state
+  "{\"done\":true,\"result\":\"hello\"}"
+}
+
+effect[Persist] function main() -> Result<String, String> {
+  run("my-agent", "{}", my_step)
+}
+```
+
+### 15.6 `std/rag` — Retrieval-Augmented Generation
+
+```clarity
+import { retrieve, chunk, embed, similarity } from "std/rag"
+```
+
+- `retrieve(query: String, text: String, chunk_size: Int64, top_k: Int64) -> Result<String, String>` — Full RAG pipeline: split `text` into chunks, embed query and chunks, return top-k most relevant chunks as a JSON string array.
+- `chunk(text: String, chunk_size: Int64) -> String` — Split text; returns JSON string array (pure).
+- `embed(text: String) -> Result<String, String>` — Embed text; returns JSON float array.
+- `similarity(a_json: String, b_json: String) -> Float64` — Cosine similarity between two JSON float arrays (pure).
+
+```clarity
+module Main
+import { retrieve } from "std/rag"
+
+effect[Embed] function search(doc: String, query: String) -> String {
+  match retrieve(query, doc, 512, 3) {
+    Ok(chunks_json) -> chunks_json,
+    Err(msg) -> "Error: " ++ msg
+  }
+}
+```
 
 ---
 

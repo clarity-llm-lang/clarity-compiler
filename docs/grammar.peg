@@ -95,7 +95,8 @@ LineComment     <- '//' [^\n]*
 # type Name = ExistingType    (transparent — alias is interchangeable with underlying type)
 #
 # === Known Effects ===
-# DB, Network, Time, Random, Log, FileSystem, Test, Model, Secret, MCP, A2A
+# DB, Network, Time, Random, Log, FileSystem, Test,
+# Model, Secret, MCP, A2A, Trace, Persist, Embed
 #
 # === Built-in Functions (not part of grammar, but available in the environment) ===
 # I/O (FileSystem effect): read_line, read_all_stdin, read_file, write_file, get_args, exit
@@ -113,4 +114,9 @@ LineComment     <- '//' [^\n]*
 # Secret (Secret effect): get_secret
 # MCP (MCP effect): mcp_connect, mcp_list_tools, mcp_call_tool, mcp_disconnect
 # A2A (A2A effect): a2a_discover, a2a_submit, a2a_poll, a2a_cancel
+# Trace (Trace effect): trace_start, trace_end, trace_log
+# Persist (Persist effect): checkpoint_save, checkpoint_load, checkpoint_delete
+# Embed (Embed effect for network; pure for computation):
+#   embed_text, embed_and_retrieve  [Embed effect]
+#   cosine_similarity, chunk_text   [pure — no effect]
 # Policy (no effect): policy_is_url_allowed, policy_is_effect_allowed

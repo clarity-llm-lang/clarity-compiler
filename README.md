@@ -173,7 +173,8 @@ effect[DB] function good() -> String {
 }
 ```
 
-Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`
+Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`
 
 ---
 
@@ -351,9 +352,9 @@ clarity/
 
 ---
 
-## Current Status (v0.7)
+## Current Status (v0.8)
 
-**312 tests passing.**
+**339 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
@@ -384,14 +385,19 @@ clarity/
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit` (FileSystem effect)
 - Bytes and Timestamp runtime support
 - Multi-file programs with import/export and file-based module resolution
-- Standard library: `std/math`, `std/string`, `std/llm`, `std/mcp`
-- **LLM/AI interop**: `call_model`, `call_model_system`, `list_models` (Model effect); `get_secret` (Secret effect)
-- **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — OpenAI-compatible, works with Ollama/Groq via `OPENAI_BASE_URL`
+- Standard library: `std/math`, `std/string`, `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`
+- **Multi-provider LLM**: `claude-*` models route to Anthropic Messages API (`ANTHROPIC_API_KEY`); all others use OpenAI-compatible endpoint (`OPENAI_API_KEY` / `OPENAI_BASE_URL`)
+- **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — works with Ollama/Groq/Anthropic via env vars
 - **MCP interop**: `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect` (MCP effect); HTTP transport with JSON-RPC 2.0 + SSE
 - **`std/mcp`**: `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of`
 - **A2A interop**: `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel` (A2A effect); JSON-RPC 2.0 over HTTP (Google A2A protocol)
 - **`std/a2a`**: `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of`
-- **Policy + audit**: `CLARITY_ALLOW_HOSTS` (hostname glob allowlist), `CLARITY_DENY_EFFECTS` (block effect families), `CLARITY_AUDIT_LOG` (JSONL file); `policy_is_url_allowed`, `policy_is_effect_allowed` builtins for in-program checks
+- **Policy + audit**: `CLARITY_ALLOW_HOSTS` (hostname glob allowlist), `CLARITY_DENY_EFFECTS` (block effect families), `CLARITY_AUDIT_LOG` (JSONL file)
+- **Trace effect + observability**: `trace_start(op)`, `trace_end(span_id)`, `trace_log(span_id, msg)` — structured span tracing written to the audit log with duration and inline events
+- **Persist effect + checkpointing**: `checkpoint_save(key, value)`, `checkpoint_load(key)`, `checkpoint_delete(key)` — file-backed key-value store in `CLARITY_CHECKPOINT_DIR`; foundation for resumable agents
+- **Embed effect + vector search**: `embed_text(text)` (calls `/v1/embeddings`), `cosine_similarity(a_json, b_json)`, `chunk_text(text, size)`, `embed_and_retrieve(query, chunks_json, top_k)` — full RAG pipeline in builtins
+- **`std/agent`**: `run(key, initial, step_fn)` — resumable agent loop with automatic checkpointing; terminates when state JSON contains `"done":true`; `resume(key, step_fn)` continues from last checkpoint
+- **`std/rag`**: `retrieve(query, text, chunk_size, top_k)` — end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON
 - Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
 - String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
@@ -447,7 +453,7 @@ Make programs viable for real workloads.
 - ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
 - REPL / browser playground
 
-### Phase 6 — Native AI Interop Requirements (v0.7+) — IN PROGRESS
+### Phase 6 — Native AI Interop Requirements (v0.7) — DONE
 Make agent ecosystems and model APIs first-class language/runtime capabilities.
 - ~~New effects~~ (done — `Model`, `Secret`, `MCP`, `A2A` registered in the effect system)
 - ~~`std/llm` module~~ (done — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`)
@@ -456,6 +462,15 @@ Make agent ecosystems and model APIs first-class language/runtime capabilities.
 - ~~MCP support~~ (done — `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect`; HTTP transport with JSON-RPC 2.0 + SSE; `std/mcp` module)
 - ~~A2A support~~ (done — `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel`; JSON-RPC 2.0 over HTTP; `std/a2a` module with `is_done`, `is_failed`, `unwrap_output` helpers)
 - ~~Policy + audit~~ (done — `CLARITY_ALLOW_HOSTS` URL allowlist, `CLARITY_DENY_EFFECTS` effect deny list, `CLARITY_AUDIT_LOG` JSONL audit file; `policy_is_url_allowed`/`policy_is_effect_allowed` introspection builtins)
+
+### Phase 7 — Agent Orchestration & RAG (v0.8) — DONE
+Make Clarity viable for production agentic and retrieval-augmented-generation workloads.
+- ~~Multi-provider LLM~~ (done — `claude-*` routes to Anthropic Messages API, others to OpenAI-compatible)
+- ~~Trace effect~~ (done — `trace_start`, `trace_end`, `trace_log` for structured span tracing written to audit log)
+- ~~Persist effect~~ (done — `checkpoint_save`, `checkpoint_load`, `checkpoint_delete`; file-backed in `CLARITY_CHECKPOINT_DIR`)
+- ~~Embed effect~~ (done — `embed_text`, `cosine_similarity`, `chunk_text`, `embed_and_retrieve`)
+- ~~`std/agent` module~~ (done — resumable agent loop with automatic checkpointing; step function receives/returns JSON state)
+- ~~`std/rag` module~~ (done — `retrieve`, `chunk`, `embed`, `similarity`; end-to-end RAG pipeline)
 
 ---
 
