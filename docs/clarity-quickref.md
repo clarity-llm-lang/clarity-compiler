@@ -15,6 +15,9 @@ import { add, User } from "math"           // imports math.clarity from same dir
 import { abs, clamp } from "std/math"      // standard library import
 import { length, repeat } from "std/string"
 import { size, first, push } from "std/list"
+import { prompt, is_ok } from "std/llm"    // LLM interop
+import { connect, call_tool } from "std/mcp" // MCP tool servers
+import { submit, poll, is_done } from "std/a2a" // A2A agents
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
 export type Color = | Red | Green | Blue
 ```
@@ -51,7 +54,9 @@ function identity<T>(x: T) -> T { x }
 function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 ```
 
-Effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`
+**All known effects:**
+`DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
+`Model`, `Secret`, `MCP`, `A2A`
 
 ## Control flow — match only (no if/else, no loops)
 ```
@@ -67,6 +72,12 @@ match shape {
 // Option / Result
 match opt { Some(v) -> v, None -> 0 }
 match res { Ok(v) -> v, Err(e) -> 0 }
+
+// Pattern guards
+match n { x if x > 100 -> "large", x if x > 0 -> "small", _ -> "other" }
+
+// Range patterns (Int64, inclusive)
+match score { 90..100 -> "A", 80..89 -> "B", _ -> "F" }
 ```
 
 Use recursion instead of loops (tail calls are optimized to loops).
@@ -100,24 +111,86 @@ a + b                // last expression = return value
 | `exit(code)` | `Int64 -> Unit` | FileSystem |
 | `int_to_string(n)` | `Int64 -> String` | — |
 | `string_length(s)` | `String -> Int64` | — |
+| `substring(s, start, end)` | `String, Int64, Int64 -> String` | — |
+| `contains(s, sub)` | `String, String -> Bool` | — |
+| `index_of(s, sub)` | `String, String -> Int64` | — |
 | `char_code(s)` | `String -> Int64` | — |
 | `char_from_code(code)` | `Int64 -> String` | — |
 | `head(list)` | `List<T> -> T` | — |
 | `tail(list)` | `List<T> -> List<T>` | — |
 | `append(list, elem)` | `List<T>, T -> List<T>` | — |
 | `length(list)` | `List<T> -> Int64` | — |
+| `nth(list, index)` | `List<T>, Int64 -> T` | — |
+| `reverse(list)` | `List<T> -> List<T>` | — |
+| `concat(a, b)` | `List<T>, List<T> -> List<T>` | — |
+| `is_empty(list)` | `List<T> -> Bool` | — |
 | `map_new()` | `-> Map<K, V>` (annotate type) | — |
 | `map_get(m, key)` | `Map<K,V>, K -> Option<V>` | — |
 | `map_set(m, key, val)` | `Map<K,V>, K, V -> Map<K,V>` | — |
 | `map_remove(m, key)` | `Map<K,V>, K -> Map<K,V>` | — |
 | `map_has(m, key)` | `Map<K,V>, K -> Bool` | — |
-| `map_size(m)` | `Map<K,V> -> Int64` | — |
 | `map_keys(m)` | `Map<K,V> -> List<K>` | — |
-| `map_values(m)` | `Map<K,V> -> List<V>` | — |
 | `json_parse(s)` | `String -> Option<Map<String, String>>` | — |
 | `json_stringify(m)` | `Map<String, String> -> String` | — |
+| `now()` | `-> Timestamp` | Time |
+| `get_secret(name)` | `String -> Option<String>` | Secret |
 
-Run `npx clarityc introspect --builtins` for the full list (string ops, math, conversions, etc).
+## AI / Agent builtins
+
+### LLM (Model effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `call_model(model, prompt)` | `String, String -> Result<String, String>` | OpenAI-compatible |
+| `call_model_system(model, system, prompt)` | `String, String, String -> Result<String, String>` | With system prompt |
+| `list_models()` | `-> List<String>` | Lists provider models |
+
+Set `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` (works with Ollama, Groq, etc.).
+
+### MCP (MCP effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `mcp_connect(url)` | `String -> Result<Int64, String>` | Returns session handle |
+| `mcp_list_tools(session)` | `Int64 -> Result<String, String>` | JSON tool array |
+| `mcp_call_tool(session, tool, args_json)` | `Int64, String, String -> Result<String, String>` | `args_json` is a JSON object |
+| `mcp_disconnect(session)` | `Int64 -> Unit` | Release session |
+
+### A2A (A2A effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `a2a_discover(url)` | `String -> Result<String, String>` | Agent card JSON |
+| `a2a_submit(url, message)` | `String, String -> Result<String, String>` | Returns task_id |
+| `a2a_poll(url, task_id)` | `String, String -> Result<String, String>` | Status JSON |
+| `a2a_cancel(url, task_id)` | `String, String -> Result<String, String>` | Final status JSON |
+
+`a2a_poll` status JSON: `{ "id": "...", "status": "working|completed|failed|canceled", "output": "..." }`
+
+### Policy (no effect required)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `policy_is_url_allowed(url)` | `String -> Bool` | Check CLARITY_ALLOW_HOSTS |
+| `policy_is_effect_allowed(name)` | `String -> Bool` | Check CLARITY_DENY_EFFECTS |
+
+**Runtime policy env vars:**
+- `CLARITY_ALLOW_HOSTS` — comma-separated hostname globs (e.g. `api.openai.com,*.corp`). Empty = allow all.
+- `CLARITY_DENY_EFFECTS` — comma-separated effect names to block (e.g. `MCP,A2A`).
+- `CLARITY_AUDIT_LOG` — path to a JSONL file; every network call appends a structured audit entry.
+
+## Standard library modules
+
+| Module | Key functions |
+|--------|--------------|
+| `std/math` | `abs`, `min`, `max`, `clamp`, `sign`, `is_even`, `is_odd`, `square_root`, `power`, `floor_f`, `ceil_f` |
+| `std/string` | `length`, `has`, `find`, `strip`, `slice`, `at`, `split_by`, `is_blank`, `repeat`, `to_int`, `to_float` |
+| `std/list` | `size`, `first`, `rest`, `push`, `join`, `reversed`, `empty`, `get`, `set_at`, `map`, `filter`, `fold_left`, `fold_right`, `any`, `all`, `count_where`, `zip_with`, `flatten`, `take`, `drop`, `sum`, `product`, `range`, `replicate` |
+| `std/llm` | `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` |
+| `std/mcp` | `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of` |
+| `std/a2a` | `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of` |
+
+Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 
 ## What Clarity does NOT have
 No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions, no lambdas/closures (pass named functions only).

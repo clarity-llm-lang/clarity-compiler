@@ -94,6 +94,9 @@ LineComment     <- '//' [^\n]*
 # === Type Aliases ===
 # type Name = ExistingType    (transparent — alias is interchangeable with underlying type)
 #
+# === Known Effects ===
+# DB, Network, Time, Random, Log, FileSystem, Test, Model, Secret, MCP, A2A
+#
 # === Built-in Functions (not part of grammar, but available in the environment) ===
 # I/O (FileSystem effect): read_line, read_all_stdin, read_file, write_file, get_args, exit
 # Logging (Log effect): print_string, print_int, print_float, log_info, log_warn
@@ -104,5 +107,10 @@ LineComment     <- '//' [^\n]*
 # Maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
 # JSON: json_parse, json_stringify
 # Bytes: bytes_new, bytes_length, bytes_get, bytes_set, bytes_slice, bytes_concat, bytes_from_string, bytes_to_string
-# Timestamps (Time effect for now): now, timestamp_to_string, timestamp_to_int, timestamp_from_int, timestamp_add, timestamp_diff
+# Timestamps (Time effect): now, timestamp_to_string, timestamp_to_int, timestamp_from_int, timestamp_add, timestamp_diff
 # Tests (Test effect): assert_eq, assert_eq_float, assert_eq_string, assert_true, assert_false
+# Model (Model effect): call_model, call_model_system, list_models
+# Secret (Secret effect): get_secret
+# MCP (MCP effect): mcp_connect, mcp_list_tools, mcp_call_tool, mcp_disconnect
+# A2A (A2A effect): a2a_discover, a2a_submit, a2a_poll, a2a_cancel
+# Policy (no effect): policy_is_url_allowed, policy_is_effect_allowed
