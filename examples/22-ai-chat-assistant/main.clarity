@@ -1,6 +1,7 @@
 module Main
 
-import { chat, unwrap_or } from "std/llm"
+import { chat } from "std/llm"
+import { unwrap_or } from "std/result"
 
 // A persona-driven assistant using a system prompt.
 // Usage: clarityc run main.clarity -f run -a "Explain recursion in one sentence"

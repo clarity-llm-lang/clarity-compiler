@@ -1,6 +1,6 @@
 module Main
 
-import { discover, submit, poll, cancel, is_done, is_failed, unwrap_or, unwrap_output } from "std/a2a"
+import { discover, submit, poll, cancel, is_done, is_failed, unwrap_output } from "std/a2a"
 
 // Discover and print the agent card from a remote agent.
 // Usage: clarityc run main.clarity -f show_card -a "http://localhost:8080"

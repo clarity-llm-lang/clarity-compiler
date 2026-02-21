@@ -1,6 +1,7 @@
 module Main
 
-import { chat, is_ok, error_of, unwrap_or } from "std/llm"
+import { chat } from "std/llm"
+import { is_ok, error_of, unwrap_or } from "std/result"
 
 // Read text from stdin, send it to the LLM, and print a concise summary.
 // Usage: echo "long article..." | clarityc run main.clarity -f run

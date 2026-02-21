@@ -3222,10 +3222,11 @@ describe("std/llm module", () => {
     return dir;
   }
 
-  it("imports and compiles prompt, chat, unwrap_or from std/llm", async () => {
+  it("imports and compiles prompt, chat from std/llm with result helpers from std/result", async () => {
     const dir = setupLlmTest(`
       module Main
-      import { prompt, chat, unwrap_or, is_ok, error_of } from "std/llm"
+      import { prompt, chat } from "std/llm"
+      import { unwrap_or, is_ok, error_of } from "std/result"
 
       effect[Model] function ask_default() -> String {
         unwrap_or(prompt("Hello"), "error")
@@ -3243,7 +3244,7 @@ describe("std/llm module", () => {
   it("unwrap_or returns the fallback string without Model effect", async () => {
     const dir = setupLlmTest(`
       module Main
-      import { unwrap_or } from "std/llm"
+      import { unwrap_or } from "std/result"
 
       function fallback_test() -> String {
         unwrap_or(Err("failed"), "default_value")
@@ -3259,7 +3260,7 @@ describe("std/llm module", () => {
   it("is_ok and error_of work on Ok and Err values", async () => {
     const dir = setupLlmTest(`
       module Main
-      import { is_ok, error_of } from "std/llm"
+      import { is_ok, error_of } from "std/result"
 
       function test_ok() -> Bool { is_ok(Ok("great")) }
       function test_err_is_not_ok() -> Bool { is_ok(Err("oops")) }
@@ -3393,7 +3394,8 @@ describe("std/mcp module", () => {
   it("imports and compiles connect, call_tool, disconnect from std/mcp", async () => {
     const dir = setupMcpTest(`
       module Main
-      import { connect, call_tool, disconnect, unwrap_or } from "std/mcp"
+      import { connect, call_tool, disconnect } from "std/mcp"
+      import { unwrap_or } from "std/result"
 
       effect[MCP] function run() -> String {
         match connect("http://localhost:9999/mcp") {
@@ -3413,7 +3415,7 @@ describe("std/mcp module", () => {
   it("unwrap_or and is_ok work on Result<String, String>", async () => {
     const dir = setupMcpTest(`
       module Main
-      import { unwrap_or, is_ok, error_of } from "std/mcp"
+      import { unwrap_or, is_ok, error_of } from "std/result"
 
       function test_ok() -> Bool { is_ok(Ok("great")) }
       function test_err() -> Bool { is_ok(Err("oops")) }
@@ -3539,7 +3541,8 @@ describe("std/a2a module", () => {
   it("imports and compiles discover, submit, poll, cancel from std/a2a", async () => {
     const dir = setupA2aTest(`
       module Main
-      import { discover, submit, poll, cancel, unwrap_or } from "std/a2a"
+      import { discover, submit, poll, cancel } from "std/a2a"
+      import { unwrap_or } from "std/result"
 
       effect[A2A] function run(url: String) -> String {
         match submit(url, "hello") {
@@ -3577,7 +3580,7 @@ describe("std/a2a module", () => {
   it("unwrap_or and error_of work on Result<String, String>", async () => {
     const dir = setupA2aTest(`
       module Main
-      import { unwrap_or, is_ok, error_of } from "std/a2a"
+      import { unwrap_or, is_ok, error_of } from "std/result"
 
       function test_ok() -> Bool { is_ok(Ok("yep")) }
       function test_err() -> Bool { is_ok(Err("nope")) }

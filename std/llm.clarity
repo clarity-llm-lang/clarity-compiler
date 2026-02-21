@@ -45,24 +45,3 @@ export effect[Model] function prompt_with_system(system: String, user: String) -
   call_model_system(default_model(), system, user)
 }
 
-// Result helpers — also available standalone via `import { unwrap_or } from "std/result"`.
-export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
-  match result {
-    Ok(text) -> text,
-    Err(_) -> fallback
-  }
-}
-
-export function is_ok(result: Result<String, String>) -> Bool {
-  match result {
-    Ok(_) -> True,
-    Err(_) -> False
-  }
-}
-
-export function error_of(result: Result<String, String>) -> String {
-  match result {
-    Ok(_) -> "",
-    Err(msg) -> msg
-  }
-}
