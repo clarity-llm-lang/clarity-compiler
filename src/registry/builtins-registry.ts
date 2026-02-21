@@ -1198,6 +1198,26 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Cancel a running A2A task. Returns Ok(status_json) with the final task state, or Err if the task could not be cancelled (e.g. already completed).",
     category: "a2a",
   },
+
+  // --- Policy introspection (no effect required) ---
+  {
+    name: "policy_is_url_allowed",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if the given URL is permitted by the runtime policy allowlist (CLARITY_ALLOW_HOSTS env var). Returns True when no allowlist is configured. Use this to proactively check access before connecting. Example: policy_is_url_allowed(\"http://api.example.com\").",
+    category: "policy",
+  },
+  {
+    name: "policy_is_effect_allowed",
+    params: [STRING],
+    paramNames: ["effect_name"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Return True if the given effect family is not blocked by the policy deny list (CLARITY_DENY_EFFECTS env var). Returns True when no deny list is configured. Example: policy_is_effect_allowed(\"MCP\").",
+    category: "policy",
+  },
 ];
 
 // -----------------------------------------------------------------------------

@@ -348,7 +348,7 @@ clarity/
 
 ## Current Status (v0.7)
 
-**292 tests passing.**
+**312 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
@@ -386,6 +386,7 @@ clarity/
 - **`std/mcp`**: `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of`
 - **A2A interop**: `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel` (A2A effect); JSON-RPC 2.0 over HTTP (Google A2A protocol)
 - **`std/a2a`**: `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of`
+- **Policy + audit**: `CLARITY_ALLOW_HOSTS` (hostname glob allowlist), `CLARITY_DENY_EFFECTS` (block effect families), `CLARITY_AUDIT_LOG` (JSONL file); `policy_is_url_allowed`, `policy_is_effect_allowed` builtins for in-program checks
 - Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
 - String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
@@ -449,7 +450,7 @@ Make agent ecosystems and model APIs first-class language/runtime capabilities.
 - ~~Secret builtin~~ (done — `get_secret(name) -> Option<String>` reads from environment; requires Secret effect)
 - ~~MCP support~~ (done — `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect`; HTTP transport with JSON-RPC 2.0 + SSE; `std/mcp` module)
 - ~~A2A support~~ (done — `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel`; JSON-RPC 2.0 over HTTP; `std/a2a` module with `is_done`, `is_failed`, `unwrap_output` helpers)
-- Policy + audit — endpoint allowlists, effect-family deny, structured audit logs
+- ~~Policy + audit~~ (done — `CLARITY_ALLOW_HOSTS` URL allowlist, `CLARITY_DENY_EFFECTS` effect deny list, `CLARITY_AUDIT_LOG` JSONL audit file; `policy_is_url_allowed`/`policy_is_effect_allowed` introspection builtins)
 
 ---
 

@@ -2340,6 +2340,9 @@ export class CodeGenerator {
       a2a_submit: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       a2a_poll: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       a2a_cancel: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      // Policy
+      policy_is_url_allowed: BOOL,
+      policy_is_effect_allowed: BOOL,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

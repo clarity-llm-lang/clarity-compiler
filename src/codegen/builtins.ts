@@ -197,6 +197,12 @@ export function getBuiltins(): BuiltinDef[] {
     // a2a_cancel(url, task_id) → Result<String, String> as i32 pointer
     { name: "a2a_cancel", importModule: "env", importName: "a2a_cancel", params: pair_i32, result: i32 },
 
+    // --- Policy introspection ---
+    // policy_is_url_allowed(url) → Bool (i32: 1=allowed, 0=denied)
+    { name: "policy_is_url_allowed", importModule: "env", importName: "policy_is_url_allowed", params: i32, result: i32 },
+    // policy_is_effect_allowed(effect_name) → Bool (i32: 1=allowed, 0=denied)
+    { name: "policy_is_effect_allowed", importModule: "env", importName: "policy_is_effect_allowed", params: i32, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },
