@@ -1,6 +1,6 @@
 {
   "name": "clarity-lang",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Clarity - a programming language optimized for LLM code generation, compiling to WASM",
   "type": "module",
   "bin": {
