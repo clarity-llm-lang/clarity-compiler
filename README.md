@@ -266,7 +266,12 @@ npx clarityc run myfile.clarity -f function_name -a arg1 arg2
 ### Compile and start in Clarity Runtime
 ```bash
 npx clarityc start myfile.clarity --daemon-url http://localhost:4707
+npx clarityc start myfile.clarity --daemon-url http://localhost:4707 --auth-token your-token
+npx clarityc start myfile.clarity --service-type agent --agent-role planner --agent-objective "Plan task execution"
 ```
+
+`clarityc start` delegates to `clarityctl add` so runtime onboarding behavior stays consistent with the runtime project.
+When `--service-type agent` is used, `--agent-role` and `--agent-objective` are required and forwarded to runtime agent metadata.
 
 ### Run inline tests (self-healing test runner)
 ```bash
