@@ -50,13 +50,16 @@ describe("builtins registry", () => {
     expect(effectNames).toContain("Secret");
     expect(effectNames).toContain("MCP");
     expect(effectNames).toContain("A2A");
-    expect(effectNames).toHaveLength(11);
+    expect(effectNames).toContain("Trace");
+    expect(effectNames).toContain("Persist");
+    expect(effectNames).toContain("Embed");
+    expect(effectNames).toHaveLength(14);
   });
 
   it("getKnownEffectNames returns a Set of all effect names", () => {
     const names = getKnownEffectNames();
     expect(names).toBeInstanceOf(Set);
-    expect(names.size).toBe(11);
+    expect(names.size).toBe(14);
     expect(names.has("FileSystem")).toBe(true);
   });
 

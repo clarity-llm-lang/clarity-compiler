@@ -2344,6 +2344,19 @@ export class CodeGenerator {
       // Policy
       policy_is_url_allowed: BOOL,
       policy_is_effect_allowed: BOOL,
+      // Trace
+      trace_start: INT64,
+      trace_end: UNIT,
+      trace_log: UNIT,
+      // Persist
+      checkpoint_save: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      checkpoint_load: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      checkpoint_delete: UNIT,
+      // Embed
+      embed_text: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      cosine_similarity: FLOAT64,
+      chunk_text: { kind: "String" } as ClarityType,
+      embed_and_retrieve: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;
