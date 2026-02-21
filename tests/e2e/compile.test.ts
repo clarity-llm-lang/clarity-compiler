@@ -3924,3 +3924,389 @@ describe("std/result module", () => {
     expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("oops");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Trace builtins
+// ---------------------------------------------------------------------------
+describe("Trace builtins (trace_start, trace_end, trace_log)", () => {
+  it("trace_start compiles with Trace effect annotation", () => {
+    const src = `
+      module Test
+      effect[Trace] function begin(op: String) -> Int64 { trace_start(op) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("trace_start returns a positive span ID", async () => {
+    const src = `
+      module Test
+      effect[Trace] function start_span() -> Int64 { trace_start("test-op") }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+    const id = (instance.exports.start_span as () => bigint)();
+    expect(id > 0n).toBe(true);
+  });
+
+  it("trace_end compiles and runs without error", async () => {
+    const src = `
+      module Test
+      effect[Trace] function run_span() -> Int64 {
+        let id = trace_start("op");
+        trace_log(id, "working");
+        trace_end(id);
+        id
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+    const id = (instance.exports.run_span as () => bigint)();
+    expect(id > 0n).toBe(true);
+  });
+
+  it("rejects trace_start without Trace effect", () => {
+    const src = `
+      module Test
+      function bad(op: String) -> Int64 { trace_start(op) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Trace");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persist builtins
+// ---------------------------------------------------------------------------
+describe("Persist builtins (checkpoint_save, checkpoint_load, checkpoint_delete)", () => {
+  it("checkpoint_save compiles with Persist effect", () => {
+    const src = `
+      module Test
+      effect[Persist] function save(k: String, v: String) -> Result<String, String> {
+        checkpoint_save(k, v)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("checkpoint_load returns None for an unknown key", async () => {
+    const src = `
+      module Test
+      effect[Persist] function load(k: String) -> Bool {
+        match checkpoint_load(k) {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-"));
+    const { instance, runtime } = await instantiate(result.wasm!, {});
+    process.env.CLARITY_CHECKPOINT_DIR = dir;
+    const ptr = runtime.writeString("nonexistent-key-xyz");
+    const res = (instance.exports.load as (p: number) => number)(ptr);
+    expect(res).toBe(0); // None = 0
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+  });
+
+  it("checkpoint_save then checkpoint_load returns Some(value)", async () => {
+    const src = `
+      module Test
+      effect[Persist] function roundtrip(k: String, v: String) -> String {
+        let _ = checkpoint_save(k, v);
+        match checkpoint_load(k) {
+          Some(s) -> s,
+          None -> "missing"
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-"));
+    process.env.CLARITY_CHECKPOINT_DIR = dir;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const kPtr = runtime.writeString("my-key");
+    const vPtr = runtime.writeString("hello-world");
+    const resPtr = (instance.exports.roundtrip as (k: number, v: number) => number)(kPtr, vPtr);
+    expect(runtime.readString(resPtr)).toBe("hello-world");
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+  });
+
+  it("checkpoint_delete removes a saved checkpoint", async () => {
+    const src = `
+      module Test
+      effect[Persist] function test_delete(k: String, v: String) -> Bool {
+        let _ = checkpoint_save(k, v);
+        checkpoint_delete(k);
+        match checkpoint_load(k) {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-"));
+    process.env.CLARITY_CHECKPOINT_DIR = dir;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const kPtr = runtime.writeString("del-key");
+    const vPtr = runtime.writeString("val");
+    const res = (instance.exports.test_delete as (k: number, v: number) => number)(kPtr, vPtr);
+    expect(res).toBe(0); // None after delete
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+  });
+
+  it("rejects checkpoint_save without Persist effect", () => {
+    const src = `
+      module Test
+      function bad(k: String, v: String) -> Result<String, String> {
+        checkpoint_save(k, v)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Persist");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Embed builtins
+// ---------------------------------------------------------------------------
+describe("Embed builtins (embed_text, cosine_similarity, chunk_text, embed_and_retrieve)", () => {
+  it("chunk_text splits text into correct chunks (pure, no effect)", async () => {
+    const src = `
+      module Test
+      function do_chunk(text: String, size: Int64) -> String {
+        chunk_text(text, size)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const tPtr = runtime.writeString("abcdefgh");
+    const resPtr = (instance.exports.do_chunk as (t: number, s: bigint) => number)(tPtr, 3n);
+    const json = runtime.readString(resPtr);
+    expect(JSON.parse(json)).toEqual(["abc", "def", "gh"]);
+  });
+
+  it("cosine_similarity of identical vectors is 1.0 (pure, no effect)", async () => {
+    const src = `
+      module Test
+      function sim(a: String, b: String) -> Float64 { cosine_similarity(a, b) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const v = JSON.stringify([1.0, 0.0, 0.0]);
+    const aPtr = runtime.writeString(v);
+    const bPtr = runtime.writeString(v);
+    const sim = (instance.exports.sim as (a: number, b: number) => number)(aPtr, bPtr);
+    expect(Math.abs(sim - 1.0)).toBeLessThan(1e-6);
+  });
+
+  it("cosine_similarity of orthogonal vectors is 0.0", async () => {
+    const src = `
+      module Test
+      function sim(a: String, b: String) -> Float64 { cosine_similarity(a, b) }
+    `;
+    const result = compile(src, "test.clarity");
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const aPtr = runtime.writeString(JSON.stringify([1.0, 0.0]));
+    const bPtr = runtime.writeString(JSON.stringify([0.0, 1.0]));
+    const sim = (instance.exports.sim as (a: number, b: number) => number)(aPtr, bPtr);
+    expect(Math.abs(sim)).toBeLessThan(1e-6);
+  });
+
+  it("embed_text compiles with Embed effect annotation", () => {
+    const src = `
+      module Test
+      effect[Embed] function get_vec(text: String) -> Result<String, String> {
+        embed_text(text)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("embed_text returns Err when API key is not set", async () => {
+    const src = `
+      module Test
+      effect[Embed] function get_vec(text: String) -> Result<String, String> {
+        embed_text(text)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    delete process.env.OPENAI_API_KEY;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const tPtr = runtime.writeString("hello");
+    const resPtr = (instance.exports.get_vec as (p: number) => number)(tPtr);
+    // Result is a tagged union: tag 0 = Ok, tag 1 = Err
+    const view = new DataView((runtime.memory as WebAssembly.Memory).buffer);
+    const tag = view.getInt32(resPtr, true);
+    expect(tag).toBe(1); // Err
+  });
+
+  it("embed_and_retrieve compiles with Embed effect", () => {
+    const src = `
+      module Test
+      effect[Embed] function search(q: String, corpus: String, k: Int64) -> Result<String, String> {
+        embed_and_retrieve(q, corpus, k)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects embed_text without Embed effect", () => {
+    const src = `
+      module Test
+      function bad(text: String) -> Result<String, String> { embed_text(text) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Embed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-provider (Anthropic routing)
+// ---------------------------------------------------------------------------
+describe("Multi-provider LLM routing", () => {
+  it("call_model with claude- prefix compiles and returns Err when key is absent", async () => {
+    const src = `
+      module Test
+      effect[Model] function ask(model: String, prompt: String) -> Result<String, String> {
+        call_model(model, prompt)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const mPtr = runtime.writeString("claude-3-haiku-20240307");
+    const pPtr = runtime.writeString("hello");
+    const resPtr = (instance.exports.ask as (m: number, p: number) => number)(mPtr, pPtr);
+    // Expect an Err result (tag = 1, since tag 0 = Ok, tag 1 = Err)
+    const view = new DataView((runtime.memory as WebAssembly.Memory).buffer);
+    const tag = view.getInt32(resPtr, true);
+    expect(tag).toBe(1); // Err — no ANTHROPIC_API_KEY
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/agent module
+// ---------------------------------------------------------------------------
+describe("std/agent module", () => {
+  function setupAgentTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-agent-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "agent.clarity");
+    return dir;
+  }
+
+  it("imports and compiles run, resume, clear from std/agent", () => {
+    const dir = setupAgentTest(`
+      module Main
+      import { run, resume, clear } from "std/agent"
+      effect[Persist] function go(k: String, s: String) -> Result<String, String> {
+        run(k, s, identity_step)
+      }
+      function identity_step(state: String) -> String {
+        "{\\"done\\":true}"
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("run completes immediately when step returns done:true", async () => {
+    const dir = setupAgentTest(`
+      module Main
+      import { run, clear } from "std/agent"
+      function done_step(state: String) -> String { "{\\"done\\":true,\\"result\\":\\"ok\\"}" }
+      effect[Persist] function go(k: String) -> Result<String, String> {
+        run(k, "{}", done_step)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const ckptDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-"));
+    process.env.CLARITY_CHECKPOINT_DIR = ckptDir;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const kPtr = runtime.writeString("test-agent");
+    const resPtr = (instance.exports.go as (k: number) => number)(kPtr);
+    // tag 0 = Ok, tag 1 = Err
+    const view = new DataView((runtime.memory as WebAssembly.Memory).buffer);
+    const tag = view.getInt32(resPtr, true);
+    expect(tag).toBe(0); // Ok — agent completed
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/rag module
+// ---------------------------------------------------------------------------
+describe("std/rag module", () => {
+  function setupRagTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-rag-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "rag.clarity");
+    return dir;
+  }
+
+  it("imports and compiles retrieve, chunk, embed, similarity from std/rag", () => {
+    const dir = setupRagTest(`
+      module Main
+      import { retrieve, chunk, embed, similarity } from "std/rag"
+      function do_chunk(text: String) -> String { chunk(text, 100) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("chunk splits text correctly via std/rag", async () => {
+    const dir = setupRagTest(`
+      module Main
+      import { chunk } from "std/rag"
+      function do_chunk(text: String, size: Int64) -> String { chunk(text, size) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const tPtr = runtime.writeString("hello world!");
+    const resPtr = (instance.exports.do_chunk as (t: number, s: bigint) => number)(tPtr, 5n);
+    const chunks = JSON.parse(runtime.readString(resPtr)) as string[];
+    expect(chunks[0]).toBe("hello");
+    expect(chunks[1]).toBe(" worl");
+    expect(chunks[2]).toBe("d!");
+  });
+
+  it("similarity returns 1.0 for identical vectors via std/rag", async () => {
+    const dir = setupRagTest(`
+      module Main
+      import { similarity } from "std/rag"
+      function sim(a: String, b: String) -> Float64 { similarity(a, b) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const v = JSON.stringify([0.6, 0.8]);
+    const aPtr = runtime.writeString(v);
+    const bPtr = runtime.writeString(v);
+    const sim = (instance.exports.sim as (a: number, b: number) => number)(aPtr, bPtr);
+    expect(Math.abs(sim - 1.0)).toBeLessThan(1e-6);
+  });
+});

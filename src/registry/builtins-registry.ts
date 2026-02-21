@@ -70,6 +70,9 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
   { name: "Secret", description: "Read named secrets from environment variables. Prevents secrets from appearing in source code." },
   { name: "MCP", description: "Model Context Protocol — connect to MCP servers, list tools, and call tools via stdio or HTTP." },
   { name: "A2A", description: "Agent-to-Agent protocol — discover agents, submit tasks, poll status, and cancel tasks." },
+  { name: "Trace", description: "Structured span tracing — start/end named spans and log events within them. Spans are written to the audit log with timing and event lists." },
+  { name: "Persist", description: "Durable key-value checkpointing backed by the local filesystem (CLARITY_CHECKPOINT_DIR). Used to save and resume agent state across restarts." },
+  { name: "Embed", description: "Text embedding and vector retrieval — call an embedding model and perform cosine-similarity search over a corpus. Requires OPENAI_API_KEY (or compatible)." },
 ];
 
 // -----------------------------------------------------------------------------
@@ -1214,6 +1217,102 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: ["A2A"],
     doc: "Cancel a running A2A task. Returns Ok(status_json) with the final task state, or Err if the task could not be cancelled (e.g. already completed).",
     category: "a2a",
+  },
+
+  // --- Trace operations (require Trace effect) ---
+  {
+    name: "trace_start",
+    params: [STRING],
+    paramNames: ["op"],
+    returnType: INT64,
+    effects: ["Trace"],
+    doc: "Start a new trace span with the given operation name. Returns an opaque span ID (Int64) that must be passed to trace_end and trace_log. Example: let id = trace_start(\"embed_query\").",
+    category: "trace",
+  },
+  {
+    name: "trace_end",
+    params: [INT64],
+    paramNames: ["span_id"],
+    returnType: UNIT,
+    effects: ["Trace"],
+    doc: "End the span identified by span_id and flush it to the audit log (CLARITY_AUDIT_LOG) with its duration and any logged events. Calling trace_end on an unknown span is a no-op.",
+    category: "trace",
+  },
+  {
+    name: "trace_log",
+    params: [INT64, STRING],
+    paramNames: ["span_id", "message"],
+    returnType: UNIT,
+    effects: ["Trace"],
+    doc: "Append a timestamped message to the span identified by span_id. Messages appear in the audit log entry when trace_end is called. Example: trace_log(id, \"retrieved 5 chunks\").",
+    category: "trace",
+  },
+
+  // --- Persist operations (require Persist effect) ---
+  {
+    name: "checkpoint_save",
+    params: [STRING, STRING],
+    paramNames: ["key", "value"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Persist"],
+    doc: "Save a string value under the given key. The value is written to CLARITY_CHECKPOINT_DIR (default .clarity-checkpoints/). Returns Ok(\"\") on success or Err(message) on failure. Example: checkpoint_save(\"agent/step\", state_json).",
+    category: "persist",
+  },
+  {
+    name: "checkpoint_load",
+    params: [STRING],
+    paramNames: ["key"],
+    returnType: OPTION_STRING,
+    effects: ["Persist"],
+    doc: "Load a previously saved checkpoint by key. Returns Some(value) if the key exists, None if it has never been saved or was deleted. Example: let saved = checkpoint_load(\"agent/step\").",
+    category: "persist",
+  },
+  {
+    name: "checkpoint_delete",
+    params: [STRING],
+    paramNames: ["key"],
+    returnType: UNIT,
+    effects: ["Persist"],
+    doc: "Delete the checkpoint stored under the given key. Safe to call if the key does not exist. Example: checkpoint_delete(\"agent/step\").",
+    category: "persist",
+  },
+
+  // --- Embed operations (require Embed effect, except pure computation builtins) ---
+  {
+    name: "embed_text",
+    params: [STRING],
+    paramNames: ["text"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Embed"],
+    doc: "Embed a text string using the configured embedding model (CLARITY_EMBED_MODEL, default text-embedding-ada-002) via OPENAI_BASE_URL/v1/embeddings. Returns Ok(json_float_array) or Err(message). The JSON array can be passed to cosine_similarity or embed_and_retrieve.",
+    category: "embed",
+  },
+  {
+    name: "cosine_similarity",
+    params: [STRING, STRING],
+    paramNames: ["a_json", "b_json"],
+    returnType: FLOAT64,
+    effects: [],
+    doc: "Compute the cosine similarity between two embedding vectors represented as JSON float arrays (as returned by embed_text). Returns a value in [0.0, 1.0]. Pure computation — no network call. Example: cosine_similarity(vec_a, vec_b).",
+    category: "embed",
+  },
+  {
+    name: "chunk_text",
+    params: [STRING, INT64],
+    paramNames: ["text", "chunk_size"],
+    returnType: STRING,
+    effects: [],
+    doc: "Split text into non-overlapping chunks of approximately chunk_size characters. Returns a JSON array of strings. Pure computation. Example: chunk_text(document, 512).",
+    category: "embed",
+  },
+  {
+    name: "embed_and_retrieve",
+    params: [STRING, STRING, INT64],
+    paramNames: ["query", "chunks_json", "top_k"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Embed"],
+    doc: "Embed the query and all chunks in chunks_json (a JSON string array), rank chunks by cosine similarity to the query, and return the top_k most relevant chunks as a JSON string array. Example: embed_and_retrieve(query, chunk_text(doc, 512), 5).",
+    category: "embed",
   },
 
   // --- Policy introspection (no effect required) ---

@@ -312,9 +312,21 @@ Make programs viable beyond demos.
 2. ✓ **`std/llm` module** — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`. OpenAI-compatible adapter with `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars (works with Ollama, Groq, etc.).
 3. ✓ **LLM builtins** — `call_model(model, prompt)`, `call_model_system(model, system, prompt)`, `list_models()`. All return `Result<String, String>`.
 4. ✓ **Secret builtin** — `get_secret(name)` reads from environment, returns `Option<String>`. Requires `Secret` effect.
-5. **MCP support** — stdio/http session connect, tool list/read/call primitives.
-6. **A2A support** — Discovery plus task submit/poll/cancel lifecycle.
-7. **Policy + audit** — Endpoint allowlists, effect-family deny support, structured interop audit logs.
+5. ✓ **MCP support** — `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect`. HTTP session registry with JSON-RPC and SSE handling. Wrapped in `std/mcp`.
+6. ✓ **A2A support** — `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel`. Discover agents, submit tasks, poll status. Wrapped in `std/a2a`.
+7. ✓ **Policy + audit** — `CLARITY_ALLOW_HOSTS` URL allowlist, `CLARITY_DENY_EFFECTS` deny list, `CLARITY_AUDIT_LOG` JSONL structured audit log.
+
+### Phase 7 — Agent Orchestration & RAG (v0.8+)
+Make Clarity viable for production agentic and retrieval-augmented-generation workloads.
+
+1. ✓ **Multi-provider LLM** — Auto-detect provider from model name prefix. `claude-*` routes to Anthropic Messages API (`ANTHROPIC_API_KEY`, `/v1/messages`); everything else routes to OpenAI-compatible endpoint. No Clarity API change required.
+2. ✓ **`Trace` effect + observability** — `trace_start(op)` / `trace_end(id)` / `trace_log(id, msg)` builtins for structured span tracing. Spans are written to the audit log with duration, op name, and inline events.
+3. ✓ **`Persist` effect + checkpointing** — `checkpoint_save(key, value)`, `checkpoint_load(key)`, `checkpoint_delete(key)`. File-backed checkpoints in `CLARITY_CHECKPOINT_DIR` (default `.clarity-checkpoints/`). Foundation for resumable agent runs.
+4. ✓ **`Embed` effect + vector search** — `embed_text(text)` calls `/v1/embeddings`, returns JSON float array. `cosine_similarity(a, b)` for pure similarity computation. `chunk_text(text, size)` splits text into JSON chunk array. `embed_and_retrieve(query, chunks_json, top_k)` does full retrieval in one call.
+5. ✓ **`std/agent` module** — `run(key, initial, step_fn)` runs an agent loop with automatic checkpointing and resume. `resume(key, step_fn)` continues from last checkpoint. Step functions receive/return state as JSON strings; loop terminates when state contains `"done":true`.
+6. ✓ **`std/rag` module** — `retrieve(query, text, chunk_size, top_k)` does end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON. `embed(text)` and `similarity(a, b)` for lower-level use.
+7. **Streaming support** — Token-by-token streaming from model calls. Architecturally constrained by synchronous WASM imports; requires a callback/channel primitive or async WASM component model. Deferred.
+8. **HITL (`HumanInLoop` effect)** — Pause agent execution and emit a prompt to a human operator; resume when a response arrives. Requires a durable suspension mechanism. Deferred.
 
 - No lambdas or closures — pass named functions only
 - No automatic garbage collection — free-list allocator helps but programs that allocate unboundedly will exhaust memory

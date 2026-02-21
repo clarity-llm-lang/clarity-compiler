@@ -1,0 +1,92 @@
+// std/agent — Agent orchestration framework for Clarity
+//
+// Provides a resumable agent loop built on the Persist effect.
+// The loop runs a caller-supplied step function repeatedly, checkpointing
+// state after each step so that a crash or restart can resume from where
+// it left off.
+//
+// State convention
+// ----------------
+// State is passed as a JSON string between steps. The loop terminates when
+// the state string contains the literal substring `"done":true`. Embed that
+// key in your state JSON to signal completion:
+//
+//   { "done": true, "result": "..." }
+//
+// Usage
+// -----
+//   import { run, resume, clear } from "std/agent"
+//
+//   function my_step(state: String) -> String {
+//     // parse state, do work, return next state
+//     "{\"done\":true,\"result\":\"hello\"}"
+//   }
+//
+//   effect[Persist] function main() -> Result<String, String> {
+//     run("my-agent", "{}", my_step)
+//   }
+//
+// Environment variables
+// ---------------------
+//   CLARITY_CHECKPOINT_DIR  — directory for checkpoint files (default .clarity-checkpoints/)
+
+module Agent
+
+// Run an agent loop from scratch (or resume if a checkpoint already exists).
+// key         — unique name for this agent run; used as the checkpoint key
+// initial     — initial state JSON string (used only when no checkpoint exists)
+// step        — function that receives current state and returns next state
+// Returns Ok(final_state) when state contains "done":true, or Err on failure.
+export effect[Persist] function run(
+  key: String,
+  initial: String,
+  step: (String) -> String
+) -> Result<String, String> {
+  let start_state = match checkpoint_load(key) {
+    Some(saved) -> saved,
+    None -> initial
+  };
+  agent_loop(key, start_state, step, 0)
+}
+
+// Resume an agent that was previously started with run().
+// Returns Err if no checkpoint exists for the given key.
+export effect[Persist] function resume(
+  key: String,
+  step: (String) -> String
+) -> Result<String, String> {
+  match checkpoint_load(key) {
+    Some(saved) -> agent_loop(key, saved, step, 0),
+    None -> Err("No checkpoint found for: " ++ key)
+  }
+}
+
+// Delete a checkpoint (call after the agent has finished or been abandoned).
+export effect[Persist] function clear(key: String) -> Unit {
+  checkpoint_delete(key)
+}
+
+// Internal: recursive step loop with safety cap of 10 000 iterations.
+effect[Persist] function agent_loop(
+  key: String,
+  state: String,
+  step: (String) -> String,
+  n: Int64
+) -> Result<String, String> {
+  match n >= 10000 {
+    True -> Err("Agent exceeded maximum steps (10000)"),
+    False -> {
+      let next = step(state);
+      match checkpoint_save(key, next) {
+        Err(e) -> Err("Checkpoint failed: " ++ e),
+        Ok(_) -> match contains(next, "\"done\":true") {
+          True -> {
+            checkpoint_delete(key);
+            Ok(next)
+          },
+          False -> agent_loop(key, next, step, n + 1)
+        }
+      }
+    }
+  }
+}

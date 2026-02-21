@@ -344,6 +344,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
   const mapTable = new Map<number, Map<string | bigint, number | bigint>>();
   let nextMapHandle = 1;
 
+  // Trace span table: spanId → { op, startMs, events[] }
+  const spanTable = new Map<number, { op: string; start: number; events: string[] }>();
+  let nextSpanId = 1;
+
   // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
   function allocOptionI32(value: number | null): number {
     const ptr = alloc(8);
@@ -1457,24 +1461,17 @@ export function createRuntime(config: RuntimeConfig = {}) {
       },
 
       // --- Model operations ---
-      // Calls an OpenAI-compatible chat completions endpoint.
-      // Reads OPENAI_API_KEY and OPENAI_BASE_URL from the environment.
+      // Calls the appropriate LLM provider based on the model name prefix.
+      // claude-* → Anthropic Messages API (ANTHROPIC_API_KEY)
+      // everything else → OpenAI-compatible (OPENAI_API_KEY / OPENAI_BASE_URL)
       // Returns Result<String, String>: Ok(response_text) or Err(message).
       call_model(modelPtr: number, promptPtr: number): number {
         const model = readString(modelPtr);
         const prompt = readString(promptPtr);
         const effectErr = policyCheckEffect("Model");
         if (effectErr) { audit({ effect: "Model", op: "call_model", model, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
-        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
-        const urlErr = policyCheckUrl(`${baseUrl}/v1/chat/completions`);
-        if (urlErr) { audit({ effect: "Model", op: "call_model", model, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
         const t0 = Date.now();
-        const body = JSON.stringify({
-          model,
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 4096,
-        });
-        const result = callOpenAI(body);
+        const result = callLLM(model, [{ role: "user", content: prompt }]);
         audit({ effect: "Model", op: "call_model", model, result: "ok", duration_ms: Date.now() - t0 });
         return result;
       },
@@ -1485,19 +1482,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const prompt = readString(promptPtr);
         const effectErr = policyCheckEffect("Model");
         if (effectErr) { audit({ effect: "Model", op: "call_model_system", model, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
-        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
-        const urlErr = policyCheckUrl(`${baseUrl}/v1/chat/completions`);
-        if (urlErr) { audit({ effect: "Model", op: "call_model_system", model, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
         const t0 = Date.now();
-        const body = JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 4096,
-        });
-        const result = callOpenAI(body);
+        const result = callLLM(model, [{ role: "system", content: system }, { role: "user", content: prompt }]);
         audit({ effect: "Model", op: "call_model_system", model, result: "ok", duration_ms: Date.now() - t0 });
         return result;
       },
@@ -1759,8 +1745,227 @@ export function createRuntime(config: RuntimeConfig = {}) {
           return allocListI32([]);
         }
       },
+
+      // --- Trace operations ---
+      trace_start(opPtr: number): bigint {
+        const op = readString(opPtr);
+        const effectErr = policyCheckEffect("Trace");
+        if (effectErr) return 0n;
+        const spanId = nextSpanId++;
+        spanTable.set(spanId, { op, start: Date.now(), events: [] });
+        return BigInt(spanId);
+      },
+
+      trace_end(spanIdBig: bigint): void {
+        const spanId = Number(spanIdBig);
+        const span = spanTable.get(spanId);
+        if (!span) return;
+        const duration_ms = Date.now() - span.start;
+        audit({ effect: "Trace", op: span.op, span_id: spanId, duration_ms, events: span.events });
+        spanTable.delete(spanId);
+      },
+
+      trace_log(spanIdBig: bigint, messagePtr: number): void {
+        const spanId = Number(spanIdBig);
+        const message = readString(messagePtr);
+        const span = spanTable.get(spanId);
+        if (span) {
+          span.events.push(`${Date.now() - span.start}ms: ${message}`);
+        }
+      },
+
+      // --- Persist operations ---
+      checkpoint_save(keyPtr: number, valuePtr: number): number {
+        const key = readString(keyPtr);
+        const value = readString(valuePtr);
+        const effectErr = policyCheckEffect("Persist");
+        if (effectErr) return allocResultString(false, writeString(effectErr));
+        try {
+          const dir = process.env.CLARITY_CHECKPOINT_DIR ?? ".clarity-checkpoints";
+          nodeFs.mkdirSync(dir, { recursive: true });
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+          nodeFs.writeFileSync(`${dir}/${safeKey}.ckpt`, value, "utf-8");
+          return allocResultString(true, writeString(""));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      checkpoint_load(keyPtr: number): number {
+        const key = readString(keyPtr);
+        const effectErr = policyCheckEffect("Persist");
+        if (effectErr) return allocOptionI32(null);
+        try {
+          const dir = process.env.CLARITY_CHECKPOINT_DIR ?? ".clarity-checkpoints";
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const path = `${dir}/${safeKey}.ckpt`;
+          if (!nodeFs.existsSync(path)) return allocOptionI32(null);
+          const v = nodeFs.readFileSync(path, "utf-8");
+          return allocOptionI32(writeString(v));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      checkpoint_delete(keyPtr: number): void {
+        const key = readString(keyPtr);
+        try {
+          const dir = process.env.CLARITY_CHECKPOINT_DIR ?? ".clarity-checkpoints";
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const path = `${dir}/${safeKey}.ckpt`;
+          if (nodeFs.existsSync(path)) nodeFs.unlinkSync(path);
+        } catch { /* ignore */ }
+      },
+
+      // --- Embed operations ---
+      embed_text(textPtr: number): number {
+        const text = readString(textPtr);
+        const effectErr = policyCheckEffect("Embed");
+        if (effectErr) return allocResultString(false, writeString(effectErr));
+        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+        const apiKey = process.env.OPENAI_API_KEY ?? "";
+        const model = process.env.CLARITY_EMBED_MODEL ?? "text-embedding-ada-002";
+        try {
+          const resp = syncHttpRequest({
+            url: `${baseUrl}/v1/embeddings`,
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ input: text, model }),
+            timeoutMs: 30000,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          const parsed = JSON.parse(resp.body) as { data?: Array<{ embedding: number[] }> };
+          const embedding = parsed.data?.[0]?.embedding ?? [];
+          return allocResultString(true, writeString(JSON.stringify(embedding)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      cosine_similarity(aPtr: number, bPtr: number): number {
+        try {
+          const a = JSON.parse(readString(aPtr)) as number[];
+          const b = JSON.parse(readString(bPtr)) as number[];
+          if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return 0;
+          let dot = 0, nA = 0, nB = 0;
+          for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
+          const denom = Math.sqrt(nA) * Math.sqrt(nB);
+          return denom === 0 ? 0 : dot / denom;
+        } catch { return 0; }
+      },
+
+      chunk_text(textPtr: number, sizeN: bigint): number {
+        const text = readString(textPtr);
+        const size = Math.max(1, Number(sizeN));
+        const chunks: string[] = [];
+        for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+        return writeString(JSON.stringify(chunks));
+      },
+
+      embed_and_retrieve(queryPtr: number, chunksJsonPtr: number, topKN: bigint): number {
+        const query = readString(queryPtr);
+        const chunksJson = readString(chunksJsonPtr);
+        const topK = Math.max(1, Number(topKN));
+        const effectErr = policyCheckEffect("Embed");
+        if (effectErr) return allocResultString(false, writeString(effectErr));
+        try {
+          const chunks = JSON.parse(chunksJson) as string[];
+          if (!Array.isArray(chunks) || chunks.length === 0) {
+            return allocResultString(true, writeString("[]"));
+          }
+          const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+          const apiKey = process.env.OPENAI_API_KEY ?? "";
+          const model = process.env.CLARITY_EMBED_MODEL ?? "text-embedding-ada-002";
+          const inputs = [query, ...chunks];
+          const resp = syncHttpRequest({
+            url: `${baseUrl}/v1/embeddings`,
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+            body: JSON.stringify({ input: inputs, model }),
+            timeoutMs: 60000,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          const parsed = JSON.parse(resp.body) as { data?: Array<{ embedding: number[]; index: number }> };
+          const data = (parsed.data ?? []).sort((a, b) => a.index - b.index);
+          if (data.length !== inputs.length) throw new Error("Embedding count mismatch");
+          const qVec = data[0].embedding;
+          const scores = data.slice(1).map((d, i) => {
+            let dot = 0, nA = 0, nB = 0;
+            for (let j = 0; j < qVec.length; j++) { dot += qVec[j] * d.embedding[j]; nA += qVec[j] * qVec[j]; nB += d.embedding[j] * d.embedding[j]; }
+            const sim = Math.sqrt(nA) * Math.sqrt(nB) === 0 ? 0 : dot / (Math.sqrt(nA) * Math.sqrt(nB));
+            return { idx: i, sim };
+          });
+          scores.sort((a, b) => b.sim - a.sim);
+          const topChunks = scores.slice(0, topK).map((s) => chunks[s.idx]);
+          return allocResultString(true, writeString(JSON.stringify(topChunks)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
     },
   };
+
+  // ---------------------------------------------------------------------------
+  // Multi-provider LLM routing.
+  // Detects provider from model name prefix and dispatches to the correct API.
+  //   claude-*  → Anthropic Messages API (/v1/messages)
+  //   *         → OpenAI-compatible (/v1/chat/completions)
+  // ---------------------------------------------------------------------------
+  function callLLM(
+    model: string,
+    messages: Array<{ role: string; content: string }>,
+  ): number {
+    if (model.startsWith("claude-")) return callAnthropic(model, messages);
+    // OpenAI-compatible path — build body and delegate to callOpenAI.
+    const body = JSON.stringify({ model, messages, max_tokens: 4096 });
+    return callOpenAI(body);
+  }
+
+  // Anthropic Messages API adapter.
+  function callAnthropic(
+    model: string,
+    messages: Array<{ role: string; content: string }>,
+  ): number {
+    const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+    const baseUrl = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, "");
+    const urlErr = policyCheckUrl(`${baseUrl}/v1/messages`);
+    if (urlErr) return allocResultString(false, writeString(urlErr));
+    // Anthropic sends system prompt as a top-level field, not as a message.
+    const systemMsg = messages.find((m) => m.role === "system");
+    const userMsgs = messages.filter((m) => m.role !== "system");
+    const body = JSON.stringify({
+      model,
+      max_tokens: 4096,
+      ...(systemMsg ? { system: systemMsg.content } : {}),
+      messages: userMsgs,
+    });
+    try {
+      const resp = syncHttpRequest({
+        url: `${baseUrl}/v1/messages`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+        timeoutMs: 120000,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+      const parsed = JSON.parse(resp.body) as { content?: Array<{ type: string; text?: string }> };
+      const content = parsed.content?.find((c) => c.type === "text")?.text ?? "";
+      return allocResultString(true, writeString(content));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return allocResultString(false, writeString(msg));
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Internal helper: POST a pre-built JSON body to the OpenAI chat completions

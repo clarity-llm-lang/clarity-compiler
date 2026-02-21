@@ -1,0 +1,59 @@
+// std/rag — Retrieval-Augmented Generation helpers for Clarity
+//
+// Provides chunking, embedding, and retrieval utilities built on the Embed
+// effect. Results are returned as JSON strings so they compose cleanly with
+// the rest of the Clarity runtime.
+//
+// Usage
+// -----
+//   import { retrieve, embed, similarity } from "std/rag"
+//   import { unwrap_or } from "std/result"
+//
+//   effect[Embed] function answer(doc: String, question: String) -> String {
+//     let chunks = unwrap_or(retrieve(question, doc, 512, 3), "[]");
+//     // pass chunks JSON to your prompt
+//     chunks
+//   }
+//
+// Environment variables
+// ---------------------
+//   OPENAI_API_KEY        — required for embed calls
+//   OPENAI_BASE_URL       — optional; defaults to https://api.openai.com
+//   CLARITY_EMBED_MODEL   — embedding model (default text-embedding-ada-002)
+
+module Rag
+
+// Retrieve the top_k most relevant chunks from text for a given query.
+// Splits text into chunks of chunk_size characters, embeds both the query
+// and all chunks, then returns the top_k most similar chunks as a JSON
+// string array (highest similarity first).
+// Returns Ok(json_array_string) or Err(message).
+export effect[Embed] function retrieve(
+  query: String,
+  text: String,
+  chunk_size: Int64,
+  top_k: Int64
+) -> Result<String, String> {
+  let chunks_json = chunk_text(text, chunk_size);
+  embed_and_retrieve(query, chunks_json, top_k)
+}
+
+// Split text into a JSON array of non-overlapping chunks.
+// Pure function — no embedding model call required.
+// Returns a JSON string array: "[\"chunk1\",\"chunk2\",...]"
+export function chunk(text: String, chunk_size: Int64) -> String {
+  chunk_text(text, chunk_size)
+}
+
+// Embed a single text string into a JSON float array.
+// Requires Embed effect (calls the embedding API).
+// The returned JSON array can be passed to similarity().
+export effect[Embed] function embed(text: String) -> Result<String, String> {
+  embed_text(text)
+}
+
+// Compute cosine similarity between two JSON float arrays (0.0 – 1.0).
+// Pure function — no network call required.
+export function similarity(a_json: String, b_json: String) -> Float64 {
+  cosine_similarity(a_json, b_json)
+}

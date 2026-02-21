@@ -198,6 +198,22 @@ export function getBuiltins(): BuiltinDef[] {
     // a2a_cancel(url, task_id) → Result<String, String> as i32 pointer
     { name: "a2a_cancel", importModule: "env", importName: "a2a_cancel", params: pair_i32, result: i32 },
 
+    // --- Trace operations ---
+    { name: "trace_start", importModule: "env", importName: "trace_start", params: i32, result: i64 },
+    { name: "trace_end", importModule: "env", importName: "trace_end", params: i64, result: none },
+    { name: "trace_log", importModule: "env", importName: "trace_log", params: binaryen.createType([i64, i32]), result: none },
+
+    // --- Persist operations ---
+    { name: "checkpoint_save", importModule: "env", importName: "checkpoint_save", params: pair_i32, result: i32 },
+    { name: "checkpoint_load", importModule: "env", importName: "checkpoint_load", params: i32, result: i32 },
+    { name: "checkpoint_delete", importModule: "env", importName: "checkpoint_delete", params: i32, result: none },
+
+    // --- Embed operations ---
+    { name: "embed_text", importModule: "env", importName: "embed_text", params: i32, result: i32 },
+    { name: "cosine_similarity", importModule: "env", importName: "cosine_similarity", params: pair_i32, result: f64 },
+    { name: "chunk_text", importModule: "env", importName: "chunk_text", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "embed_and_retrieve", importModule: "env", importName: "embed_and_retrieve", params: binaryen.createType([i32, i32, i64]), result: i32 },
+
     // --- Policy introspection ---
     // policy_is_url_allowed(url) → Bool (i32: 1=allowed, 0=denied)
     { name: "policy_is_url_allowed", importModule: "env", importName: "policy_is_url_allowed", params: i32, result: i32 },
