@@ -351,39 +351,44 @@ clarity/
 
 ---
 
-## Current Status (v0.2)
+## Current Status (v0.7)
+
+**284 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
 - Boolean logic and comparisons
-- Pattern matching on booleans and union types
+- Pattern matching on booleans, union types, range patterns (`1..10`), and guards
 - Exhaustiveness checking
 - Let bindings (immutable and mutable) with reassignment for `let mut`
 - Blocks with multiple statements
-- Recursive function calls
+- Recursive function calls + tail call optimization (self-recursive loops)
 - Effect system with compile-time enforcement
 - Record types — declaration, construction, field access
 - Union types — constructors, pattern matching, destructuring
 - Option<T> as built-in (Some/None with correct polymorphism)
 - Result<T, E> as built-in (Ok/Err with polymorphic type inference)
 - Transparent type aliases (`type UserId = Int64`)
+- Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
+- Higher-order functions (pass named functions as arguments, function type syntax)
 - List literals, length, head, tail, append, concat, reverse, is_empty, nth
 - Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
-- JSON builtins — `json_parse : String -> Option<Map<String, String>>`, `json_stringify : Map<String, String> -> String` (flat objects with scalar values)
-- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, index_of, trim, split
-- String literals, concatenation, equality, length, substring, char_at, char_code, char_from_code, contains, string_starts_with, string_ends_with, index_of, trim, split, string_replace, string_repeat
+- JSON builtins — `json_parse`, `json_stringify`, `json_parse_object`, `json_stringify_object`
+- String builtins — concat, length, substring, char_at, trim, split, replace, starts_with, ends_with, repeat
 - Named argument validation and reordering
 - Type conversions (int_to_float, float_to_int, int_to_string, etc.)
-- Math builtins (abs_int, min_int, max_int, int_clamp, float_clamp, sqrt, pow, floor, ceil)
-- Built-in functions (print, logging) via host runtime
-- HTTP client primitives: `http_get`, `http_post` (Network effect)
-- Random builtins: `random_int`, `random_float`
-- Regex builtins: `regex_match`, `regex_captures`
-- I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit`
-- Higher-order functions (pass named functions as arguments, function type syntax)
-- Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
-- Properly typed generic list builtins (`head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
-- Tail call optimization (self-recursive functions compiled to loops)
+- Math builtins (abs, min, max, clamp, sqrt, pow, floor, ceil)
+- HTTP client: `http_get`, `http_post` (Network effect)
+- Random: `random_int`, `random_float`
+- Regex: `regex_match`, `regex_captures`
+- I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit` (FileSystem effect)
+- Bytes and Timestamp runtime support
+- Multi-file programs with import/export and file-based module resolution
+- Standard library: `std/math`, `std/string`, `std/llm`
+- **LLM/AI interop**: `call_model`, `call_model_system`, `list_models` (Model effect); `get_secret` (Secret effect)
+- **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — OpenAI-compatible, works with Ollama/Groq via `OPENAI_BASE_URL`
+- Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
+- String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
 - WASM compilation and execution
 - LLM-friendly error messages with migration hints
@@ -424,28 +429,28 @@ Support programs larger than a single file.
 - ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
 - ~~Standard library~~ (done — `std/math`, `std/string`, and `std/list` modules)
 
-### Phase 4 — Runtime & Performance (v0.5)
+### Phase 4 — Runtime & Performance (v0.5) — DONE
 Make programs viable for real workloads.
-- Memory management (arena, refcounting, or WASM GC)
+- ~~Memory management~~ (done — free-list allocator with power-of-two size classes; `arena_save`/`arena_restore` for bulk-free; `memory_stats` for debug)
 - ~~Tail call optimization~~ (done — self-recursive tail calls converted to loops)
 - ~~String interning~~ (done — runtime deduplicates identical strings via intern table)
 
-### Phase 5 — Language Completeness (v0.6+)
+### Phase 5 — Language Completeness (v0.6+) — DONE
 - ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
 - ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
 - ~~Named argument semantic checking~~ (done — named args validated and reordered)
 - ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
 - REPL / browser playground
 
-### Phase 6 — Native AI Interop Requirements (v0.7+)
+### Phase 6 — Native AI Interop Requirements (v0.7+) — IN PROGRESS
 Make agent ecosystems and model APIs first-class language/runtime capabilities.
-- Add new effects: `A2A`, `MCP`, `Model`, `Secret`
-- Add required std modules: `std/a2a`, `std/mcp`, `std/llm`, `std/secret`
-- Enforce typed protocol errors via `Result<T, InteropError>` across all interop APIs
-- Require streaming + cancellation semantics for model and agent operations
-- Require runtime policy controls (endpoint allowlists, effect-family deny, structured audit logs)
-- Ship provider adapters for at least one OpenAI-compatible API and one local runtime (Ollama)
-- Ship end-to-end examples that compose `std/llm` with `std/mcp` and optional `std/a2a`
+- ~~New effects~~ (done — `Model`, `Secret`, `MCP`, `A2A` registered in the effect system)
+- ~~`std/llm` module~~ (done — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`)
+- ~~LLM builtins~~ (done — `call_model`, `call_model_system`, `list_models`; OpenAI-compatible via `OPENAI_API_KEY`/`OPENAI_BASE_URL`)
+- ~~Secret builtin~~ (done — `get_secret(name) -> Option<String>` reads from environment; requires Secret effect)
+- MCP support — stdio/http session connect, tool list/read/call primitives
+- A2A support — discovery, task submit/poll/cancel lifecycle
+- Policy + audit — endpoint allowlists, effect-family deny, structured audit logs
 
 ---
 
