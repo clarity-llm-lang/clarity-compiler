@@ -1,0 +1,69 @@
+// std/llm — Unified LLM API for Clarity
+//
+// Provides convenience wrappers around the call_model / call_model_system
+// built-in primitives. All functions require the Model effect.
+//
+// Configuration (via environment variables):
+//   OPENAI_API_KEY   — required; API key for your LLM provider
+//   OPENAI_BASE_URL  — optional; defaults to https://api.openai.com
+//                      Set this to use any OpenAI-compatible endpoint
+//                      (e.g. Ollama at http://localhost:11434, Groq, etc.)
+//
+// Usage:
+//   import { prompt, prompt_with, chat } from "std/llm"
+
+module Llm
+
+// Default model used by prompt() when no model is specified.
+// Override by calling prompt_with() directly.
+function default_model() -> String {
+  "gpt-4o-mini"
+}
+
+// Send a single user message to the default model.
+// Returns Ok(response_text) or Err(error_message).
+export effect[Model] function prompt(text: String) -> Result<String, String> {
+  call_model(default_model(), text)
+}
+
+// Send a single user message to a specific model.
+// Returns Ok(response_text) or Err(error_message).
+export effect[Model] function prompt_with(model: String, text: String) -> Result<String, String> {
+  call_model(model, text)
+}
+
+// Send a system prompt + user message to a specific model.
+// The system prompt sets the model's behavior or persona.
+// Returns Ok(response_text) or Err(error_message).
+export effect[Model] function chat(model: String, system: String, user: String) -> Result<String, String> {
+  call_model_system(model, system, user)
+}
+
+// Convenience: prompt with system context using the default model.
+export effect[Model] function prompt_with_system(system: String, user: String) -> Result<String, String> {
+  call_model_system(default_model(), system, user)
+}
+
+// Extract text from a Result, falling back to a default string on error.
+export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
+  match result {
+    Ok(text) -> text,
+    Err(_) -> fallback
+  }
+}
+
+// Return True if the model call succeeded.
+export function is_ok(result: Result<String, String>) -> Bool {
+  match result {
+    Ok(_) -> True,
+    Err(_) -> False
+  }
+}
+
+// Extract the error message, or empty string if ok.
+export function error_of(result: Result<String, String>) -> String {
+  match result {
+    Ok(_) -> "",
+    Err(msg) -> msg
+  }
+}

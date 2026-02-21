@@ -255,8 +255,8 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 ### No lambdas or closures
 Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
 
-### No garbage collection
-The runtime uses a bump allocator that never frees memory. Every string concatenation, list operation, and constructor call leaks. Programs that run for extended periods will exhaust memory.
+### Partial memory management
+The runtime uses a free-list allocator with power-of-two size classes. Strings are interned and short-lived allocations can be bulk-freed via `arena_save()`/`arena_restore()`. However there is no automatic garbage collection — programs that allocate unboundedly over time will still exhaust memory.
 
 ## Implementation roadmap
 
@@ -294,7 +294,7 @@ Support programs larger than a single file.
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable beyond demos.
-1. **Memory management** — Arena allocator, reference counting, or WASM GC proposal.
+1. ✓ **Memory management** — Free-list allocator with power-of-two size classes replaces pure bump allocator. `arena_save()`/`arena_restore()` for bulk-free of temporary allocations. `memory_stats()` for debug inspection.
 2. ✓ **Tail call optimization** — Self-recursive tail calls are converted to loops in WASM codegen. Handles tail position in match arms and block results.
 3. ✓ **Nested record/list codegen** — `list_append_i32` for pointer-type elements (e.g., List<String>). Supports lists of records, records containing lists.
 4. ✓ **String interning** — Compile-time literals deduplicated in data segments. Runtime strings interned via hash table in `writeString()` — identical values share the same heap allocation.
@@ -308,16 +308,16 @@ Make programs viable beyond demos.
 6. **REPL / browser playground**.
 
 ### Phase 6 — Native AI Interop Requirements (v0.7+)
-1. **New effects** — `A2A`, `MCP`, `Model`, `Secret`.
-2. **New std modules** — `std/a2a`, `std/mcp`, `std/llm`, `std/secret`.
-3. **Interop error contract** — All protocol/model calls return `Result<T, InteropError>` (no exceptions).
-4. **MCP support** — stdio/http session connect, tool list/read/call primitives.
-5. **LLM support** — Unified `std/llm` API with streaming and cancellation; at least one OpenAI-compatible adapter and one local adapter (Ollama).
+1. ✓ **New effects** — `Model`, `Secret`, `MCP`, `A2A` registered in the effect system.
+2. ✓ **`std/llm` module** — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`. OpenAI-compatible adapter with `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars (works with Ollama, Groq, etc.).
+3. ✓ **LLM builtins** — `call_model(model, prompt)`, `call_model_system(model, system, prompt)`, `list_models()`. All return `Result<String, String>`.
+4. ✓ **Secret builtin** — `get_secret(name)` reads from environment, returns `Option<String>`. Requires `Secret` effect.
+5. **MCP support** — stdio/http session connect, tool list/read/call primitives.
 6. **A2A support** — Discovery plus task submit/poll/cancel lifecycle.
 7. **Policy + audit** — Endpoint allowlists, effect-family deny support, structured interop audit logs.
 
 - No lambdas or closures — pass named functions only
-- No garbage collection — bump allocator, programs leak memory over time
+- No automatic garbage collection — free-list allocator helps but programs that allocate unboundedly will exhaust memory
 
 ## Workflow rules
 

@@ -46,13 +46,17 @@ describe("builtins registry", () => {
     expect(effectNames).toContain("Log");
     expect(effectNames).toContain("FileSystem");
     expect(effectNames).toContain("Test");
-    expect(effectNames).toHaveLength(7);
+    expect(effectNames).toContain("Model");
+    expect(effectNames).toContain("Secret");
+    expect(effectNames).toContain("MCP");
+    expect(effectNames).toContain("A2A");
+    expect(effectNames).toHaveLength(11);
   });
 
   it("getKnownEffectNames returns a Set of all effect names", () => {
     const names = getKnownEffectNames();
     expect(names).toBeInstanceOf(Set);
-    expect(names.size).toBe(7);
+    expect(names.size).toBe(11);
     expect(names.has("FileSystem")).toBe(true);
   });
 

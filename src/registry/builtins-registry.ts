@@ -66,6 +66,10 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
   { name: "Log", description: "Logging and printing to stdout/stderr" },
   { name: "FileSystem", description: "File I/O, stdin/stdout, command-line args, and process control" },
   { name: "Test", description: "Test assertions for the self-healing test system" },
+  { name: "Model", description: "LLM inference — call language models and list available models. Requires OPENAI_API_KEY (or compatible) environment variable." },
+  { name: "Secret", description: "Read named secrets from environment variables. Prevents secrets from appearing in source code." },
+  { name: "MCP", description: "Model Context Protocol — connect to MCP servers, list tools, and call tools via stdio or HTTP." },
+  { name: "A2A", description: "Agent-to-Agent protocol — discover agents, submit tasks, poll status, and cancel tasks." },
 ];
 
 // -----------------------------------------------------------------------------
@@ -1070,6 +1074,53 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: [],
     doc: "Return a JSON string with current allocator statistics: heap_ptr (current top of heap), live_allocs (number of tracked live blocks), free_blocks (blocks available for reuse), interned_strings (number of cached string allocations). Useful for profiling and debugging memory usage.",
     category: "memory",
+  },
+
+  // --- Secret operations (require Secret effect) ---
+  {
+    name: "get_secret",
+    params: [STRING],
+    paramNames: ["name"],
+    returnType: {
+      kind: "Union",
+      name: "Option<String>",
+      variants: [
+        { name: "Some", fields: new Map([["value", STRING]]) },
+        { name: "None", fields: new Map() },
+      ],
+    } as ClarityType,
+    effects: ["Secret"],
+    doc: "Read a named secret from environment variables. Returns Some(value) if the variable is set, None if not. Use this for API keys and credentials instead of hard-coding them. Example: get_secret(\"OPENAI_API_KEY\").",
+    category: "secret",
+  },
+
+  // --- Model operations (require Model effect) ---
+  {
+    name: "call_model",
+    params: [STRING, STRING],
+    paramNames: ["model", "prompt"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Model"],
+    doc: "Call a language model with a user prompt. Returns Ok(response) on success or Err(message) on failure. The model name should be an OpenAI-compatible model identifier (e.g. \"gpt-4o\", \"gpt-4o-mini\"). Requires OPENAI_API_KEY (and optionally OPENAI_BASE_URL) environment variables.",
+    category: "model",
+  },
+  {
+    name: "call_model_system",
+    params: [STRING, STRING, STRING],
+    paramNames: ["model", "system_prompt", "user_prompt"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Model"],
+    doc: "Call a language model with separate system and user prompts. Returns Ok(response) on success or Err(message) on failure. The system prompt sets the model's behavior/persona. Requires OPENAI_API_KEY environment variable.",
+    category: "model",
+  },
+  {
+    name: "list_models",
+    params: [],
+    paramNames: [],
+    returnType: LIST_STRING,
+    effects: ["Model"],
+    doc: "List available model identifiers from the configured LLM provider. Returns an empty list on failure. Requires OPENAI_API_KEY environment variable.",
+    category: "model",
   },
 ];
 

@@ -1236,8 +1236,95 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
         return newPtr;
       },
+
+      // --- Secret operations ---
+      // Reads a named secret from environment variables.
+      // Returns Option<String>: Some(value) if set, None if absent.
+      get_secret(namePtr: number): number {
+        const name = readString(namePtr);
+        const value = process.env[name];
+        if (value === undefined) return allocOptionI32(null);
+        return allocOptionI32(writeString(value));
+      },
+
+      // --- Model operations ---
+      // Calls an OpenAI-compatible chat completions endpoint.
+      // Reads OPENAI_API_KEY and OPENAI_BASE_URL from the environment.
+      // Returns Result<String, String>: Ok(response_text) or Err(message).
+      call_model(modelPtr: number, promptPtr: number): number {
+        const model = readString(modelPtr);
+        const prompt = readString(promptPtr);
+        const body = JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 4096,
+        });
+        return callOpenAI(body);
+      },
+
+      call_model_system(modelPtr: number, systemPtr: number, promptPtr: number): number {
+        const model = readString(modelPtr);
+        const system = readString(systemPtr);
+        const prompt = readString(promptPtr);
+        const body = JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 4096,
+        });
+        return callOpenAI(body);
+      },
+
+      list_models(): number {
+        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+        const apiKey = process.env.OPENAI_API_KEY ?? "";
+        try {
+          const response = execFileSync(
+            "curl",
+            ["-sS", "--max-time", "10", "-H", `Authorization: Bearer ${apiKey}`, `${baseUrl}/v1/models`],
+            { encoding: "utf-8" },
+          );
+          const parsed = JSON.parse(response) as { data?: Array<{ id: string }> };
+          const ids = (parsed.data ?? []).map((m) => m.id);
+          const ptrs = ids.map((id) => writeString(id));
+          return allocListI32(ptrs);
+        } catch {
+          return allocListI32([]);
+        }
+      },
     },
   };
+
+  // ---------------------------------------------------------------------------
+  // Internal helper: POST a pre-built JSON body to the OpenAI chat completions
+  // endpoint and return a Result<String, String> heap pointer.
+  // ---------------------------------------------------------------------------
+  function callOpenAI(body: string): number {
+    const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+    const apiKey = process.env.OPENAI_API_KEY ?? "";
+    try {
+      const raw = execFileSync(
+        "curl",
+        [
+          "-sS", "--max-time", "120", "--fail",
+          "-X", "POST",
+          "-H", "Content-Type: application/json",
+          "-H", `Authorization: Bearer ${apiKey}`,
+          `${baseUrl}/v1/chat/completions`,
+          "--data-raw", body,
+        ],
+        { encoding: "utf-8" },
+      );
+      const parsed = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> };
+      const content = parsed.choices?.[0]?.message?.content ?? "";
+      return allocResultString(true, writeString(content));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return allocResultString(false, writeString(msg));
+    }
+  }
 
   return {
     get memory() { return memory; },

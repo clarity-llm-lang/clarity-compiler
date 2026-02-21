@@ -1,0 +1,21 @@
+module Main
+
+import { chat, is_ok, error_of, unwrap_or } from "std/llm"
+
+// Read text from stdin, send it to the LLM, and print a concise summary.
+// Usage: echo "long article..." | clarityc run main.clarity -f run
+effect[Model, FileSystem] function summarize(text: String) -> String {
+  let system = "You are a summarization engine. Return only a concise summary, no preamble.";
+  let user = "Summarize the following text:\n\n" ++ text;
+  let result = chat("gpt-4o-mini", system, user);
+  match is_ok(result) {
+    True -> unwrap_or(result, ""),
+    False -> "Error: " ++ error_of(result)
+  }
+}
+
+effect[Model, FileSystem] function run() -> Unit {
+  let text = read_all_stdin();
+  let summary = summarize(text);
+  print_string(summary)
+}
