@@ -18,6 +18,8 @@ import { size, first, push } from "std/list"
 import { prompt, is_ok } from "std/llm"    // LLM interop
 import { connect, call_tool } from "std/mcp" // MCP tool servers
 import { submit, poll, is_done } from "std/a2a" // A2A agents
+import { run, resume, clear } from "std/agent" // resumable agent loops
+import { retrieve, chunk, similarity } from "std/rag" // RAG pipelines
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
 export type Color = | Red | Green | Blue
 ```
@@ -56,7 +58,7 @@ function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 
 **All known effects:**
 `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
-`Model`, `Secret`, `MCP`, `A2A`
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`
 
 ## Control flow — match only (no if/else, no loops)
 ```
@@ -145,7 +147,8 @@ a + b                // last expression = return value
 | `call_model_system(model, system, prompt)` | `String, String, String -> Result<String, String>` | With system prompt |
 | `list_models()` | `-> List<String>` | Lists provider models |
 
-Set `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` (works with Ollama, Groq, etc.).
+Set `OPENAI_API_KEY` / `OPENAI_BASE_URL` for OpenAI-compatible endpoints (Ollama, Groq, etc.).
+For Anthropic models (`claude-*`), set `ANTHROPIC_API_KEY` instead.
 
 ### MCP (MCP effect)
 
@@ -166,6 +169,42 @@ Set `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` (works with Ollama, Groq, 
 | `a2a_cancel(url, task_id)` | `String, String -> Result<String, String>` | Final status JSON |
 
 `a2a_poll` status JSON: `{ "id": "...", "status": "working|completed|failed|canceled", "output": "..." }`
+
+### Trace (Trace effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `trace_start(op)` | `String -> Int64` | Start a span; returns span_id |
+| `trace_end(span_id)` | `Int64 -> Unit` | End span; writes to audit log with duration |
+| `trace_log(span_id, msg)` | `Int64, String -> Unit` | Attach an event to a span |
+
+### Persist (Persist effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `checkpoint_save(key, value)` | `String, String -> Result<String, String>` | Save state; backed by `CLARITY_CHECKPOINT_DIR` |
+| `checkpoint_load(key)` | `String -> Option<String>` | Load state; `None` if no checkpoint |
+| `checkpoint_delete(key)` | `String -> Unit` | Delete checkpoint |
+
+### Embed (Embed effect for network calls; pure for computation)
+
+| Function | Signature | Effect | Notes |
+|----------|-----------|--------|-------|
+| `embed_text(text)` | `String -> Result<String, String>` | Embed | Calls `/v1/embeddings`; returns JSON float array |
+| `cosine_similarity(a_json, b_json)` | `String, String -> Float64` | — | Pure; JSON float arrays |
+| `chunk_text(text, chunk_size)` | `String, Int64 -> String` | — | Pure; returns JSON string array |
+| `embed_and_retrieve(query, chunks_json, top_k)` | `String, String, Int64 -> Result<String, String>` | Embed | Full RAG: embed + rank + return top-k |
+
+Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding-ada-002`).
+
+### Eval (pure checks need no effect; LLM/embedding calls require Eval effect)
+
+| Function | Signature | Effect | Notes |
+|----------|-----------|--------|-------|
+| `eval_exact(got, expected)` | `String, String -> Bool` | — | Exact string equality |
+| `eval_contains(got, expected)` | `String, String -> Bool` | — | Substring membership |
+| `eval_llm_judge(model, prompt, resp, rubric)` | `String×4 -> Result<String, String>` | Eval | Returns `{"score":0.0-1.0,"pass":bool,"reason":"..."}` |
+| `eval_semantic(got, expected)` | `String, String -> Result<Float64, String>` | Eval | Cosine similarity via embeddings |
 
 ### Policy (no effect required)
 
@@ -189,6 +228,9 @@ Set `OPENAI_API_KEY` and optionally `OPENAI_BASE_URL` (works with Ollama, Groq, 
 | `std/llm` | `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/mcp` | `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/a2a` | `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of` |
+| `std/agent` | `run(key, initial, step_fn)`, `resume(key, step_fn)`, `clear(key)` — resumable agent loop with auto-checkpointing |
+| `std/rag` | `retrieve(query, text, chunk_size, top_k)`, `chunk(text, size)`, `embed(text)`, `similarity(a, b)` |
+| `std/eval` | `exact(got, expected)`, `has_match(got, expected)`, `semantic(got, expected)`, `judge(model, prompt, resp, rubric)`, `pass(model, prompt, resp, rubric)` |
 
 Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 

@@ -2357,6 +2357,11 @@ export class CodeGenerator {
       cosine_similarity: FLOAT64,
       chunk_text: { kind: "String" } as ClarityType,
       embed_and_retrieve: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      // Eval
+      eval_exact: BOOL,
+      eval_contains: BOOL,
+      eval_llm_judge: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      eval_semantic: { kind: "Result", ok: FLOAT64, err: { kind: "String" } as ClarityType } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

@@ -1,0 +1,101 @@
+// std/eval — LLM output evaluation framework for Clarity
+//
+// Provides primitives for assessing model responses against expected outputs
+// or rubrics. Supports exact match, substring match, semantic similarity
+// (via embeddings), and LLM-as-judge scoring.
+//
+// Eval taxonomy
+// -------------
+// exact(got, expected)              — strict string equality (pure)
+// has_match(got, expected)          — substring membership (pure)
+// semantic(got, expected)           — cosine similarity via embeddings (Eval effect)
+// judge(model, prompt, resp, rubric) — LLM-as-judge; returns score JSON (Eval effect)
+// pass(model, prompt, resp, rubric)  — convenience wrapper; returns Bool (Eval effect)
+//
+// Usage
+// -----
+//   import { exact, has_match, judge, pass } from "std/eval"
+//
+//   // Pure checks (no effect required)
+//   let ok = exact(response, "Paris")
+//   let found = has_match(response, "France")
+//
+//   // Semantic similarity (requires Eval effect, OPENAI_API_KEY)
+//   effect[Eval] function check_semantic(got: String) -> Result<Float64, String> {
+//     semantic(got, "The capital of France is Paris.")
+//   }
+//
+//   // LLM-as-judge (requires Eval effect)
+//   effect[Eval] function grade(prompt: String, response: String) -> Result<String, String> {
+//     judge("gpt-4o", prompt, response, "Response must name the capital of France.")
+//   }
+//
+// Environment variables
+// ---------------------
+//   OPENAI_API_KEY      — required for semantic() and judge()
+//   OPENAI_BASE_URL     — override embedding/LLM endpoint (Ollama, Groq, etc.)
+//   ANTHROPIC_API_KEY   — use claude-* models as judge
+//   CLARITY_EMBED_MODEL — embedding model for semantic() (default text-embedding-ada-002)
+
+module Eval
+
+// ---------------------------------------------------------------------------
+// Pure checks — no effect required
+// ---------------------------------------------------------------------------
+
+// Exact string equality check.
+export function exact(got: String, expected: String) -> Bool {
+  eval_exact(got, expected)
+}
+
+// Substring membership check. Returns True when got contains expected as a substring.
+export function has_match(got: String, expected: String) -> Bool {
+  eval_contains(got, expected)
+}
+
+// ---------------------------------------------------------------------------
+// Embedding-based semantic similarity — requires Eval effect
+// ---------------------------------------------------------------------------
+
+// Embed both strings and return cosine similarity in [0.0, 1.0].
+// Values above ~0.85 typically indicate semantic equivalence.
+export effect[Eval] function semantic(got: String, expected: String) -> Result<Float64, String> {
+  eval_semantic(got, expected)
+}
+
+// ---------------------------------------------------------------------------
+// LLM-as-judge — requires Eval effect
+// ---------------------------------------------------------------------------
+
+// Ask a judge model to evaluate a response against a rubric.
+// Returns Ok(json) where json is:
+//   { "score": 0.0-1.0, "pass": true/false, "reason": "..." }
+// score >= 0.7 is considered a pass.
+export effect[Eval] function judge(
+  model: String,
+  prompt: String,
+  response: String,
+  rubric: String
+) -> Result<String, String> {
+  eval_llm_judge(model, prompt, response, rubric)
+}
+
+// Convenience wrapper: returns True when judge score >= 0.7, False otherwise.
+// Returns False on any error (network failure, parse error, etc.).
+export effect[Eval] function pass(
+  model: String,
+  prompt: String,
+  response: String,
+  rubric: String
+) -> Bool {
+  match eval_llm_judge(model, prompt, response, rubric) {
+    Err(_) -> False,
+    Ok(json) -> match json_get(json, "pass") {
+      None -> False,
+      Some(v) -> match v {
+        "true" -> True,
+        _ -> False
+      }
+    }
+  }
+}
