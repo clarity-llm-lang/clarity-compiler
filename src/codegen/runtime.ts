@@ -484,6 +484,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
   const spanTable = new Map<number, { op: string; start: number; events: string[] }>();
   let nextSpanId = 1;
 
+  // Leftover buffer for real-stdin read_line() calls.
+  // readSync may return multiple lines at once; we buffer the remainder.
+  let stdinBuffer = "";
+
   // Stream session table: handle → { sab, ctrl, worker, lastError? }
   interface StreamSession { sab: SharedArrayBuffer; ctrl: Int32Array; worker: import("node:worker_threads").Worker; lastError?: string; }
   const streamSessions = new Map<number, StreamSession>();
@@ -693,15 +697,20 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // string_to_int returns Option<Int64> as heap-allocated union pointer.
       // Layout: [tag:i32][value:i64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
       string_to_int(ptr: number): number {
-        const s = readString(ptr);
-        const n = parseInt(s, 10);
+        const s = readString(ptr).trim();
         const unionPtr = alloc(12);
         const view = new DataView(memory.buffer);
-        if (Number.isNaN(n)) {
-          view.setInt32(unionPtr, 1, true); // None: tag = 1
+        // Reject partial parses (parseInt("3.14") = 3): require the entire string
+        // to be a valid integer representation before converting.
+        if (/^-?\d+$/.test(s)) {
+          try {
+            view.setInt32(unionPtr, 0, true); // Some
+            view.setBigInt64(unionPtr + 4, BigInt(s), true);
+          } catch {
+            view.setInt32(unionPtr, 1, true); // None (overflow, etc.)
+          }
         } else {
-          view.setInt32(unionPtr, 0, true); // Some: tag = 0
-          view.setBigInt64(unionPtr + 4, BigInt(n), true);
+          view.setInt32(unionPtr, 1, true); // None
         }
         return unionPtr;
       },
@@ -709,14 +718,17 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // string_to_float returns Option<Float64> as heap-allocated union pointer.
       // Layout: [tag:i32][value:f64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
       string_to_float(ptr: number): number {
-        const s = readString(ptr);
-        const n = parseFloat(s);
+        const s = readString(ptr).trim();
         const unionPtr = alloc(12);
         const view = new DataView(memory.buffer);
+        // Use Number() instead of parseFloat(): Number("3.14abc") = NaN (correct),
+        // parseFloat("3.14abc") = 3.14 (incorrect partial parse). Guard empty string
+        // since Number("") = 0 which would be a false positive.
+        const n = s === "" ? NaN : Number(s);
         if (Number.isNaN(n)) {
-          view.setInt32(unionPtr, 1, true); // None: tag = 1
+          view.setInt32(unionPtr, 1, true); // None
         } else {
-          view.setInt32(unionPtr, 0, true); // Some: tag = 0
+          view.setInt32(unionPtr, 0, true); // Some
           view.setFloat64(unionPtr + 4, n, true);
         }
         return unionPtr;
@@ -1499,14 +1511,37 @@ export function createRuntime(config: RuntimeConfig = {}) {
           config.stdin = config.stdin.substring(newline + 1);
           return writeString(line);
         }
-        // Synchronous stdin read via Node.js
+        // Synchronous stdin read via Node.js, using a per-runtime leftover buffer.
+        // readSync may return multiple lines in one call; buffer the remainder so
+        // subsequent read_line() calls can return each line correctly.
         try {
-          const fs = nodeFs;
+          // If leftover from a previous readSync already contains a newline, drain it.
+          const existingNl = stdinBuffer.indexOf("\n");
+          if (existingNl !== -1) {
+            const line = stdinBuffer.substring(0, existingNl);
+            stdinBuffer = stdinBuffer.substring(existingNl + 1);
+            return writeString(line);
+          }
+          // Read more data from stdin.
           const buf = Buffer.alloc(4096);
-          const bytesRead = fs.readSync(0, buf, 0, buf.length, null);
-          const input = buf.toString("utf-8", 0, bytesRead);
-          const newline = input.indexOf("\n");
-          return writeString(newline === -1 ? input : input.substring(0, newline));
+          const bytesRead = nodeFs.readSync(0, buf, 0, buf.length, null);
+          if (bytesRead === 0) {
+            // EOF — return whatever is left in the buffer (may be empty).
+            const line = stdinBuffer;
+            stdinBuffer = "";
+            return writeString(line);
+          }
+          stdinBuffer += buf.toString("utf-8", 0, bytesRead);
+          const newline = stdinBuffer.indexOf("\n");
+          if (newline === -1) {
+            // No newline yet — return everything (last line without a trailing newline).
+            const line = stdinBuffer;
+            stdinBuffer = "";
+            return writeString(line);
+          }
+          const line = stdinBuffer.substring(0, newline);
+          stdinBuffer = stdinBuffer.substring(newline + 1);
+          return writeString(line);
         } catch {
           return writeString("");
         }

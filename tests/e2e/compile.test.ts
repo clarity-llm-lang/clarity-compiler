@@ -709,6 +709,38 @@ describe("end-to-end compilation", () => {
     expect(parse_invalid(runtime.writeString("xyz"))).toBeCloseTo(-1.0, 5);
   });
 
+  it("string_to_int rejects partial parses like '3.14'", async () => {
+    const source = `
+      module Test
+      function parse(s: String) -> Int64 {
+        match string_to_int(s) { Some(n) -> n, None -> 0 - 999 }
+      }
+    `;
+    const { instance, runtime } = await instantiate(compile(source, "test.clarity").wasm!);
+    const parse = instance.exports.parse as (p: number) => bigint;
+    expect(parse(runtime.writeString("42"))).toBe(42n);
+    expect(parse(runtime.writeString("-5"))).toBe(-5n);
+    expect(parse(runtime.writeString("3.14"))).toBe(-999n);   // was wrongly Some(3) before
+    expect(parse(runtime.writeString("42abc"))).toBe(-999n);  // partial parse → None
+    expect(parse(runtime.writeString("abc"))).toBe(-999n);
+  });
+
+  it("string_to_float rejects partial parses like '3.14abc'", async () => {
+    const source = `
+      module Test
+      function parse(s: String) -> Float64 {
+        match string_to_float(s) { Some(n) -> n, None -> 0.0 - 999.0 }
+      }
+    `;
+    const { instance, runtime } = await instantiate(compile(source, "test.clarity").wasm!);
+    const parse = instance.exports.parse as (p: number) => number;
+    expect(parse(runtime.writeString("3.14"))).toBeCloseTo(3.14, 5);
+    expect(parse(runtime.writeString("42"))).toBeCloseTo(42, 5);
+    expect(parse(runtime.writeString("3.14abc"))).toBeCloseTo(-999, 5); // was wrongly Some(3.14) before
+    expect(parse(runtime.writeString(""))).toBeCloseTo(-999, 5);         // empty → None
+    expect(parse(runtime.writeString("abc"))).toBeCloseTo(-999, 5);
+  });
+
   it("checker annotates resolved types on AST nodes", () => {
     const source = `
       module Test
