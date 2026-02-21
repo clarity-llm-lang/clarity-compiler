@@ -2320,6 +2320,10 @@ export class CodeGenerator {
       map_remove: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
       map_keys: { kind: "List", element: INT64 } as ClarityType,
       map_values: { kind: "List", element: INT64 } as ClarityType,
+      // Memory management
+      arena_save: INT64,
+      arena_restore: UNIT,
+      memory_stats: { kind: "String" } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

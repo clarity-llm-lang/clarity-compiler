@@ -1042,6 +1042,35 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Return the difference in milliseconds between two Timestamps (a - b).",
     category: "time",
   },
+
+  // --- Memory management ---
+  {
+    name: "arena_save",
+    params: [],
+    paramNames: [],
+    returnType: INT64,
+    effects: [],
+    doc: "Save the current heap watermark and return it as an Int64. Pass the returned value to arena_restore() to reclaim all memory allocated since this call. Programs that repeatedly process data should save a mark before each unit of work and restore it when done to prevent unbounded heap growth.",
+    category: "memory",
+  },
+  {
+    name: "arena_restore",
+    params: [INT64],
+    paramNames: ["mark"],
+    returnType: UNIT,
+    effects: [],
+    doc: "Reclaim all heap memory allocated since the matching arena_save() call. Any pointer (string, list, record, etc.) obtained after the saved mark becomes invalid after this call — do not use such pointers afterwards.",
+    category: "memory",
+  },
+  {
+    name: "memory_stats",
+    params: [],
+    paramNames: [],
+    returnType: STRING,
+    effects: [],
+    doc: "Return a JSON string with current allocator statistics: heap_ptr (current top of heap), live_allocs (number of tracked live blocks), free_blocks (blocks available for reuse), interned_strings (number of cached string allocations). Useful for profiling and debugging memory usage.",
+    category: "memory",
+  },
 ];
 
 // -----------------------------------------------------------------------------
