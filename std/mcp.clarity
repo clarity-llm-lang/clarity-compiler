@@ -5,9 +5,11 @@
 //
 // Usage:
 //   import { connect, call_tool, disconnect } from "std/mcp"
+//   import { unwrap_or, is_ok, error_of } from "std/result"
 //
 // Quick start:
-//   import { connect, call_tool, unwrap_or, disconnect } from "std/mcp"
+//   import { connect, call_tool, disconnect } from "std/mcp"
+//   import { unwrap_or } from "std/result"
 //
 //   effect[MCP] function run() -> Unit {
 //     match connect("http://localhost:3000/mcp") {
@@ -54,26 +56,3 @@ export effect[MCP] function disconnect(session: Int64) -> Unit {
   mcp_disconnect(session)
 }
 
-// Extract the string value from a Result, or use the fallback on error.
-export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
-  match result {
-    Ok(s) -> s,
-    Err(_) -> fallback
-  }
-}
-
-// True if the result succeeded.
-export function is_ok(result: Result<String, String>) -> Bool {
-  match result {
-    Ok(_) -> True,
-    Err(_) -> False
-  }
-}
-
-// Extract the error message from a failed result, or "" if it succeeded.
-export function error_of(result: Result<String, String>) -> String {
-  match result {
-    Ok(_) -> "",
-    Err(msg) -> msg
-  }
-}

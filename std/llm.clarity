@@ -11,6 +11,7 @@
 //
 // Usage:
 //   import { prompt, prompt_with, chat } from "std/llm"
+//   import { unwrap_or, is_ok, error_of } from "std/result"
 
 module Llm
 
@@ -44,26 +45,3 @@ export effect[Model] function prompt_with_system(system: String, user: String) -
   call_model_system(default_model(), system, user)
 }
 
-// Extract text from a Result, falling back to a default string on error.
-export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
-  match result {
-    Ok(text) -> text,
-    Err(_) -> fallback
-  }
-}
-
-// Return True if the model call succeeded.
-export function is_ok(result: Result<String, String>) -> Bool {
-  match result {
-    Ok(_) -> True,
-    Err(_) -> False
-  }
-}
-
-// Extract the error message, or empty string if ok.
-export function error_of(result: Result<String, String>) -> String {
-  match result {
-    Ok(_) -> "",
-    Err(msg) -> msg
-  }
-}

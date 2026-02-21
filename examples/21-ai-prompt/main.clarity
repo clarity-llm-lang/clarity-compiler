@@ -1,6 +1,7 @@
 module Main
 
-import { prompt, unwrap_or } from "std/llm"
+import { prompt } from "std/llm"
+import { unwrap_or } from "std/result"
 
 // Send a question to the default LLM and print the response.
 // Usage: clarityc run main.clarity -f run -a "What is the capital of France?"

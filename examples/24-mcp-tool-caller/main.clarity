@@ -1,6 +1,7 @@
 module Main
 
-import { connect, call_tool, list_tools, disconnect, unwrap_or } from "std/mcp"
+import { connect, call_tool, list_tools, disconnect } from "std/mcp"
+import { unwrap_or } from "std/result"
 
 // Call a single MCP tool and print the result.
 // Usage:

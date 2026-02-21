@@ -653,6 +653,23 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(`{${parts.join(",")}}`);
       },
 
+      // json_get extracts a single top-level value from a JSON object by key.
+      // Returns Some(stringified_value) if key exists and value is a scalar, None otherwise.
+      json_get(jsonPtr: number, keyPtr: number): number {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return allocOptionI32(null);
+          const key = readString(keyPtr);
+          if (!Object.prototype.hasOwnProperty.call(parsed, key)) return allocOptionI32(null);
+          const val = (parsed as Record<string, unknown>)[key];
+          if (val === null || val === undefined) return allocOptionI32(null);
+          const s = typeof val === "string" ? val : String(val);
+          return allocOptionI32(writeString(s));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
       // --- Regex operations ---
       regex_match(patternPtr: number, textPtr: number): number {
         try {
