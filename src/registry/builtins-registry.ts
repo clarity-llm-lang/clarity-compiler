@@ -1160,6 +1160,44 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Close an MCP session and release its resources. Safe to call even if the session was already closed.",
     category: "mcp",
   },
+
+  // --- A2A operations (require A2A effect) ---
+  {
+    name: "a2a_discover",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["A2A"],
+    doc: "Fetch the agent card from an A2A-compatible agent at the given base URL. Returns Ok(agent_card_json) on success. The agent card describes the agent's capabilities, name, and supported skills. Example: a2a_discover(\"http://localhost:8080\").",
+    category: "a2a",
+  },
+  {
+    name: "a2a_submit",
+    params: [STRING, STRING],
+    paramNames: ["url", "message"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["A2A"],
+    doc: "Submit a text message as a task to an A2A agent. Returns Ok(task_id) on success. The task_id can be used with a2a_poll and a2a_cancel. Example: a2a_submit(\"http://localhost:8080\", \"Summarise this text: ...\").",
+    category: "a2a",
+  },
+  {
+    name: "a2a_poll",
+    params: [STRING, STRING],
+    paramNames: ["url", "task_id"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["A2A"],
+    doc: "Poll for the status of an A2A task. Returns Ok(status_json) containing a 'status' field (\"submitted\", \"working\", \"completed\", \"failed\", \"canceled\") and, when completed, an 'output' field with the agent's response text.",
+    category: "a2a",
+  },
+  {
+    name: "a2a_cancel",
+    params: [STRING, STRING],
+    paramNames: ["url", "task_id"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["A2A"],
+    doc: "Cancel a running A2A task. Returns Ok(status_json) with the final task state, or Err if the task could not be cancelled (e.g. already completed).",
+    category: "a2a",
+  },
 ];
 
 // -----------------------------------------------------------------------------

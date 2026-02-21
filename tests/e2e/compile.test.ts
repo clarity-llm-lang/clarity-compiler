@@ -3433,3 +3433,170 @@ describe("std/mcp module", () => {
     expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("bad");
   });
 });
+
+describe("A2A builtins (a2a_discover, a2a_submit, a2a_poll, a2a_cancel)", () => {
+  it("a2a_discover compiles with A2A effect annotation", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_discover() -> Bool {
+        match a2a_discover("http://localhost:9999") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("a2a_discover returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_discover() -> Bool {
+        match a2a_discover("http://127.0.0.1:19876") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_discover as () => number)()).toBe(0);
+  });
+
+  it("a2a_submit compiles with A2A effect annotation", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_submit() -> Bool {
+        match a2a_submit("http://localhost:9999", "Hello agent") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("a2a_submit returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_submit() -> Bool {
+        match a2a_submit("http://127.0.0.1:19876", "Hello") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_submit as () => number)()).toBe(0);
+  });
+
+  it("a2a_poll compiles and returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_poll() -> Bool {
+        match a2a_poll("http://127.0.0.1:19876", "task-123") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_poll as () => number)()).toBe(0);
+  });
+
+  it("a2a_cancel compiles and returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_cancel() -> Bool {
+        match a2a_cancel("http://127.0.0.1:19876", "task-123") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_cancel as () => number)()).toBe(0);
+  });
+});
+
+describe("std/a2a module", () => {
+  function setupA2aTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-a2a-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    const a2aSrc = fs.readFileSync(
+      path.join(process.cwd(), "std", "a2a.clarity"),
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(dir, "std", "a2a.clarity"), a2aSrc);
+    return dir;
+  }
+
+  it("imports and compiles discover, submit, poll, cancel from std/a2a", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { discover, submit, poll, cancel, unwrap_or } from "std/a2a"
+
+      effect[A2A] function run(url: String) -> String {
+        match submit(url, "hello") {
+          Ok(task_id) -> {
+            let status = poll(url, task_id);
+            unwrap_or(status, "unknown")
+          },
+          Err(msg) -> "error: " ++ msg
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("is_done, is_failed, is_canceled are pure string checks", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { is_done, is_failed, is_canceled } from "std/a2a"
+
+      function check_done() -> Bool { is_done("""{"status":"completed","output":"hi"}""") }
+      function check_failed() -> Bool { is_failed("""{"status":"failed"}""") }
+      function check_canceled() -> Bool { is_canceled("""{"status":"canceled"}""") }
+      function check_not_done() -> Bool { is_done("""{"status":"working"}""") }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check_done as () => number)()).toBe(1);
+    expect((instance.exports.check_failed as () => number)()).toBe(1);
+    expect((instance.exports.check_canceled as () => number)()).toBe(1);
+    expect((instance.exports.check_not_done as () => number)()).toBe(0);
+  });
+
+  it("unwrap_or and error_of work on Result<String, String>", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { unwrap_or, is_ok, error_of } from "std/a2a"
+
+      function test_ok() -> Bool { is_ok(Ok("yep")) }
+      function test_err() -> Bool { is_ok(Err("nope")) }
+      function test_unwrap_ok() -> String { unwrap_or(Ok("win"), "default") }
+      function test_unwrap_err() -> String { unwrap_or(Err("fail"), "default") }
+      function test_error_of() -> String { error_of(Err("oops")) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_ok as () => number)()).toBe(1);
+    expect((instance.exports.test_err as () => number)()).toBe(0);
+    expect(runtime.readString((instance.exports.test_unwrap_ok as () => number)())).toBe("win");
+    expect(runtime.readString((instance.exports.test_unwrap_err as () => number)())).toBe("default");
+    expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("oops");
+  });
+});

@@ -1358,6 +1358,122 @@ export function createRuntime(config: RuntimeConfig = {}) {
         mcpSessions.delete(Number(sessionId));
       },
 
+      // --- A2A operations ---
+      // Fetches the agent card from {url}/.well-known/agent.json.
+      // Returns Result<String, String>: Ok(agent_card_json) or Err(message).
+      a2a_discover(urlPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        try {
+          const raw = execFileSync(
+            "curl",
+            ["-sS", "--max-time", "10", "--fail", `${baseUrl}/.well-known/agent.json`],
+            { encoding: "utf-8" },
+          );
+          return allocResultString(true, writeString(raw.trim()));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Submits a text message as a task to an A2A agent.
+      // Uses the JSON-RPC 2.0 tasks/send method.
+      // Returns Result<String, String>: Ok(task_id) or Err(message).
+      a2a_submit(urlPtr: number, messagePtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const message = readString(messagePtr);
+        const taskId = `clarity-${Date.now()}-${Math.floor(Math.random() * 0xffff).toString(16)}`;
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: taskId,
+          method: "tasks/send",
+          params: {
+            id: taskId,
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: message }],
+            },
+          },
+        });
+        try {
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string } };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          return allocResultString(true, writeString(parsed.result?.id ?? taskId));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Polls for the current status of an A2A task.
+      // Returns Result<String, String>: Ok(status_json) or Err(message).
+      // status_json contains: { "id": "...", "status": { "state": "completed|failed|working|..." },
+      //   "output": "..." (when state == "completed") }
+      a2a_poll(urlPtr: number, taskIdPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const taskId = readString(taskIdPtr);
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: `poll-${Date.now()}`,
+          method: "tasks/get",
+          params: { id: taskId },
+        });
+        try {
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string }; artifacts?: Array<{ parts?: Array<{ type: string; text?: string }> }> };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          // Flatten artifacts → output text for easy consumption
+          const result = parsed.result ?? {};
+          const artParts = (result.artifacts ?? []).flatMap((a) => a.parts ?? []);
+          const outputText = artParts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
+          const summary = { id: result.id ?? taskId, status: result.status?.state ?? "unknown", output: outputText };
+          return allocResultString(true, writeString(JSON.stringify(summary)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Cancels a running A2A task.
+      // Returns Result<String, String>: Ok(final_status_json) or Err(message).
+      a2a_cancel(urlPtr: number, taskIdPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const taskId = readString(taskIdPtr);
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: `cancel-${Date.now()}`,
+          method: "tasks/cancel",
+          params: { id: taskId },
+        });
+        try {
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string } };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          const result = parsed.result ?? {};
+          const summary = { id: result.id ?? taskId, status: result.status?.state ?? "canceled" };
+          return allocResultString(true, writeString(JSON.stringify(summary)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
       list_models(): number {
         const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
         const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -1431,6 +1547,26 @@ export function createRuntime(config: RuntimeConfig = {}) {
       const last = lines[lines.length - 1];
       return last ? last.slice("data:".length).trim() : "{}";
     }
+    return raw;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helper: POST a JSON-RPC body to an A2A HTTP endpoint.
+  // The A2A endpoint is the agent's base URL (not a /.well-known path).
+  // Throws on HTTP errors so callers can wrap in try/catch.
+  // ---------------------------------------------------------------------------
+  function callA2A(baseUrl: string, body: string): string {
+    const raw = execFileSync(
+      "curl",
+      [
+        "-sS", "--max-time", "60", "--fail",
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        baseUrl,
+        "--data-raw", body,
+      ],
+      { encoding: "utf-8" },
+    );
     return raw;
   }
 

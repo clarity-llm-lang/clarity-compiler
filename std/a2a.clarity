@@ -1,0 +1,124 @@
+// std/a2a — Agent-to-Agent protocol client for Clarity
+//
+// Provides wrappers around the a2a_discover / a2a_submit / a2a_poll / a2a_cancel
+// built-in primitives. Implements the Google A2A JSON-RPC 2.0 protocol over HTTP.
+//
+// All functions that make network calls require the A2A effect.
+//
+// Usage:
+//   import { submit, poll, is_done, unwrap_or } from "std/a2a"
+//
+// Quick start:
+//   import { submit, poll, is_done, unwrap_or } from "std/a2a"
+//
+//   effect[A2A] function ask_agent(agent_url: String, question: String) -> String {
+//     match submit(agent_url, question) {
+//       Ok(task_id) -> wait_for_result(agent_url, task_id),
+//       Err(msg) -> "submit failed: " ++ msg
+//     }
+//   }
+//
+//   // Recursive poll loop (use tail-call optimisation for long tasks)
+//   effect[A2A] function wait_for_result(agent_url: String, task_id: String) -> String {
+//     match poll(agent_url, task_id) {
+//       Ok(status) ->
+//         match is_done(status) {
+//           True -> unwrap_output(status),
+//           False ->
+//             match is_failed(status) {
+//               True -> "task failed",
+//               False -> wait_for_result(agent_url, task_id)
+//             }
+//         },
+//       Err(msg) -> "poll failed: " ++ msg
+//     }
+//   }
+
+module A2a
+
+// Fetch the agent card JSON from {url}/.well-known/agent.json.
+// The agent card describes the agent's name, capabilities, and skills.
+// Returns Ok(agent_card_json) or Err(message).
+export effect[A2A] function discover(url: String) -> Result<String, String> {
+  a2a_discover(url)
+}
+
+// Submit a text message as a new task to an A2A agent.
+// Returns Ok(task_id) or Err(message).
+// Use the task_id with poll() and cancel().
+export effect[A2A] function submit(url: String, message: String) -> Result<String, String> {
+  a2a_submit(url, message)
+}
+
+// Poll for the current status of a task.
+// Returns Ok(status_json) or Err(message).
+// status_json has the shape: { "id": "...", "status": "working|completed|failed|canceled", "output": "..." }
+// Use is_done() and is_failed() to check the state, and unwrap_output() to read the result.
+export effect[A2A] function poll(url: String, task_id: String) -> Result<String, String> {
+  a2a_poll(url, task_id)
+}
+
+// Cancel a running task.
+// Returns Ok(final_status_json) or Err(message).
+export effect[A2A] function cancel(url: String, task_id: String) -> Result<String, String> {
+  a2a_cancel(url, task_id)
+}
+
+// True if a status_json string contains "completed" state.
+// Pass the Ok value from poll().
+export function is_done(status_json: String) -> Bool {
+  contains(status_json, "\"completed\"")
+}
+
+// True if a status_json string contains "failed" state.
+export function is_failed(status_json: String) -> Bool {
+  contains(status_json, "\"failed\"")
+}
+
+// True if a status_json string contains "canceled" state.
+export function is_canceled(status_json: String) -> Bool {
+  contains(status_json, "\"canceled\"")
+}
+
+// Extract the "output" value from a completed status_json by looking for
+// the "output":" key prefix. Returns "" if not found.
+// For robust extraction, parse the JSON yourself or use the raw status_json.
+export function unwrap_output(status_json: String) -> String {
+  match contains(status_json, "\"output\":\"") {
+    True -> {
+      let marker = "\"output\":\"";
+      let start = index_of(status_json, marker) + 10;
+      let rest = substring(status_json, start, string_length(status_json));
+      let end = index_of(rest, "\"");
+      match end >= 0 {
+        True -> substring(rest, 0, end),
+        False -> rest
+      }
+    },
+    False -> ""
+  }
+}
+
+// Extract the string Ok value, or use fallback on Err.
+export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
+  match result {
+    Ok(s) -> s,
+    Err(_) -> fallback
+  }
+}
+
+// True if the result succeeded.
+export function is_ok(result: Result<String, String>) -> Bool {
+  match result {
+    Ok(_) -> True,
+    Err(_) -> False
+  }
+}
+
+// Extract the error message, or "" if Ok.
+export function error_of(result: Result<String, String>) -> String {
+  match result {
+    Ok(_) -> "",
+    Err(msg) -> msg
+  }
+}
