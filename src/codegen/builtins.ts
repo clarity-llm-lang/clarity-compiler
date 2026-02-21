@@ -187,6 +187,22 @@ export function getBuiltins(): BuiltinDef[] {
     // mcp_disconnect(session_id) → Unit
     { name: "mcp_disconnect", importModule: "env", importName: "mcp_disconnect", params: i64, result: none },
 
+    // --- A2A operations ---
+    // a2a_discover(url) → Result<String, String> as i32 pointer
+    { name: "a2a_discover", importModule: "env", importName: "a2a_discover", params: i32, result: i32 },
+    // a2a_submit(url, message) → Result<String, String> as i32 pointer
+    { name: "a2a_submit", importModule: "env", importName: "a2a_submit", params: pair_i32, result: i32 },
+    // a2a_poll(url, task_id) → Result<String, String> as i32 pointer
+    { name: "a2a_poll", importModule: "env", importName: "a2a_poll", params: pair_i32, result: i32 },
+    // a2a_cancel(url, task_id) → Result<String, String> as i32 pointer
+    { name: "a2a_cancel", importModule: "env", importName: "a2a_cancel", params: pair_i32, result: i32 },
+
+    // --- Policy introspection ---
+    // policy_is_url_allowed(url) → Bool (i32: 1=allowed, 0=denied)
+    { name: "policy_is_url_allowed", importModule: "env", importName: "policy_is_url_allowed", params: i32, result: i32 },
+    // policy_is_effect_allowed(effect_name) → Bool (i32: 1=allowed, 0=denied)
+    { name: "policy_is_effect_allowed", importModule: "env", importName: "policy_is_effect_allowed", params: i32, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },

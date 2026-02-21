@@ -3433,3 +3433,403 @@ describe("std/mcp module", () => {
     expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("bad");
   });
 });
+
+describe("A2A builtins (a2a_discover, a2a_submit, a2a_poll, a2a_cancel)", () => {
+  it("a2a_discover compiles with A2A effect annotation", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_discover() -> Bool {
+        match a2a_discover("http://localhost:9999") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("a2a_discover returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_discover() -> Bool {
+        match a2a_discover("http://127.0.0.1:19876") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_discover as () => number)()).toBe(0);
+  });
+
+  it("a2a_submit compiles with A2A effect annotation", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_submit() -> Bool {
+        match a2a_submit("http://localhost:9999", "Hello agent") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("a2a_submit returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_submit() -> Bool {
+        match a2a_submit("http://127.0.0.1:19876", "Hello") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_submit as () => number)()).toBe(0);
+  });
+
+  it("a2a_poll compiles and returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_poll() -> Bool {
+        match a2a_poll("http://127.0.0.1:19876", "task-123") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_poll as () => number)()).toBe(0);
+  });
+
+  it("a2a_cancel compiles and returns Err for unreachable URL", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_cancel() -> Bool {
+        match a2a_cancel("http://127.0.0.1:19876", "task-123") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.try_cancel as () => number)()).toBe(0);
+  });
+});
+
+describe("std/a2a module", () => {
+  function setupA2aTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-a2a-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    const a2aSrc = fs.readFileSync(
+      path.join(process.cwd(), "std", "a2a.clarity"),
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(dir, "std", "a2a.clarity"), a2aSrc);
+    return dir;
+  }
+
+  it("imports and compiles discover, submit, poll, cancel from std/a2a", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { discover, submit, poll, cancel, unwrap_or } from "std/a2a"
+
+      effect[A2A] function run(url: String) -> String {
+        match submit(url, "hello") {
+          Ok(task_id) -> {
+            let status = poll(url, task_id);
+            unwrap_or(status, "unknown")
+          },
+          Err(msg) -> "error: " ++ msg
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("is_done, is_failed, is_canceled are pure string checks", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { is_done, is_failed, is_canceled } from "std/a2a"
+
+      function check_done() -> Bool { is_done("""{"status":"completed","output":"hi"}""") }
+      function check_failed() -> Bool { is_failed("""{"status":"failed"}""") }
+      function check_canceled() -> Bool { is_canceled("""{"status":"canceled"}""") }
+      function check_not_done() -> Bool { is_done("""{"status":"working"}""") }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check_done as () => number)()).toBe(1);
+    expect((instance.exports.check_failed as () => number)()).toBe(1);
+    expect((instance.exports.check_canceled as () => number)()).toBe(1);
+    expect((instance.exports.check_not_done as () => number)()).toBe(0);
+  });
+
+  it("unwrap_or and error_of work on Result<String, String>", async () => {
+    const dir = setupA2aTest(`
+      module Main
+      import { unwrap_or, is_ok, error_of } from "std/a2a"
+
+      function test_ok() -> Bool { is_ok(Ok("yep")) }
+      function test_err() -> Bool { is_ok(Err("nope")) }
+      function test_unwrap_ok() -> String { unwrap_or(Ok("win"), "default") }
+      function test_unwrap_err() -> String { unwrap_or(Err("fail"), "default") }
+      function test_error_of() -> String { error_of(Err("oops")) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_ok as () => number)()).toBe(1);
+    expect((instance.exports.test_err as () => number)()).toBe(0);
+    expect(runtime.readString((instance.exports.test_unwrap_ok as () => number)())).toBe("win");
+    expect(runtime.readString((instance.exports.test_unwrap_err as () => number)())).toBe("default");
+    expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("oops");
+  });
+});
+
+describe("Policy builtins (policy_is_url_allowed, policy_is_effect_allowed) and audit log", () => {
+  it("policy_is_url_allowed and policy_is_effect_allowed compile without effect annotation", async () => {
+    const source = `
+      module Test
+      function check_url() -> Bool { policy_is_url_allowed("http://api.example.com") }
+      function check_effect() -> Bool { policy_is_effect_allowed("MCP") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("policy_is_url_allowed returns True when no allowlist is configured", async () => {
+    const source = `
+      module Test
+      function check() -> Bool { policy_is_url_allowed("http://any-url.example.com") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // No CLARITY_ALLOW_HOSTS set in test env → all URLs allowed
+    expect((instance.exports.check as () => number)()).toBe(1);
+  });
+
+  it("policy_is_effect_allowed returns True when no deny list is configured", async () => {
+    const source = `
+      module Test
+      function check_mcp() -> Bool { policy_is_effect_allowed("MCP") }
+      function check_a2a() -> Bool { policy_is_effect_allowed("A2A") }
+      function check_model() -> Bool { policy_is_effect_allowed("Model") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // No CLARITY_DENY_EFFECTS set → all effects allowed
+    expect((instance.exports.check_mcp as () => number)()).toBe(1);
+    expect((instance.exports.check_a2a as () => number)()).toBe(1);
+    expect((instance.exports.check_model as () => number)()).toBe(1);
+  });
+
+  it("CLARITY_DENY_EFFECTS blocks mcp_connect and returns Err", async () => {
+    const source = `
+      module Test
+      effect[MCP] function try_connect() -> Bool {
+        match mcp_connect("http://localhost:9999/mcp") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedDeny = process.env.CLARITY_DENY_EFFECTS;
+    process.env.CLARITY_DENY_EFFECTS = "MCP";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      // MCP effect is denied → mcp_connect returns Err → False
+      expect((instance.exports.try_connect as () => number)()).toBe(0);
+    } finally {
+      if (savedDeny !== undefined) process.env.CLARITY_DENY_EFFECTS = savedDeny;
+      else delete process.env.CLARITY_DENY_EFFECTS;
+    }
+  });
+
+  it("CLARITY_DENY_EFFECTS blocks a2a_submit and returns Err", async () => {
+    const source = `
+      module Test
+      effect[A2A] function try_submit() -> Bool {
+        match a2a_submit("http://localhost:9999", "hello") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedDeny = process.env.CLARITY_DENY_EFFECTS;
+    process.env.CLARITY_DENY_EFFECTS = "A2A";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      expect((instance.exports.try_submit as () => number)()).toBe(0);
+    } finally {
+      if (savedDeny !== undefined) process.env.CLARITY_DENY_EFFECTS = savedDeny;
+      else delete process.env.CLARITY_DENY_EFFECTS;
+    }
+  });
+
+  it("CLARITY_ALLOW_HOSTS blocks mcp_connect for non-listed hosts", async () => {
+    const source = `
+      module Test
+      effect[MCP] function try_connect() -> Bool {
+        match mcp_connect("http://blocked.example.com/mcp") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedHosts = process.env.CLARITY_ALLOW_HOSTS;
+    process.env.CLARITY_ALLOW_HOSTS = "allowed.example.com";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      // blocked.example.com is not in allowlist → Err → False
+      expect((instance.exports.try_connect as () => number)()).toBe(0);
+    } finally {
+      if (savedHosts !== undefined) process.env.CLARITY_ALLOW_HOSTS = savedHosts;
+      else delete process.env.CLARITY_ALLOW_HOSTS;
+    }
+  });
+
+  it("CLARITY_ALLOW_HOSTS permits listed hosts", async () => {
+    const source = `
+      module Test
+      effect[MCP] function try_connect() -> Bool {
+        match mcp_connect("http://allowed.example.com/mcp") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedHosts = process.env.CLARITY_ALLOW_HOSTS;
+    process.env.CLARITY_ALLOW_HOSTS = "allowed.example.com";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      // allowed.example.com is in allowlist → Ok → True
+      expect((instance.exports.try_connect as () => number)()).toBe(1);
+    } finally {
+      if (savedHosts !== undefined) process.env.CLARITY_ALLOW_HOSTS = savedHosts;
+      else delete process.env.CLARITY_ALLOW_HOSTS;
+    }
+  });
+
+  it("CLARITY_ALLOW_HOSTS wildcard *.example.com permits subdomains", async () => {
+    const source = `
+      module Test
+      effect[MCP] function try_sub() -> Bool {
+        match mcp_connect("http://sub.example.com/mcp") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+      effect[MCP] function try_other() -> Bool {
+        match mcp_connect("http://other.net/mcp") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedHosts = process.env.CLARITY_ALLOW_HOSTS;
+    process.env.CLARITY_ALLOW_HOSTS = "*.example.com";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      expect((instance.exports.try_sub as () => number)()).toBe(1);   // subdomain → allowed
+      expect((instance.exports.try_other as () => number)()).toBe(0); // different domain → blocked
+    } finally {
+      if (savedHosts !== undefined) process.env.CLARITY_ALLOW_HOSTS = savedHosts;
+      else delete process.env.CLARITY_ALLOW_HOSTS;
+    }
+  });
+
+  it("CLARITY_AUDIT_LOG writes JSONL entries for each network call", async () => {
+    const logFile = path.join(os.tmpdir(), `clarity-audit-${Date.now()}.jsonl`);
+    const source = `
+      module Test
+      effect[MCP] function do_connect() -> Unit {
+        match mcp_connect("http://localhost:9999/mcp") {
+          Ok(id) -> mcp_disconnect(id),
+          Err(_) -> {}
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedLog = process.env.CLARITY_AUDIT_LOG;
+    process.env.CLARITY_AUDIT_LOG = logFile;
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      (instance.exports.do_connect as () => void)();
+      // The audit log should have at least one entry
+      const logContent = fs.readFileSync(logFile, "utf-8").trim();
+      const entries = logContent.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries.length).toBeGreaterThanOrEqual(1);
+      expect(entries[0]).toHaveProperty("timestamp");
+      expect(entries[0]).toHaveProperty("effect", "MCP");
+      expect(entries[0]).toHaveProperty("op", "mcp_connect");
+    } finally {
+      if (savedLog !== undefined) process.env.CLARITY_AUDIT_LOG = savedLog;
+      else delete process.env.CLARITY_AUDIT_LOG;
+      if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
+    }
+  });
+
+  it("policy_is_effect_allowed returns False when effect is denied via env", async () => {
+    const source = `
+      module Test
+      function check() -> Bool { policy_is_effect_allowed("MCP") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedDeny = process.env.CLARITY_DENY_EFFECTS;
+    process.env.CLARITY_DENY_EFFECTS = "MCP,A2A";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      expect((instance.exports.check as () => number)()).toBe(0);
+    } finally {
+      if (savedDeny !== undefined) process.env.CLARITY_DENY_EFFECTS = savedDeny;
+      else delete process.env.CLARITY_DENY_EFFECTS;
+    }
+  });
+
+  it("policy_is_url_allowed returns False for blocked host via env", async () => {
+    const source = `
+      module Test
+      function check() -> Bool { policy_is_url_allowed("http://blocked.test/api") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const savedHosts = process.env.CLARITY_ALLOW_HOSTS;
+    process.env.CLARITY_ALLOW_HOSTS = "allowed.test";
+    try {
+      const { instance } = await instantiate(result.wasm!);
+      expect((instance.exports.check as () => number)()).toBe(0);
+    } finally {
+      if (savedHosts !== undefined) process.env.CLARITY_ALLOW_HOSTS = savedHosts;
+      else delete process.env.CLARITY_ALLOW_HOSTS;
+    }
+  });
+});

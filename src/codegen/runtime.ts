@@ -62,6 +62,52 @@ export function createRuntime(config: RuntimeConfig = {}) {
   const freeLists    = new Map<number, number[]>(); // size_class → ptrs
 
   // ---------------------------------------------------------------------------
+  // Policy: URL allowlist, effect-family deny list, and audit log
+  // ---------------------------------------------------------------------------
+  // Configured via environment variables at runtime startup:
+  //   CLARITY_ALLOW_HOSTS — comma-separated hostname globs allowed for network ops
+  //                         e.g. "api.openai.com,*.internal.corp"
+  //                         Omit or leave empty to allow all hosts.
+  //   CLARITY_DENY_EFFECTS — comma-separated effect names to block entirely
+  //                          e.g. "MCP,A2A"
+  //   CLARITY_AUDIT_LOG — file path for JSONL audit log; each network call appends one line
+  const policyAllowHosts: string[] = (process.env.CLARITY_ALLOW_HOSTS ?? "")
+    .split(",").map((h) => h.trim()).filter(Boolean);
+  const policyDenyEffects = new Set<string>(
+    (process.env.CLARITY_DENY_EFFECTS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
+  );
+  const policyAuditLog: string | null = process.env.CLARITY_AUDIT_LOG ?? null;
+
+  /** Returns an error message if the URL's host is not in the allowlist, else null. */
+  function policyCheckUrl(url: string): string | null {
+    if (policyAllowHosts.length === 0) return null;
+    let hostname = url;
+    try { hostname = new URL(url).hostname; } catch { /* not a valid URL, use as-is */ }
+    const ok = policyAllowHosts.some((pattern) => {
+      if (pattern.startsWith("*.")) {
+        const domain = pattern.slice(2);
+        return hostname === domain || hostname.endsWith("." + domain);
+      }
+      return hostname === pattern;
+    });
+    return ok ? null : `Policy: host '${hostname}' is not in CLARITY_ALLOW_HOSTS`;
+  }
+
+  /** Returns an error message if the effect is in the deny list, else null. */
+  function policyCheckEffect(effectName: string): string | null {
+    return policyDenyEffects.has(effectName)
+      ? `Policy: effect '${effectName}' is blocked by CLARITY_DENY_EFFECTS`
+      : null;
+  }
+
+  /** Append one structured entry to the audit log (if configured). Non-fatal on I/O error. */
+  function audit(entry: Record<string, unknown>): void {
+    if (!policyAuditLog) return;
+    const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + "\n";
+    try { nodeFs.appendFileSync(policyAuditLog, line); } catch { /* non-fatal */ }
+  }
+
+  // ---------------------------------------------------------------------------
   // MCP session registry
   // ---------------------------------------------------------------------------
   // Each call to mcp_connect() registers an HTTP endpoint and returns an
@@ -1252,7 +1298,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // Returns Option<String>: Some(value) if set, None if absent.
       get_secret(namePtr: number): number {
         const name = readString(namePtr);
+        const effectErr = policyCheckEffect("Secret");
+        if (effectErr) { audit({ effect: "Secret", op: "get_secret", name, result: "denied", reason: effectErr }); return allocOptionI32(null); }
         const value = process.env[name];
+        audit({ effect: "Secret", op: "get_secret", name, result: value !== undefined ? "ok" : "not_found" });
         if (value === undefined) return allocOptionI32(null);
         return allocOptionI32(writeString(value));
       },
@@ -1264,18 +1313,32 @@ export function createRuntime(config: RuntimeConfig = {}) {
       call_model(modelPtr: number, promptPtr: number): number {
         const model = readString(modelPtr);
         const prompt = readString(promptPtr);
+        const effectErr = policyCheckEffect("Model");
+        if (effectErr) { audit({ effect: "Model", op: "call_model", model, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+        const urlErr = policyCheckUrl(`${baseUrl}/v1/chat/completions`);
+        if (urlErr) { audit({ effect: "Model", op: "call_model", model, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        const t0 = Date.now();
         const body = JSON.stringify({
           model,
           messages: [{ role: "user", content: prompt }],
           max_tokens: 4096,
         });
-        return callOpenAI(body);
+        const result = callOpenAI(body);
+        audit({ effect: "Model", op: "call_model", model, result: "ok", duration_ms: Date.now() - t0 });
+        return result;
       },
 
       call_model_system(modelPtr: number, systemPtr: number, promptPtr: number): number {
         const model = readString(modelPtr);
         const system = readString(systemPtr);
         const prompt = readString(promptPtr);
+        const effectErr = policyCheckEffect("Model");
+        if (effectErr) { audit({ effect: "Model", op: "call_model_system", model, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+        const urlErr = policyCheckUrl(`${baseUrl}/v1/chat/completions`);
+        if (urlErr) { audit({ effect: "Model", op: "call_model_system", model, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        const t0 = Date.now();
         const body = JSON.stringify({
           model,
           messages: [
@@ -1284,7 +1347,9 @@ export function createRuntime(config: RuntimeConfig = {}) {
           ],
           max_tokens: 4096,
         });
-        return callOpenAI(body);
+        const result = callOpenAI(body);
+        audit({ effect: "Model", op: "call_model_system", model, result: "ok", duration_ms: Date.now() - t0 });
+        return result;
       },
 
       // --- MCP operations ---
@@ -1293,8 +1358,13 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // Returns Result<Int64, String>: Ok(session_id) or Err(message).
       mcp_connect(urlPtr: number): number {
         const url = readString(urlPtr);
+        const effectErr = policyCheckEffect("MCP");
+        if (effectErr) { audit({ effect: "MCP", op: "mcp_connect", url, result: "denied", reason: effectErr }); return allocResultI64(false, 0n, writeString(effectErr)); }
+        const urlErr = policyCheckUrl(url);
+        if (urlErr) { audit({ effect: "MCP", op: "mcp_connect", url, result: "denied", reason: urlErr }); return allocResultI64(false, 0n, writeString(urlErr)); }
         const id = mcpNextId++;
         mcpSessions.set(id, { url });
+        audit({ effect: "MCP", op: "mcp_connect", url, result: "ok", session_id: id });
         return allocResultI64(true, BigInt(id));
       },
 
@@ -1307,14 +1377,18 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
         const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
         try {
+          const t0 = Date.now();
           const raw = callMcp(session.url, body);
           const parsed = JSON.parse(raw) as { result?: { tools?: unknown[] }; error?: { message?: string } };
           if (parsed.error) {
+            audit({ effect: "MCP", op: "mcp_list_tools", url: session.url, result: "error" });
             return allocResultString(false, writeString(`MCP error: ${parsed.error.message ?? "unknown"}`));
           }
+          audit({ effect: "MCP", op: "mcp_list_tools", url: session.url, result: "ok", duration_ms: Date.now() - t0 });
           return allocResultString(true, writeString(JSON.stringify(parsed.result?.tools ?? [])));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "MCP", op: "mcp_list_tools", url: session.url, result: "error" });
           return allocResultString(false, writeString(msg));
         }
       },
@@ -1336,19 +1410,23 @@ export function createRuntime(config: RuntimeConfig = {}) {
           params: { name: tool, arguments: args },
         });
         try {
+          const t0 = Date.now();
           const raw = callMcp(session.url, body);
           const parsed = JSON.parse(raw) as {
             result?: { content?: Array<{ type: string; text?: string }> };
             error?: { message?: string };
           };
           if (parsed.error) {
+            audit({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "error" });
             return allocResultString(false, writeString(`MCP error: ${parsed.error.message ?? "unknown"}`));
           }
           const content = parsed.result?.content ?? [];
           const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+          audit({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "ok", duration_ms: Date.now() - t0 });
           return allocResultString(true, writeString(text || JSON.stringify(parsed.result)));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "error" });
           return allocResultString(false, writeString(msg));
         }
       },
@@ -1356,6 +1434,162 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // Removes the MCP session from the registry.
       mcp_disconnect(sessionId: bigint): void {
         mcpSessions.delete(Number(sessionId));
+      },
+
+      // --- A2A operations ---
+      // Fetches the agent card from {url}/.well-known/agent.json.
+      // Returns Result<String, String>: Ok(agent_card_json) or Err(message).
+      a2a_discover(urlPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const effectErr = policyCheckEffect("A2A");
+        if (effectErr) { audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const urlErr = policyCheckUrl(baseUrl);
+        if (urlErr) { audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        try {
+          const t0 = Date.now();
+          const raw = execFileSync(
+            "curl",
+            ["-sS", "--max-time", "10", "--fail", `${baseUrl}/.well-known/agent.json`],
+            { encoding: "utf-8" },
+          );
+          audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "ok", duration_ms: Date.now() - t0 });
+          return allocResultString(true, writeString(raw.trim()));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "error" });
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Submits a text message as a task to an A2A agent.
+      // Uses the JSON-RPC 2.0 tasks/send method.
+      // Returns Result<String, String>: Ok(task_id) or Err(message).
+      a2a_submit(urlPtr: number, messagePtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const message = readString(messagePtr);
+        const effectErr = policyCheckEffect("A2A");
+        if (effectErr) { audit({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const urlErr = policyCheckUrl(baseUrl);
+        if (urlErr) { audit({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        const taskId = `clarity-${Date.now()}-${Math.floor(Math.random() * 0xffff).toString(16)}`;
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: taskId,
+          method: "tasks/send",
+          params: {
+            id: taskId,
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: message }],
+            },
+          },
+        });
+        try {
+          const t0 = Date.now();
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string } };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            audit({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "error" });
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          const returnedId = parsed.result?.id ?? taskId;
+          audit({ effect: "A2A", op: "a2a_submit", url: baseUrl, task_id: returnedId, result: "ok", duration_ms: Date.now() - t0 });
+          return allocResultString(true, writeString(returnedId));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "error" });
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Polls for the current status of an A2A task.
+      // Returns Result<String, String>: Ok(status_json) or Err(message).
+      a2a_poll(urlPtr: number, taskIdPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const taskId = readString(taskIdPtr);
+        const effectErr = policyCheckEffect("A2A");
+        if (effectErr) { audit({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const urlErr = policyCheckUrl(baseUrl);
+        if (urlErr) { audit({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: `poll-${Date.now()}`,
+          method: "tasks/get",
+          params: { id: taskId },
+        });
+        try {
+          const t0 = Date.now();
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string }; artifacts?: Array<{ parts?: Array<{ type: string; text?: string }> }> };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            audit({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "error" });
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          const result = parsed.result ?? {};
+          const artParts = (result.artifacts ?? []).flatMap((a) => a.parts ?? []);
+          const outputText = artParts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
+          const summary = { id: result.id ?? taskId, status: result.status?.state ?? "unknown", output: outputText };
+          audit({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, status: summary.status, result: "ok", duration_ms: Date.now() - t0 });
+          return allocResultString(true, writeString(JSON.stringify(summary)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "error" });
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Cancels a running A2A task.
+      // Returns Result<String, String>: Ok(final_status_json) or Err(message).
+      a2a_cancel(urlPtr: number, taskIdPtr: number): number {
+        const baseUrl = readString(urlPtr).replace(/\/$/, "");
+        const taskId = readString(taskIdPtr);
+        const effectErr = policyCheckEffect("A2A");
+        if (effectErr) { audit({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "denied", reason: effectErr }); return allocResultString(false, writeString(effectErr)); }
+        const urlErr = policyCheckUrl(baseUrl);
+        if (urlErr) { audit({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: `cancel-${Date.now()}`,
+          method: "tasks/cancel",
+          params: { id: taskId },
+        });
+        try {
+          const t0 = Date.now();
+          const raw = callA2A(baseUrl, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { id?: string; status?: { state?: string } };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            audit({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "error" });
+            return allocResultString(false, writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+          }
+          const result = parsed.result ?? {};
+          const summary = { id: result.id ?? taskId, status: result.status?.state ?? "canceled" };
+          audit({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "ok", duration_ms: Date.now() - t0 });
+          return allocResultString(true, writeString(JSON.stringify(summary)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          audit({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "error" });
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // --- Policy introspection ---
+      // Check if a URL is permitted by the runtime policy.
+      policy_is_url_allowed(urlPtr: number): number {
+        return policyCheckUrl(readString(urlPtr)) === null ? 1 : 0;
+      },
+
+      // Check if an effect family is permitted by the runtime policy.
+      policy_is_effect_allowed(effectPtr: number): number {
+        return policyCheckEffect(readString(effectPtr)) === null ? 1 : 0;
       },
 
       list_models(): number {
@@ -1431,6 +1665,26 @@ export function createRuntime(config: RuntimeConfig = {}) {
       const last = lines[lines.length - 1];
       return last ? last.slice("data:".length).trim() : "{}";
     }
+    return raw;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helper: POST a JSON-RPC body to an A2A HTTP endpoint.
+  // The A2A endpoint is the agent's base URL (not a /.well-known path).
+  // Throws on HTTP errors so callers can wrap in try/catch.
+  // ---------------------------------------------------------------------------
+  function callA2A(baseUrl: string, body: string): string {
+    const raw = execFileSync(
+      "curl",
+      [
+        "-sS", "--max-time", "60", "--fail",
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        baseUrl,
+        "--data-raw", body,
+      ],
+      { encoding: "utf-8" },
+    );
     return raw;
   }
 

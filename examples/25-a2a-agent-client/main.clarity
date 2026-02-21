@@ -1,0 +1,67 @@
+module Main
+
+import { discover, submit, poll, cancel, is_done, is_failed, unwrap_or, unwrap_output } from "std/a2a"
+
+// Discover and print the agent card from a remote agent.
+// Usage: clarityc run main.clarity -f show_card -a "http://localhost:8080"
+effect[A2A, FileSystem] function show_card() -> Unit {
+  let args = get_args();
+  let url = nth(args, 0);
+  match discover(url) {
+    Ok(card) -> print_string(card),
+    Err(msg) -> {
+      print_string("Discovery failed: " ++ msg);
+      exit(1)
+    }
+  }
+}
+
+// Submit a task to an agent and poll until completion, then print the result.
+// Usage: clarityc run main.clarity -f ask -a "http://localhost:8080" "Your question here"
+effect[A2A, FileSystem] function ask() -> Unit {
+  let args = get_args();
+  let url = nth(args, 0);
+  let question = nth(args, 1);
+  match submit(url, question) {
+    Ok(task_id) -> {
+      print_string("Task submitted: " ++ task_id);
+      let result = wait_for_result(url, task_id);
+      print_string(result)
+    },
+    Err(msg) -> {
+      print_string("Submit failed: " ++ msg);
+      exit(1)
+    }
+  }
+}
+
+// Poll until the task reaches a terminal state, then return the output.
+effect[A2A] function wait_for_result(url: String, task_id: String) -> String {
+  match poll(url, task_id) {
+    Ok(status) ->
+      match is_done(status) {
+        True -> unwrap_output(status),
+        False ->
+          match is_failed(status) {
+            True -> "Task failed",
+            False -> wait_for_result(url, task_id)
+          }
+      },
+    Err(msg) -> "Poll error: " ++ msg
+  }
+}
+
+// Cancel a running task by ID.
+// Usage: clarityc run main.clarity -f cancel_task -a "http://localhost:8080" "task-id"
+effect[A2A, FileSystem] function cancel_task() -> Unit {
+  let args = get_args();
+  let url = nth(args, 0);
+  let task_id = nth(args, 1);
+  match cancel(url, task_id) {
+    Ok(status) -> print_string("Cancelled. Final status: " ++ status),
+    Err(msg) -> {
+      print_string("Cancel failed: " ++ msg);
+      exit(1)
+    }
+  }
+}
