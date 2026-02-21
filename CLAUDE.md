@@ -290,7 +290,7 @@ Support programs larger than a single file.
 1. ✓ **Import/export syntax** — `import { User } from "models"`, `export function`, `export type`.
 2. ✓ **Module resolution** — File-based resolution. `"math"` → `math.clarity` relative to importing file.
 3. ✓ **Merge compilation** — All imported modules compiled into a single WASM binary. Entry module's functions exported as WASM exports.
-4. ✓ **Standard library** — `std/math` (abs, min, max, clamp, sign, is_even, is_odd), `std/string` (length, repeat, strip, to_int, to_float, etc.). `std/list` deferred until cross-module generics work.
+4. ✓ **Standard library** — `std/math` (abs, min, max, clamp, sign, is_even, is_odd), `std/string` (length, repeat, strip, to_int, to_float, etc.), `std/list` (map, filter, fold, find, any, all, zip_with, flatten, flat_map, take, drop, range, sum, product, maximum, minimum, replicate — all generic).
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable beyond demos.

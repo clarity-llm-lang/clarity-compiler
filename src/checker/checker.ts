@@ -7,7 +7,7 @@ import type {
 import {
   type ClarityType, type ClarityVariant,
   INT64, FLOAT64, STRING, BOOL, UNIT, ERROR_TYPE,
-  resolveBuiltinType, typesEqual, typeToString,
+  resolveBuiltinType, typesEqual, typeToString, promoteType,
   containsTypeVar, substituteTypeVars, unifyTypes,
 } from "./types.js";
 import { Environment } from "./environment.js";
@@ -806,6 +806,10 @@ export class Checker {
                 "All match arms must return the same type",
               ),
             );
+          } else {
+            // Both arms are compatible. Prefer the more specific type over placeholders
+            // (e.g. Option<Int64> over Option<Unit> produced by bare `None`).
+            resultType = promoteType(resultType, armType);
           }
         }
 

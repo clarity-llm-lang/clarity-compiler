@@ -224,7 +224,7 @@ Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding
 |--------|--------------|
 | `std/math` | `abs`, `min`, `max`, `clamp`, `sign`, `is_even`, `is_odd`, `square_root`, `power`, `floor_f`, `ceil_f` |
 | `std/string` | `length`, `has`, `find`, `strip`, `slice`, `at`, `split_by`, `is_blank`, `repeat`, `to_int`, `to_float` |
-| `std/list` | `size`, `first`, `rest`, `push`, `join`, `reversed`, `empty`, `get`, `set_at`, `map`, `filter`, `fold_left`, `fold_right`, `any`, `all`, `count_where`, `zip_with`, `flatten`, `take`, `drop`, `sum`, `product`, `range`, `replicate` |
+| `std/list` | `map`, `filter`, `fold`/`fold_left`/`fold_right`, `find`, `any`, `all`, `count_where`, `flat_map`, `zip_with`, `flatten`, `take`, `drop`, `sum`, `product`, `maximum`, `minimum`, `range`, `replicate`, `size`, `first`, `rest`, `push` |
 | `std/llm` | `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/mcp` | `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/a2a` | `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of` |

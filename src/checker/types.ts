@@ -58,12 +58,19 @@ export function typesEqual(a: ClarityType, b: ClarityType): boolean {
 
     case "Union": {
       const bUnion = b as Extract<ClarityType, { kind: "Union" }>;
-      return a.name === bUnion.name;
+      if (a.name === bUnion.name) return true;
+      // Placeholder compatibility: Option<Unit> from bare `None` is compatible with any Option<T>.
+      if (a.name.startsWith("Option<") && bUnion.name.startsWith("Option<") &&
+          (a.name === "Option<Unit>" || bUnion.name === "Option<Unit>")) return true;
+      return false;
     }
 
     case "List": {
       const bList = b as Extract<ClarityType, { kind: "List" }>;
-      return typesEqual(a.element, bList.element);
+      if (typesEqual(a.element, bList.element)) return true;
+      // Placeholder compatibility: List<Unit> from bare `[]` is compatible with any List<T>.
+      if (a.element.kind === "Unit" || bList.element.kind === "Unit") return true;
+      return false;
     }
 
     case "Map": {
@@ -98,6 +105,22 @@ export function typesEqual(a: ClarityType, b: ClarityType): boolean {
     default:
       return false;
   }
+}
+
+// Returns true for placeholder types produced by bare None / [] literals.
+// These are compatible with any Option<T> / List<T> respectively.
+export function isPlaceholderType(t: ClarityType): boolean {
+  if (t.kind === "Union" && t.name === "Option<Unit>") return true;
+  if (t.kind === "List" && t.element.kind === "Unit") return true;
+  return false;
+}
+
+// When two types are compatible (typesEqual returns true), pick the more specific one.
+// Promotes placeholder types (Option<Unit>, List<Unit>) to the concrete type.
+export function promoteType(a: ClarityType, b: ClarityType): ClarityType {
+  if (isPlaceholderType(a) && !isPlaceholderType(b)) return b;
+  if (isPlaceholderType(b) && !isPlaceholderType(a)) return a;
+  return a;
 }
 
 export function typeToString(t: ClarityType): string {
@@ -176,7 +199,15 @@ export function substituteTypeVars(t: ClarityType, subst: Map<string, ClarityTyp
         for (const [k, fv] of v.fields) fields.set(k, substituteTypeVars(fv, subst));
         return { name: v.name, fields };
       });
-      return { kind: "Union", name: t.name, variants };
+      // Update the union name to reflect substituted type variables.
+      // e.g. "Option<T>" with T→Int64 becomes "Option<Int64>".
+      let name = t.name;
+      for (const [varName, concreteType] of subst) {
+        // Replace whole-word occurrences of varName in the angle-bracket name.
+        // Use a regex that matches varName when followed by ',' '>' or end of name.
+        name = name.replace(new RegExp(`\\b${varName}\\b`, "g"), typeToString(concreteType));
+      }
+      return { kind: "Union", name, variants };
     }
     default: return t;
   }
