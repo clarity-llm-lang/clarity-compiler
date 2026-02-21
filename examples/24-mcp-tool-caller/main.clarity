@@ -1,0 +1,49 @@
+module Main
+
+import { connect, call_tool, list_tools, disconnect, unwrap_or } from "std/mcp"
+
+// Call a single MCP tool and print the result.
+// Usage:
+//   clarityc run main.clarity -f run \
+//     -a "http://localhost:3000/mcp" "read_file" "{\"path\":\"/etc/hostname\"}"
+effect[MCP, FileSystem] function run() -> Unit {
+  let args = get_args();
+  let url = nth(args, 0);
+  let tool = nth(args, 1);
+  let args_json = nth(args, 2);
+  match connect(url) {
+    Ok(session) -> {
+      let result = call_tool(session, tool, args_json);
+      disconnect(session);
+      match result {
+        Ok(output) -> print_string(output),
+        Err(msg) -> {
+          print_string("Tool call failed: " ++ msg);
+          exit(1)
+        }
+      }
+    },
+    Err(msg) -> {
+      print_string("Connect failed: " ++ msg);
+      exit(1)
+    }
+  }
+}
+
+// List all tools available on an MCP server.
+// Usage: clarityc run main.clarity -f list_all -a "http://localhost:3000/mcp"
+effect[MCP, FileSystem] function list_all() -> Unit {
+  let args = get_args();
+  let url = nth(args, 0);
+  match connect(url) {
+    Ok(session) -> {
+      let result = list_tools(session);
+      disconnect(session);
+      print_string(unwrap_or(result, "[]"))
+    },
+    Err(msg) -> {
+      print_string("Connect failed: " ++ msg);
+      exit(1)
+    }
+  }
+}

@@ -1122,6 +1122,44 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "List available model identifiers from the configured LLM provider. Returns an empty list on failure. Requires OPENAI_API_KEY environment variable.",
     category: "model",
   },
+
+  // --- MCP operations (require MCP effect) ---
+  {
+    name: "mcp_connect",
+    params: [STRING],
+    paramNames: ["url"],
+    returnType: { kind: "Result", ok: INT64, err: STRING } as ClarityType,
+    effects: ["MCP"],
+    doc: "Register an MCP server HTTP endpoint. Returns an opaque session handle (Int64) on success, or Err(message) if the URL is unreachable. Use the session handle with mcp_list_tools and mcp_call_tool. Example: mcp_connect(\"http://localhost:3000/mcp\").",
+    category: "mcp",
+  },
+  {
+    name: "mcp_list_tools",
+    params: [INT64],
+    paramNames: ["session"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["MCP"],
+    doc: "List tools available in an MCP session. Returns a JSON string containing the array of tool descriptors on success. Parse with json_parse or inspect manually.",
+    category: "mcp",
+  },
+  {
+    name: "mcp_call_tool",
+    params: [INT64, STRING, STRING],
+    paramNames: ["session", "tool", "args_json"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["MCP"],
+    doc: "Call an MCP tool by name with JSON-encoded arguments. `args_json` must be a JSON object string, e.g. \"{\\\"path\\\":\\\"/tmp/foo\\\"}\". Returns the tool output as a string. Example: mcp_call_tool(session, \"read_file\", \"{\\\"path\\\":\\\"/etc/hosts\\\"}\").",
+    category: "mcp",
+  },
+  {
+    name: "mcp_disconnect",
+    params: [INT64],
+    paramNames: ["session"],
+    returnType: UNIT,
+    effects: ["MCP"],
+    doc: "Close an MCP session and release its resources. Safe to call even if the session was already closed.",
+    category: "mcp",
+  },
 ];
 
 // -----------------------------------------------------------------------------

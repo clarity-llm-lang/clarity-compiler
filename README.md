@@ -353,7 +353,7 @@ clarity/
 
 ## Current Status (v0.7)
 
-**284 tests passing.**
+**292 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
@@ -384,9 +384,11 @@ clarity/
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit` (FileSystem effect)
 - Bytes and Timestamp runtime support
 - Multi-file programs with import/export and file-based module resolution
-- Standard library: `std/math`, `std/string`, `std/llm`
+- Standard library: `std/math`, `std/string`, `std/llm`, `std/mcp`
 - **LLM/AI interop**: `call_model`, `call_model_system`, `list_models` (Model effect); `get_secret` (Secret effect)
 - **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — OpenAI-compatible, works with Ollama/Groq via `OPENAI_BASE_URL`
+- **MCP interop**: `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect` (MCP effect); HTTP transport with JSON-RPC 2.0 + SSE
+- **`std/mcp`**: `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of`
 - Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
 - String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
@@ -448,7 +450,7 @@ Make agent ecosystems and model APIs first-class language/runtime capabilities.
 - ~~`std/llm` module~~ (done — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`)
 - ~~LLM builtins~~ (done — `call_model`, `call_model_system`, `list_models`; OpenAI-compatible via `OPENAI_API_KEY`/`OPENAI_BASE_URL`)
 - ~~Secret builtin~~ (done — `get_secret(name) -> Option<String>` reads from environment; requires Secret effect)
-- MCP support — stdio/http session connect, tool list/read/call primitives
+- ~~MCP support~~ (done — `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect`; HTTP transport with JSON-RPC 2.0 + SSE; `std/mcp` module)
 - A2A support — discovery, task submit/poll/cancel lifecycle
 - Policy + audit — endpoint allowlists, effect-family deny, structured audit logs
 
