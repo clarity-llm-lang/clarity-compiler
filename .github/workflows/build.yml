@@ -1,0 +1,53 @@
+name: PR CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: pr-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  branch-naming:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch naming convention
+        shell: bash
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          REGEX='^(result|hotfix|codex)/[a-z0-9]+(-[a-z0-9]+)*$|^dependabot/.+$'
+          if [[ ! "$BRANCH" =~ $REGEX ]]; then
+            echo "Invalid branch name: $BRANCH"
+            echo "Use outcome-based names describing what the branch achieves:"
+            echo "  result/<outcome-kebab-case>   e.g. result/add-http-streaming"
+            echo "  hotfix/<outcome-kebab-case>   e.g. hotfix/fix-wasm-crash"
+            echo "  codex/<outcome-kebab-case>    e.g. codex/generate-std-math"
+            echo "Automated branches allowed: dependabot/*"
+            exit 1
+          fi
+
+  build:
+    needs: branch-naming
+    if: needs.branch-naming.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
