@@ -354,7 +354,7 @@ clarity/
 
 ## Current Status (v0.8)
 
-**348 tests passing.**
+**353 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
@@ -385,7 +385,7 @@ clarity/
 - I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit` (FileSystem effect)
 - Bytes and Timestamp runtime support
 - Multi-file programs with import/export and file-based module resolution
-- Standard library: `std/math`, `std/string`, `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`
+- Standard library: `std/math`, `std/string`, `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`, `std/eval`, `std/stream`
 - **Multi-provider LLM**: `claude-*` models route to Anthropic Messages API (`ANTHROPIC_API_KEY`); all others use OpenAI-compatible endpoint (`OPENAI_API_KEY` / `OPENAI_BASE_URL`)
 - **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — works with Ollama/Groq/Anthropic via env vars
 - **MCP interop**: `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect` (MCP effect); HTTP transport with JSON-RPC 2.0 + SSE
@@ -400,6 +400,8 @@ clarity/
 - **`std/rag`**: `retrieve(query, text, chunk_size, top_k)` — end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON
 - **Eval effect + LLM evals**: `eval_exact`, `eval_contains` (pure), `eval_llm_judge` (LLM-as-judge with score JSON), `eval_semantic` (embedding-based cosine similarity)
 - **`std/eval`**: `exact`, `has_match`, `semantic`, `judge`, `pass` — evaluation framework for assessing model responses against expected outputs or rubrics
+- **Streaming LLM calls**: `stream_start(model, prompt, system)`, `stream_next(handle)`, `stream_close(handle)` (Model effect) — pull-based token streaming over SSE; worker thread + SharedArrayBuffer + Atomics.wait; supports OpenAI-compatible and Anthropic providers
+- **`std/stream`**: `call(model, prompt)`, `call_with_system(model, system, prompt)` — stream a model call and collect the full response as `Result<String, String>`
 - Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
 - String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)

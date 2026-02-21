@@ -177,6 +177,12 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "call_model_system", importModule: "env", importName: "call_model_system", params: binaryen.createType([i32, i32, i32]), result: i32 },
     // list_models() → List<String> as i32 pointer
     { name: "list_models", importModule: "env", importName: "list_models", params: none, result: i32 },
+    // stream_start(model, prompt, system) → Result<Int64, String> as i32 pointer
+    { name: "stream_start", importModule: "env", importName: "stream_start", params: binaryen.createType([i32, i32, i32]), result: i32 },
+    // stream_next(handle: i64) → Option<String> as i32 pointer
+    { name: "stream_next", importModule: "env", importName: "stream_next", params: i64, result: i32 },
+    // stream_close(handle: i64) → String as i32 pointer (empty = ok, non-empty = error)
+    { name: "stream_close", importModule: "env", importName: "stream_close", params: i64, result: i32 },
 
     // --- MCP operations ---
     // mcp_connect(url) → Result<Int64, String> as i32 pointer

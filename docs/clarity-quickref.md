@@ -231,6 +231,15 @@ Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding
 | `std/agent` | `run(key, initial, step_fn)`, `resume(key, step_fn)`, `clear(key)` — resumable agent loop with auto-checkpointing |
 | `std/rag` | `retrieve(query, text, chunk_size, top_k)`, `chunk(text, size)`, `embed(text)`, `similarity(a, b)` |
 | `std/eval` | `exact(got, expected)`, `has_match(got, expected)`, `semantic(got, expected)`, `judge(model, prompt, resp, rubric)`, `pass(model, prompt, resp, rubric)` |
+| `std/stream` | `call(model, prompt)`, `call_with_system(model, system, prompt)` → `Result<String, String>` — pull-based SSE streaming, collects all tokens |
+
+### Streaming builtins (Model effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `stream_start(model, prompt, system)` | `String×3 -> Result<Int64, String>` | Start SSE stream; returns handle or Err |
+| `stream_next(handle)` | `Int64 -> Option<String>` | Block until next token; None = stream ended |
+| `stream_close(handle)` | `Int64 -> String` | Cleanup; returns error if stream failed, "" if ok |
 
 Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 

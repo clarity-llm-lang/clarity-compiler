@@ -4444,3 +4444,111 @@ describe("std/eval module", () => {
     expect((instance.exports.do_has as (a: number, b: number) => number)(hayPtr, missingPtr)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Streaming builtins (stream_start, stream_next, stream_close)
+// ---------------------------------------------------------------------------
+describe("Streaming builtins", () => {
+  it("stream_start / stream_next / stream_close compile with Model effect", () => {
+    const src = `
+      module Test
+      effect[Model] function go(model: String, prompt: String) -> Result<String, String> {
+        match stream_start(model, prompt, "") {
+          Err(e) -> Err(e),
+          Ok(handle) -> {
+            let token = stream_next(handle);
+            let err = stream_close(handle);
+            match token {
+              None -> Ok("done"),
+              Some(t) -> Ok(t)
+            }
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("rejects stream_start without Model effect", () => {
+    const src = `
+      module Test
+      function bad(model: String, prompt: String) -> Result<String, String> {
+        stream_start(model, prompt, "")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("stream_start returns Ok(handle) immediately; error surfaces via stream_close", async () => {
+    // stream_start spawns the worker asynchronously and always returns Ok(handle).
+    // The HTTP/auth error surfaces when the worker signals ERROR status, which
+    // stream_next delivers as None and stream_close returns as an error string.
+    const src = `
+      module Test
+      effect[Model] function start_handle(model: String, prompt: String) -> Int64 {
+        match stream_start(model, prompt, "") {
+          Err(_) -> 0 - 1,
+          Ok(handle) -> handle
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const mPtr = runtime.writeString("gpt-4o");
+    const pPtr = runtime.writeString("hello");
+    const handle = (instance.exports.start_handle as (m: number, p: number) => bigint)(mPtr, pPtr);
+    // Should have returned a positive handle (worker spawned ok)
+    expect(Number(handle)).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/stream module
+// ---------------------------------------------------------------------------
+describe("std/stream module", () => {
+  function setupStreamTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-stream-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "stream.clarity");
+    return dir;
+  }
+
+  it("imports call and call_with_system from std/stream", () => {
+    const dir = setupStreamTest(`
+      module Main
+      import { call, call_with_system } from "std/stream"
+      effect[Model] function ask(model: String, prompt: String) -> Result<String, String> {
+        call(model, prompt)
+      }
+      effect[Model] function ask_sys(model: String, sys: String, prompt: String) -> Result<String, String> {
+        call_with_system(model, sys, prompt)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("call returns Err when no API key", async () => {
+    const dir = setupStreamTest(`
+      module Main
+      import { call } from "std/stream"
+      effect[Model] function ask(model: String, prompt: String) -> Result<String, String> {
+        call(model, prompt)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const mPtr = runtime.writeString("gpt-4o");
+    const pPtr = runtime.writeString("hello");
+    const resPtr = (instance.exports.ask as (m: number, p: number) => number)(mPtr, pPtr);
+    const view = new DataView((instance.exports.memory as WebAssembly.Memory).buffer);
+    const tag = view.getInt32(resPtr, true);
+    expect(tag).toBe(1); // Err — no API key in test environment
+  });
+});
