@@ -264,7 +264,7 @@ npx clarityc run myfile.clarity -f function_name -a arg1 arg2
 
 ### Compile and start in Clarity Runtime
 ```bash
-npx clarityc start myfile.clarity --daemon-url http://127.0.0.1:4707
+npx clarityc start myfile.clarity --daemon-url http://localhost:4707
 ```
 
 ### Run inline tests (self-healing test runner)
