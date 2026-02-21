@@ -6,8 +6,140 @@
 
 import * as nodeFs from "node:fs";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { Worker } from "node:worker_threads";
 // The WASM module owns the memory and exports it; the runtime binds to it after instantiation.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// syncHttpRequest: synchronous HTTP client using a worker thread + Atomics.
+//
+// WASM imports must be synchronous. We cannot use async fetch() directly.
+// Instead, we spawn a Worker that performs the async request and signals
+// completion via a SharedArrayBuffer; the main thread blocks with Atomics.wait.
+//
+// SharedArrayBuffer layout (bytes):
+//   [0..3]  Int32 – done flag: 0=pending 1=ok 2=http-error 3=net-error 4=timeout
+//   [4..7]  Int32 – HTTP status code
+//   [8..11] Int32 – body length (bytes)
+//   [12..]  body  – UTF-8 encoded response body (up to HTTP_MAX_BODY bytes)
+// ─────────────────────────────────────────────────────────────────────────────
+const HTTP_MAX_BODY = 8 * 1024 * 1024; // 8 MB
+
+interface SyncHttpResponse {
+  ok: boolean;
+  status: number;
+  body: string;
+}
+
+// Worker source evaluated as CJS (eval:true workers are CJS regardless of package type).
+const _HTTP_WORKER_CODE = `
+const { workerData } = require('worker_threads');
+const https = require('https');
+const http = require('http');
+const { sab, url: initialUrl, method, headers, body, timeoutMs, followRedirects } = workerData;
+const ctrl = new Int32Array(sab, 0, 1);
+const view = new DataView(sab);
+const MAX_BODY = sab.byteLength - 12;
+
+function finish(done, status, bodyStr) {
+  const encoded = Buffer.from(bodyStr || '', 'utf8');
+  const len = Math.min(encoded.length, MAX_BODY);
+  view.setInt32(4, status, true);
+  view.setInt32(8, len, true);
+  new Uint8Array(sab, 12, len).set(encoded.subarray(0, len));
+  Atomics.store(ctrl, 0, done);
+  Atomics.notify(ctrl, 0);
+}
+
+function doRequest(url, redirectCount) {
+  if (redirectCount > 5) { finish(3, 0, 'Too many redirects'); return; }
+  let urlObj;
+  try { urlObj = new URL(url); } catch(e) { finish(3, 0, 'Invalid URL: ' + String(e)); return; }
+  const mod = urlObj.protocol === 'https:' ? https : http;
+  const port = urlObj.port ? parseInt(urlObj.port, 10) : (urlObj.protocol === 'https:' ? 443 : 80);
+  const reqOpts = {
+    hostname: urlObj.hostname,
+    port,
+    path: (urlObj.pathname || '/') + (urlObj.search || ''),
+    method: method || 'GET',
+    headers: headers || {},
+    timeout: timeoutMs || 10000,
+  };
+  const req = mod.request(reqOpts, function(res) {
+    if (followRedirects && [301, 302, 303, 307, 308].indexOf(res.statusCode) !== -1 && res.headers.location) {
+      res.resume();
+      let redirectUrl;
+      try { redirectUrl = new URL(res.headers.location, url).href; }
+      catch(e) { finish(3, 0, 'Invalid redirect URL'); return; }
+      doRequest(redirectUrl, redirectCount + 1);
+      return;
+    }
+    let chunks = [];
+    res.on('data', function(chunk) { chunks.push(Buffer.from(chunk)); });
+    res.on('end', function() {
+      const data = Buffer.concat(chunks);
+      const done = (res.statusCode >= 200 && res.statusCode < 300) ? 1 : 2;
+      finish(done, res.statusCode, data.toString('utf8'));
+    });
+  });
+  req.on('error', function(e) { finish(3, 0, e.message); });
+  req.on('timeout', function() { req.destroy(); finish(4, 0, 'Request timed out'); });
+  if (body !== undefined && body !== null) { req.write(body); }
+  req.end();
+}
+doRequest(initialUrl, 0);
+`;
+
+function syncHttpRequest(opts: {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  followRedirects?: boolean;
+}): SyncHttpResponse {
+  // file:// URLs are read directly from disk (curl supports these; http/https don't).
+  if (opts.url.startsWith("file://")) {
+    try {
+      const filePath = new URL(opts.url).pathname;
+      const content = nodeFs.readFileSync(filePath, "utf-8");
+      return { ok: true, status: 200, body: content };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, status: 0, body: msg };
+    }
+  }
+  const sab = new SharedArrayBuffer(12 + HTTP_MAX_BODY);
+  const ctrl = new Int32Array(sab, 0, 1);
+  const worker = new Worker(_HTTP_WORKER_CODE, {
+    eval: true,
+    workerData: {
+      sab,
+      url: opts.url,
+      method: opts.method ?? "GET",
+      headers: opts.headers ?? {},
+      body: opts.body ?? null,
+      timeoutMs: opts.timeoutMs ?? 10000,
+      followRedirects: opts.followRedirects ?? false,
+    },
+  });
+  // Block until worker signals done (or an extra 2s grace period elapses).
+  const waitResult = Atomics.wait(ctrl, 0, 0, (opts.timeoutMs ?? 10000) + 2000);
+  worker.terminate();
+
+  const done = ctrl[0];
+  const view = new DataView(sab);
+  const status = view.getInt32(4, true);
+  const bodyLen = view.getInt32(8, true);
+  const body = Buffer.from(new Uint8Array(sab, 12, bodyLen)).toString("utf-8");
+
+  if (waitResult === "timed-out" || done === 0 || done === 4) {
+    return { ok: false, status: 0, body: "Request timed out" };
+  }
+  if (done === 3) {
+    return { ok: false, status: 0, body };
+  }
+  return { ok: done === 1, status, body };
+}
 
 export interface RuntimeExports {
   memory: WebAssembly.Memory;
@@ -1133,12 +1265,9 @@ export function createRuntime(config: RuntimeConfig = {}) {
       http_get(urlPtr: number): number {
         const url = readString(urlPtr);
         try {
-          const body = execFileSync(
-            "curl",
-            ["-sS", "-L", "--max-time", "10", "--fail", url],
-            { encoding: "utf-8" },
-          );
-          return allocResultString(true, writeString(body));
+          const resp = syncHttpRequest({ url, timeoutMs: 10000, followRedirects: true });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          return allocResultString(true, writeString(resp.body));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return allocResultString(false, writeString(msg));
@@ -1149,12 +1278,16 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const url = readString(urlPtr);
         const body = readString(bodyPtr);
         try {
-          const response = execFileSync(
-            "curl",
-            ["-sS", "-L", "--max-time", "10", "--fail", "-X", "POST", "-H", "Content-Type: text/plain", "--data-raw", body, url],
-            { encoding: "utf-8" },
-          );
-          return allocResultString(true, writeString(response));
+          const resp = syncHttpRequest({
+            url,
+            method: "POST",
+            headers: { "Content-Type": "text/plain" },
+            body,
+            timeoutMs: 10000,
+            followRedirects: true,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          return allocResultString(true, writeString(resp.body));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return allocResultString(false, writeString(msg));
@@ -1464,13 +1597,13 @@ export function createRuntime(config: RuntimeConfig = {}) {
         if (urlErr) { audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "denied", reason: urlErr }); return allocResultString(false, writeString(urlErr)); }
         try {
           const t0 = Date.now();
-          const raw = execFileSync(
-            "curl",
-            ["-sS", "--max-time", "10", "--fail", `${baseUrl}/.well-known/agent.json`],
-            { encoding: "utf-8" },
-          );
+          const resp = syncHttpRequest({
+            url: `${baseUrl}/.well-known/agent.json`,
+            timeoutMs: 10000,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
           audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "ok", duration_ms: Date.now() - t0 });
-          return allocResultString(true, writeString(raw.trim()));
+          return allocResultString(true, writeString(resp.body.trim()));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           audit({ effect: "A2A", op: "a2a_discover", url: baseUrl, result: "error" });
@@ -1613,12 +1746,12 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
         const apiKey = process.env.OPENAI_API_KEY ?? "";
         try {
-          const response = execFileSync(
-            "curl",
-            ["-sS", "--max-time", "10", "-H", `Authorization: Bearer ${apiKey}`, `${baseUrl}/v1/models`],
-            { encoding: "utf-8" },
-          );
-          const parsed = JSON.parse(response) as { data?: Array<{ id: string }> };
+          const resp = syncHttpRequest({
+            url: `${baseUrl}/v1/models`,
+            headers: { "Authorization": `Bearer ${apiKey}` },
+            timeoutMs: 10000,
+          });
+          const parsed = JSON.parse(resp.body) as { data?: Array<{ id: string }> };
           const ids = (parsed.data ?? []).map((m) => m.id);
           const ptrs = ids.map((id) => writeString(id));
           return allocListI32(ptrs);
@@ -1637,19 +1770,18 @@ export function createRuntime(config: RuntimeConfig = {}) {
     const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
     const apiKey = process.env.OPENAI_API_KEY ?? "";
     try {
-      const raw = execFileSync(
-        "curl",
-        [
-          "-sS", "--max-time", "120", "--fail",
-          "-X", "POST",
-          "-H", "Content-Type: application/json",
-          "-H", `Authorization: Bearer ${apiKey}`,
-          `${baseUrl}/v1/chat/completions`,
-          "--data-raw", body,
-        ],
-        { encoding: "utf-8" },
-      );
-      const parsed = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> };
+      const resp = syncHttpRequest({
+        url: `${baseUrl}/v1/chat/completions`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body,
+        timeoutMs: 120000,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+      const parsed = JSON.parse(resp.body) as { choices?: Array<{ message?: { content?: string } }> };
       const content = parsed.choices?.[0]?.message?.content ?? "";
       return allocResultString(true, writeString(content));
     } catch (e: unknown) {
@@ -1664,18 +1796,18 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Throws on HTTP errors so callers can wrap in try/catch.
   // ---------------------------------------------------------------------------
   function callMcp(url: string, body: string): string {
-    const raw = execFileSync(
-      "curl",
-      [
-        "-sS", "--max-time", "60", "--fail",
-        "-X", "POST",
-        "-H", "Content-Type: application/json",
-        "-H", "Accept: application/json, text/event-stream",
-        url,
-        "--data-raw", body,
-      ],
-      { encoding: "utf-8" },
-    );
+    const resp = syncHttpRequest({
+      url,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+      },
+      body,
+      timeoutMs: 60000,
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+    const raw = resp.body;
     // Handle SSE responses: lines starting with "data: "
     if (raw.trimStart().startsWith("data:")) {
       const lines = raw.split("\n").filter((l) => l.startsWith("data:"));
@@ -1691,18 +1823,15 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Throws on HTTP errors so callers can wrap in try/catch.
   // ---------------------------------------------------------------------------
   function callA2A(baseUrl: string, body: string): string {
-    const raw = execFileSync(
-      "curl",
-      [
-        "-sS", "--max-time", "60", "--fail",
-        "-X", "POST",
-        "-H", "Content-Type: application/json",
-        baseUrl,
-        "--data-raw", body,
-      ],
-      { encoding: "utf-8" },
-    );
-    return raw;
+    const resp = syncHttpRequest({
+      url: baseUrl,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      timeoutMs: 60000,
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+    return resp.body;
   }
 
   return {
