@@ -157,6 +157,26 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "regex_match", importModule: "env", importName: "regex_match", params: pair_i32, result: i32 },
     { name: "regex_captures", importModule: "env", importName: "regex_captures", params: pair_i32, result: i32 },
 
+    // --- Memory management ---
+    // arena_save() returns the current heap watermark so it can be passed to arena_restore().
+    { name: "arena_save", importModule: "env", importName: "arena_save", params: none, result: i64 },
+    // arena_restore(mark) reclaims all heap memory allocated since arena_save() was called.
+    // Pointers into the freed region must not be used after this call.
+    { name: "arena_restore", importModule: "env", importName: "arena_restore", params: i64, result: none },
+    // memory_stats() returns a JSON string with current allocator statistics (debugging aid).
+    { name: "memory_stats", importModule: "env", importName: "memory_stats", params: none, result: i32 },
+
+    // --- Secret operations ---
+    { name: "get_secret", importModule: "env", importName: "get_secret", params: i32, result: i32 },
+
+    // --- Model operations ---
+    // call_model(model, prompt) → Result<String, String> as i32 pointer
+    { name: "call_model", importModule: "env", importName: "call_model", params: pair_i32, result: i32 },
+    // call_model_system(model, system_prompt, user_prompt) → Result<String, String> as i32 pointer
+    { name: "call_model_system", importModule: "env", importName: "call_model_system", params: binaryen.createType([i32, i32, i32]), result: i32 },
+    // list_models() → List<String> as i32 pointer
+    { name: "list_models", importModule: "env", importName: "list_models", params: none, result: i32 },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },

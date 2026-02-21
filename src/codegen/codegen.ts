@@ -2320,6 +2320,16 @@ export class CodeGenerator {
       map_remove: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
       map_keys: { kind: "List", element: INT64 } as ClarityType,
       map_values: { kind: "List", element: INT64 } as ClarityType,
+      // Memory management
+      arena_save: INT64,
+      arena_restore: UNIT,
+      memory_stats: { kind: "String" } as ClarityType,
+      // Secret
+      get_secret: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      // Model
+      call_model: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      call_model_system: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      list_models: { kind: "List", element: { kind: "String" } } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

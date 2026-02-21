@@ -1,0 +1,13 @@
+module Main
+
+import { prompt, unwrap_or } from "std/llm"
+
+// Send a question to the default LLM and print the response.
+// Usage: clarityc run main.clarity -f run -a "What is the capital of France?"
+effect[Model, FileSystem] function run() -> Unit {
+  let args = get_args();
+  let question = head(args);
+  let response = prompt(question);
+  let text = unwrap_or(response, "Error: model call failed");
+  print_string(text)
+}

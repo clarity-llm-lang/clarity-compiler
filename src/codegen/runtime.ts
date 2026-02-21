@@ -43,6 +43,69 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // multiple times at runtime (e.g., repeated string_concat, int_to_string).
   const internedStrings = new Map<string, number>();
 
+  // ---------------------------------------------------------------------------
+  // Free-list allocator
+  // ---------------------------------------------------------------------------
+  // Each heap allocation is rounded up to the next power-of-two size class
+  // (minimum 8 bytes). When __free() is called the block is placed on the
+  // appropriate free-list and returned to future alloc() calls of the same
+  // size class. This eliminates the monotone growth of the old pure-bump
+  // allocator for programs that repeatedly allocate and release temporaries.
+  //
+  // allocSizeMap: ptr → size_class (the power-of-two size this block occupies)
+  // freeLists:    size_class → stack of free block pointers
+  //
+  // Arena marks (arena_save / arena_restore) allow bulk-freeing everything
+  // allocated since a saved heap watermark in O(allocs-since-mark) time.
+
+  const allocSizeMap = new Map<number, number>(); // ptr → size_class
+  const freeLists    = new Map<number, number[]>(); // size_class → ptrs
+
+  /** Round `size` up to the next power of two, minimum 8. */
+  function sizeClass(size: number): number {
+    let cls = 8;
+    while (cls < size) cls <<= 1;
+    return cls;
+  }
+
+  /**
+   * Core allocator used by all runtime allocation helpers.
+   * Returns a pointer to `size` bytes of zeroed WASM memory.
+   * Checks the free list for a same-class block before bump-allocating.
+   */
+  function alloc(size: number): number {
+    const cls = sizeClass(size <= 0 ? 1 : size);
+
+    // Reuse a freed block of the same size class when available.
+    const list = freeLists.get(cls);
+    if (list && list.length > 0) {
+      return list.pop()!;
+    }
+
+    // Bump-allocate a fresh block.
+    heapPtr = (heapPtr + 3) & ~3; // 4-byte alignment
+    const ptr = heapPtr;
+    const needed = ptr + cls;
+    if (needed > memory.buffer.byteLength) {
+      const pages = Math.ceil((needed - memory.buffer.byteLength) / 65536);
+      memory.grow(pages);
+    }
+    heapPtr = ptr + cls;
+    allocSizeMap.set(ptr, cls);
+    return ptr;
+  }
+
+  /** Return a block to its free-list so it can be reused. */
+  function free(ptr: number): void {
+    const cls = allocSizeMap.get(ptr);
+    if (cls === undefined) return; // not a tracked allocation; ignore
+    let list = freeLists.get(cls);
+    if (!list) { list = []; freeLists.set(cls, list); }
+    list.push(ptr);
+  }
+
+  // ---------------------------------------------------------------------------
+
   function readString(ptr: number): string {
     const view = new DataView(memory.buffer);
     const len = view.getUint32(ptr, true); // little-endian
@@ -56,21 +119,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
     if (existing !== undefined) return existing;
 
     const encoded = new TextEncoder().encode(str);
-    const ptr = heapPtr;
-
-    // Grow memory if needed
-    const needed = ptr + 4 + encoded.length;
-    if (needed > memory.buffer.byteLength) {
-      const pages = Math.ceil((needed - memory.buffer.byteLength) / 65536);
-      memory.grow(pages);
-    }
+    const ptr = alloc(4 + encoded.length);
 
     const view = new DataView(memory.buffer);
     view.setUint32(ptr, encoded.length, true);
     new Uint8Array(memory.buffer, ptr + 4, encoded.length).set(encoded);
-    heapPtr = ptr + 4 + encoded.length;
-    // Align to 4 bytes
-    heapPtr = (heapPtr + 3) & ~3;
 
     // Intern this string for future reuse
     internedStrings.set(str, ptr);
@@ -79,9 +132,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
   function setHeapBase(base: number) {
     heapPtr = base;
-    // Clear intern table since data segment strings occupy lower addresses
-    // and runtime strings should start fresh from the new heap base
+    // Clear all allocator state: data-segment strings are in the region
+    // below `base` and are never freed; runtime allocations start fresh.
     internedStrings.clear();
+    allocSizeMap.clear();
+    freeLists.clear();
   }
 
   function bindMemory(mem: WebAssembly.Memory) {
@@ -103,12 +158,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
   // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
   function allocOptionI32(value: number | null): number {
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + 8;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(8);
     const view = new DataView(memory.buffer);
     if (value === null) {
       view.setInt32(ptr, 1, true); // None
@@ -121,12 +171,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
   // Allocate an Option<i64> union: [tag:i32][value:i64] = 12 bytes
   function allocOptionI64(value: bigint | null): number {
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + 12;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(12);
     const view = new DataView(memory.buffer);
     if (value === null) {
       view.setInt32(ptr, 1, true); // None
@@ -140,12 +185,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Allocate a Result<*, i32> union: [tag:i32][value_ptr:i32] = 8 bytes.
   // tag 0 = Ok(value), tag 1 = Err(error_message)
   function allocResultI32(ok: boolean, valuePtr: number): number {
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + 8;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(8);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, ok ? 0 : 1, true);
     view.setInt32(ptr + 4, valuePtr, true);
@@ -159,12 +199,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
   // Allocate a Result<Int64, String> union: [tag:i32][payload:i64/i32] = 12 bytes.
   function allocResultI64(ok: boolean, value: bigint, errPtr = 0): number {
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + 12;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(12);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, ok ? 0 : 1, true);
     if (ok) {
@@ -175,17 +210,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return ptr;
   }
 
-
   // Allocate a List<i32> on the heap: [count:i32][elements:i32...]
   function allocListI32(items: number[]): number {
     const len = items.length;
-    const size = 4 + len * 4;
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + size;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(4 + len * 4);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, len, true);
     for (let i = 0; i < len; i++) {
@@ -197,13 +225,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Allocate a List<i64> on the heap: [count:i32][elements:i64...]
   function allocListI64(items: bigint[]): number {
     const len = items.length;
-    const size = 4 + len * 8;
-    heapPtr = (heapPtr + 3) & ~3;
-    const ptr = heapPtr;
-    heapPtr = ptr + size;
-    if (heapPtr > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-    }
+    const ptr = alloc(4 + len * 8);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, len, true);
     for (let i = 0; i < len; i++) {
@@ -285,12 +307,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const parts = readString(sPtr).split(readString(delimPtr));
         // Build a List<String> in memory: [length: i32][ptr0: i32][ptr1: i32]...
         const ptrs = parts.map(p => writeString(p));
-        const listSize = 4 + ptrs.length * 4;
-        const listPtr = heapPtr;
-        heapPtr = (heapPtr + listSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const listPtr = alloc(4 + ptrs.length * 4);
         const view = new DataView(memory.buffer);
         view.setInt32(listPtr, ptrs.length, true);
         for (let i = 0; i < ptrs.length; i++) {
@@ -345,15 +362,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
       string_to_int(ptr: number): number {
         const s = readString(ptr);
         const n = parseInt(s, 10);
-        const size = 12;
-        // Allocate via bump allocator (same logic as __alloc)
-        heapPtr = (heapPtr + 3) & ~3;
-        const unionPtr = heapPtr;
-        const needed = unionPtr + size;
-        if (needed > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((needed - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = unionPtr + size;
+        const unionPtr = alloc(12);
         const view = new DataView(memory.buffer);
         if (Number.isNaN(n)) {
           view.setInt32(unionPtr, 1, true); // None: tag = 1
@@ -369,14 +378,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
       string_to_float(ptr: number): number {
         const s = readString(ptr);
         const n = parseFloat(s);
-        const size = 12;
-        heapPtr = (heapPtr + 3) & ~3;
-        const unionPtr = heapPtr;
-        const needed = unionPtr + size;
-        if (needed > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((needed - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = unionPtr + size;
+        const unionPtr = alloc(12);
         const view = new DataView(memory.buffer);
         if (Number.isNaN(n)) {
           view.setInt32(unionPtr, 1, true); // None: tag = 1
@@ -436,13 +438,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
       // Layout: [length: i32][byte_0, byte_1, ...] — same as String but raw bytes
       bytes_new(size: bigint): number {
         const len = Number(size);
-        const totalSize = 4 + len;
-        heapPtr = (heapPtr + 3) & ~3;
-        const ptr = heapPtr;
-        if (ptr + totalSize > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((ptr + totalSize - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = ptr + totalSize;
+        const ptr = alloc(4 + len);
         const view = new DataView(memory.buffer);
         view.setUint32(ptr, len, true);
         // Zero-fill the bytes
@@ -468,13 +464,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const len = view.getUint32(ptr, true);
         const i = Number(index);
         // Create a copy with the modification
-        const totalSize = 4 + len;
-        heapPtr = (heapPtr + 3) & ~3;
-        const newPtr = heapPtr;
-        if (newPtr + totalSize > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = newPtr + totalSize;
+        const newPtr = alloc(4 + len);
         const newView = new DataView(memory.buffer);
         newView.setUint32(newPtr, len, true);
         new Uint8Array(memory.buffer, newPtr + 4, len).set(
@@ -491,13 +481,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const len = view.getUint32(ptr, true);
         const s = Math.max(0, Math.min(Number(start), len));
         const l = Math.max(0, Math.min(Number(length), len - s));
-        const totalSize = 4 + l;
-        heapPtr = (heapPtr + 3) & ~3;
-        const newPtr = heapPtr;
-        if (newPtr + totalSize > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = newPtr + totalSize;
+        const newPtr = alloc(4 + l);
         const newView = new DataView(memory.buffer);
         newView.setUint32(newPtr, l, true);
         new Uint8Array(memory.buffer, newPtr + 4, l).set(
@@ -511,13 +495,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const aLen = view.getUint32(aPtr, true);
         const bLen = view.getUint32(bPtr, true);
         const newLen = aLen + bLen;
-        const totalSize = 4 + newLen;
-        heapPtr = (heapPtr + 3) & ~3;
-        const newPtr = heapPtr;
-        if (newPtr + totalSize > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = newPtr + totalSize;
+        const newPtr = alloc(4 + newLen);
         const newView = new DataView(memory.buffer);
         newView.setUint32(newPtr, newLen, true);
         new Uint8Array(memory.buffer, newPtr + 4, aLen).set(
@@ -535,12 +513,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const view = new DataView(memory.buffer);
         const len = view.getUint32(strPtr, true);
         const totalSize = 4 + len;
-        heapPtr = (heapPtr + 3) & ~3;
-        const newPtr = heapPtr;
-        if (newPtr + totalSize > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((newPtr + totalSize - memory.buffer.byteLength) / 65536));
-        }
-        heapPtr = newPtr + totalSize;
+        const newPtr = alloc(totalSize);
         new Uint8Array(memory.buffer, newPtr, totalSize).set(
           new Uint8Array(memory.buffer, strPtr, totalSize),
         );
@@ -679,21 +652,65 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return a - b;
       },
 
-      // --- Memory allocator (bump allocator) ---
+      // --- Memory allocator ---
+      // WASM-generated code calls __alloc for every union/record/list construction.
+      // We route through the same free-list allocator used by all JS helpers.
       __alloc(size: number): number {
-        const align = 4;
-        heapPtr = (heapPtr + align - 1) & ~(align - 1);
-        const ptr = heapPtr;
+        return alloc(size);
+      },
 
-        // Grow memory if needed
-        const needed = ptr + size;
-        if (needed > memory.buffer.byteLength) {
-          const pages = Math.ceil((needed - memory.buffer.byteLength) / 65536);
-          memory.grow(pages);
+      // Free a heap block back to the free list.
+      // Called by generated code when a value is known to be dead.
+      // Currently not emitted by codegen (future work); safe to expose now.
+      __free(ptr: number): void {
+        free(ptr);
+      },
+
+      // --- Arena marks ---
+      // arena_save() returns the current heap watermark as Int64.
+      // arena_restore(mark) reclaims all memory allocated since the mark,
+      // including flushing interned strings and free-list entries in that range.
+      // The caller must not use any pointer obtained after the saved mark once
+      // arena_restore has been called.
+      arena_save(): bigint {
+        return BigInt(heapPtr);
+      },
+
+      arena_restore(mark: bigint): void {
+        const markPtr = Number(mark);
+        if (markPtr >= heapPtr) return; // nothing allocated since mark
+
+        // Remove interned strings allocated after the mark.
+        for (const [str, ptr] of internedStrings) {
+          if (ptr >= markPtr) internedStrings.delete(str);
         }
 
-        heapPtr = ptr + size;
-        return ptr;
+        // Remove allocSizeMap entries for blocks at or above the mark.
+        // Also purge any free-list entries pointing into the freed region.
+        for (const [ptr] of allocSizeMap) {
+          if (ptr >= markPtr) allocSizeMap.delete(ptr);
+        }
+        for (const [cls, list] of freeLists) {
+          const trimmed = list.filter(p => p < markPtr);
+          if (trimmed.length !== list.length) freeLists.set(cls, trimmed);
+        }
+
+        // Reset bump pointer to the saved mark — space is available again.
+        heapPtr = markPtr;
+      },
+
+      // Return current heap usage statistics as a JSON string.
+      // Useful for debugging memory consumption from Clarity programs.
+      memory_stats(): number {
+        const live = allocSizeMap.size;
+        let freeCount = 0;
+        for (const list of freeLists.values()) freeCount += list.length;
+        return writeString(JSON.stringify({
+          heap_ptr: heapPtr,
+          live_allocs: live,
+          free_blocks: freeCount,
+          interned_strings: internedStrings.size,
+        }));
       },
 
       // --- List operations ---
@@ -732,21 +749,12 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const len = view.getInt32(ptr, true);
         if (len <= 0) {
           // Return empty list
-          const newPtr = heapPtr;
-          heapPtr = (heapPtr + 4 + 3) & ~3;
-          if (heapPtr > memory.buffer.byteLength) {
-            memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-          }
+          const newPtr = alloc(4);
           new DataView(memory.buffer).setInt32(newPtr, 0, true);
           return newPtr;
         }
         const newLen = len - 1;
-        const newSize = 4 + newLen * elemSize;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + newLen * elemSize);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, newLen, true);
         // Copy elements starting from index 1
@@ -760,12 +768,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
         const newLen = len + 1;
-        const newSize = 4 + newLen * 8;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + newLen * 8);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, newLen, true);
         // Copy existing elements
@@ -781,12 +784,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
         const newLen = len + 1;
-        const newSize = 4 + newLen * 4;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + newLen * 4);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, newLen, true);
         new Uint8Array(memory.buffer, newPtr + 4, len * 4).set(
@@ -800,12 +798,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
         const i = Number(index);
-        const newSize = 4 + len * 8;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + len * 8);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, len, true);
         // Copy all elements
@@ -823,12 +816,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
         const i = Number(index);
-        const newSize = 4 + len * 4;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + len * 4);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, len, true);
         // Copy all elements
@@ -847,12 +835,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         const aLen = view.getInt32(aPtr, true);
         const bLen = view.getInt32(bPtr, true);
         const newLen = aLen + bLen;
-        const newSize = 4 + newLen * elemSize;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + newLen * elemSize);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, newLen, true);
         // Copy a elements
@@ -1226,12 +1209,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
         // Build a List<String> in WASM memory: [length: i32][ptr0: i32][ptr1: i32]...
         // Each element is an i32 string pointer
         const strPtrs = args.map(a => writeString(a));
-        const listSize = 4 + strPtrs.length * 4;
-        const listPtr = heapPtr;
-        heapPtr = (heapPtr + listSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const listPtr = alloc(4 + strPtrs.length * 4);
         const view = new DataView(memory.buffer);
         view.setInt32(listPtr, strPtrs.length, true);
         for (let i = 0; i < strPtrs.length; i++) {
@@ -1247,12 +1225,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
       list_reverse(ptr: number, elemSize: number): number {
         const view = new DataView(memory.buffer);
         const len = view.getInt32(ptr, true);
-        const newSize = 4 + len * elemSize;
-        const newPtr = heapPtr;
-        heapPtr = (heapPtr + newSize + 3) & ~3;
-        if (heapPtr > memory.buffer.byteLength) {
-          memory.grow(Math.ceil((heapPtr - memory.buffer.byteLength) / 65536));
-        }
+        const newPtr = alloc(4 + len * elemSize);
         const newView = new DataView(memory.buffer);
         newView.setInt32(newPtr, len, true);
         const src = new Uint8Array(memory.buffer, ptr + 4, len * elemSize);
@@ -1263,8 +1236,95 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
         return newPtr;
       },
+
+      // --- Secret operations ---
+      // Reads a named secret from environment variables.
+      // Returns Option<String>: Some(value) if set, None if absent.
+      get_secret(namePtr: number): number {
+        const name = readString(namePtr);
+        const value = process.env[name];
+        if (value === undefined) return allocOptionI32(null);
+        return allocOptionI32(writeString(value));
+      },
+
+      // --- Model operations ---
+      // Calls an OpenAI-compatible chat completions endpoint.
+      // Reads OPENAI_API_KEY and OPENAI_BASE_URL from the environment.
+      // Returns Result<String, String>: Ok(response_text) or Err(message).
+      call_model(modelPtr: number, promptPtr: number): number {
+        const model = readString(modelPtr);
+        const prompt = readString(promptPtr);
+        const body = JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 4096,
+        });
+        return callOpenAI(body);
+      },
+
+      call_model_system(modelPtr: number, systemPtr: number, promptPtr: number): number {
+        const model = readString(modelPtr);
+        const system = readString(systemPtr);
+        const prompt = readString(promptPtr);
+        const body = JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 4096,
+        });
+        return callOpenAI(body);
+      },
+
+      list_models(): number {
+        const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+        const apiKey = process.env.OPENAI_API_KEY ?? "";
+        try {
+          const response = execFileSync(
+            "curl",
+            ["-sS", "--max-time", "10", "-H", `Authorization: Bearer ${apiKey}`, `${baseUrl}/v1/models`],
+            { encoding: "utf-8" },
+          );
+          const parsed = JSON.parse(response) as { data?: Array<{ id: string }> };
+          const ids = (parsed.data ?? []).map((m) => m.id);
+          const ptrs = ids.map((id) => writeString(id));
+          return allocListI32(ptrs);
+        } catch {
+          return allocListI32([]);
+        }
+      },
     },
   };
+
+  // ---------------------------------------------------------------------------
+  // Internal helper: POST a pre-built JSON body to the OpenAI chat completions
+  // endpoint and return a Result<String, String> heap pointer.
+  // ---------------------------------------------------------------------------
+  function callOpenAI(body: string): number {
+    const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+    const apiKey = process.env.OPENAI_API_KEY ?? "";
+    try {
+      const raw = execFileSync(
+        "curl",
+        [
+          "-sS", "--max-time", "120", "--fail",
+          "-X", "POST",
+          "-H", "Content-Type: application/json",
+          "-H", `Authorization: Bearer ${apiKey}`,
+          `${baseUrl}/v1/chat/completions`,
+          "--data-raw", body,
+        ],
+        { encoding: "utf-8" },
+      );
+      const parsed = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> };
+      const content = parsed.choices?.[0]?.message?.content ?? "";
+      return allocResultString(true, writeString(content));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return allocResultString(false, writeString(msg));
+    }
+  }
 
   return {
     get memory() { return memory; },
@@ -1277,5 +1337,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
     setCurrentTest(name: string) { currentTestFunction = name; },
     getTestResults() { return { total: assertionCount, failures: [...assertionFailures] }; },
     resetTestState() { assertionFailures = []; assertionCount = 0; },
+    // Memory management API (for tests and host tooling)
+    getHeapPtr() { return heapPtr; },
+    getLiveAllocCount() { return allocSizeMap.size; },
   };
 }

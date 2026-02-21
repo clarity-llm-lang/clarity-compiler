@@ -1,0 +1,15 @@
+module Main
+
+import { chat, unwrap_or } from "std/llm"
+
+// A persona-driven assistant using a system prompt.
+// Usage: clarityc run main.clarity -f run -a "Explain recursion in one sentence"
+effect[Model, FileSystem] function run() -> Unit {
+  let args = get_args();
+  let user_message = head(args);
+  let system = "You are a concise programming tutor. Keep answers under three sentences.";
+  let model = "gpt-4o-mini";
+  let response = chat(model, system, user_message);
+  let text = unwrap_or(response, "Error: model call failed");
+  print_string(text)
+}
