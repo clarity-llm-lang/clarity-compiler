@@ -224,13 +224,22 @@ Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding
 |--------|--------------|
 | `std/math` | `abs`, `min`, `max`, `clamp`, `sign`, `is_even`, `is_odd`, `square_root`, `power`, `floor_f`, `ceil_f` |
 | `std/string` | `length`, `has`, `find`, `strip`, `slice`, `at`, `split_by`, `is_blank`, `repeat`, `to_int`, `to_float` |
-| `std/list` | `size`, `first`, `rest`, `push`, `join`, `reversed`, `empty`, `get`, `set_at`, `map`, `filter`, `fold_left`, `fold_right`, `any`, `all`, `count_where`, `zip_with`, `flatten`, `take`, `drop`, `sum`, `product`, `range`, `replicate` |
+| `std/list` | `map`, `filter`, `fold`/`fold_left`/`fold_right`, `find`, `any`, `all`, `count_where`, `flat_map`, `zip_with`, `flatten`, `take`, `drop`, `sum`, `product`, `maximum`, `minimum`, `range`, `replicate`, `size`, `first`, `rest`, `push` |
 | `std/llm` | `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/mcp` | `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/a2a` | `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/agent` | `run(key, initial, step_fn)`, `resume(key, step_fn)`, `clear(key)` — resumable agent loop with auto-checkpointing |
 | `std/rag` | `retrieve(query, text, chunk_size, top_k)`, `chunk(text, size)`, `embed(text)`, `similarity(a, b)` |
 | `std/eval` | `exact(got, expected)`, `has_match(got, expected)`, `semantic(got, expected)`, `judge(model, prompt, resp, rubric)`, `pass(model, prompt, resp, rubric)` |
+| `std/stream` | `call(model, prompt)`, `call_with_system(model, system, prompt)` → `Result<String, String>` — pull-based SSE streaming, collects all tokens |
+
+### Streaming builtins (Model effect)
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| `stream_start(model, prompt, system)` | `String×3 -> Result<Int64, String>` | Start SSE stream; returns handle or Err |
+| `stream_next(handle)` | `Int64 -> Option<String>` | Block until next token; None = stream ended |
+| `stream_close(handle)` | `Int64 -> String` | Cleanup; returns error if stream failed, "" if ok |
 
 Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 

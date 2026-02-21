@@ -223,6 +223,50 @@ export function minimum(xs: List<Int64>, init: Int64) -> Int64 {
   }
 }
 
+// --- Search ---
+
+// Find the first element for which pred returns True.
+// find([1,3,4,6], is_even)  ->  Some(4)
+function find_helper<T>(xs: List<T>, pred: (T) -> Bool) -> Option<T> {
+  match is_empty(xs) {
+    True  -> None,
+    False -> {
+      let h = head(xs);
+      match pred(h) {
+        True  -> Some(h),
+        False -> find_helper(tail(xs), pred)
+      }
+    }
+  }
+}
+
+export function find<T>(xs: List<T>, pred: (T) -> Bool) -> Option<T> {
+  find_helper(xs, pred)
+}
+
+// --- Flat operations ---
+
+// Apply f to every element (f returns a list) and concatenate all results.
+// flat_map([1,2,3], function(x) { [x, x*10] })  ->  [1,10,2,20,3,30]
+export function flat_map<T, U>(xs: List<T>, f: (T) -> List<U>) -> List<U> {
+  match is_empty(xs) {
+    True  -> [],
+    False -> concat(f(head(xs)), flat_map(tail(xs), f))
+  }
+}
+
+// --- Aliases ---
+
+// fold is an alias for fold_left (most common fold direction).
+export function fold<T, A>(xs: List<T>, init: A, f: (A, T) -> A) -> A {
+  fold_left(xs, init, f)
+}
+
+// count is an alias for count_where.
+export function count<T>(xs: List<T>, pred: (T) -> Bool) -> Int64 {
+  count_where(xs, pred)
+}
+
 // --- Generators ---
 
 // Range: generate [start, start+1, ..., end_exclusive-1].

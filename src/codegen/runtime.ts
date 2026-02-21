@@ -24,6 +24,27 @@ import { Worker } from "node:worker_threads";
 // ─────────────────────────────────────────────────────────────────────────────
 const HTTP_MAX_BODY = 8 * 1024 * 1024; // 8 MB
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM Streaming: pull-based token streaming via worker thread + Atomics.
+//
+// Each stream gets a SharedArrayBuffer used as a one-token-at-a-time handshake:
+//   [0..3]   Int32  status  0=IDLE 1=TOKEN_READY 2=DONE 3=ERROR
+//   [4..7]   Int32  token length (bytes)
+//   [8..11]  Int32  error length (bytes, only when status=ERROR)
+//   [12..12+STREAM_MAX_TOKEN-1]         token data (UTF-8)
+//   [12+STREAM_MAX_TOKEN..SAB_END]      error data (UTF-8)
+//
+// stream_start() spawns a worker that POSTs with streaming=true and pushes each
+// SSE token into the SAB. stream_next() blocks (Atomics.wait) until a token or
+// end-of-stream is available. stream_close() terminates the worker and returns
+// any error message.
+// ─────────────────────────────────────────────────────────────────────────────
+const STREAM_MAX_TOKEN = 4096;
+const STREAM_MAX_ERROR = 1024;
+const STREAM_TOKEN_OFFSET = 12;
+const STREAM_ERROR_OFFSET = 12 + STREAM_MAX_TOKEN;
+const STREAM_SAB_SIZE = 12 + STREAM_MAX_TOKEN + STREAM_MAX_ERROR;
+
 interface SyncHttpResponse {
   ok: boolean;
   status: number;
@@ -87,6 +108,121 @@ function doRequest(url, redirectCount) {
   req.end();
 }
 doRequest(initialUrl, 0);
+`;
+
+// Worker that performs a streaming LLM HTTP request and pushes tokens into a SAB
+// via the one-token-at-a-time handshake described above.
+const _STREAM_WORKER_CODE = `
+const { workerData } = require('worker_threads');
+const https = require('https');
+const http = require('http');
+const {
+  sab, url, method, reqHeaders, body, isAnthropic,
+  tokenOffset, errorOffset, maxToken, maxError,
+} = workerData;
+
+const ctrl = new Int32Array(sab, 0, 1);
+const meta = new DataView(sab);
+const STATUS_IDLE = 0, STATUS_TOKEN = 1, STATUS_DONE = 2, STATUS_ERROR = 3;
+
+// Write a token and signal WASM. Blocks until WASM has consumed the previous token.
+function putToken(token) {
+  if (!token) return;
+  // Wait until WASM has reset status to IDLE after consuming previous token.
+  Atomics.wait(ctrl, 0, STATUS_TOKEN);
+  const encoded = Buffer.from(token, 'utf8');
+  const len = Math.min(encoded.length, maxToken);
+  meta.setInt32(4, len, true);
+  new Uint8Array(sab, tokenOffset, len).set(encoded.subarray(0, len));
+  Atomics.store(ctrl, 0, STATUS_TOKEN);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+// Write an error and signal WASM, waiting for any in-flight token to be consumed first.
+function putError(msg) {
+  let safety = 0;
+  while (Atomics.load(ctrl, 0) === STATUS_TOKEN && safety++ < 200) {
+    Atomics.wait(ctrl, 0, STATUS_TOKEN, 50);
+  }
+  const encoded = Buffer.from(String(msg).slice(0, maxError), 'utf8');
+  meta.setInt32(8, encoded.length, true);
+  new Uint8Array(sab, errorOffset, encoded.length).set(encoded);
+  Atomics.store(ctrl, 0, STATUS_ERROR);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+// Signal end-of-stream.
+function putDone() {
+  let safety = 0;
+  while (Atomics.load(ctrl, 0) === STATUS_TOKEN && safety++ < 200) {
+    Atomics.wait(ctrl, 0, STATUS_TOKEN, 50);
+  }
+  Atomics.store(ctrl, 0, STATUS_DONE);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+// Extract text delta from one SSE line.
+function parseSSELine(line) {
+  if (!line.startsWith('data:')) return '';
+  const data = line.slice(5).trim();
+  if (data === '[DONE]') return '';
+  try {
+    const obj = JSON.parse(data);
+    if (isAnthropic) {
+      // Anthropic: content_block_delta event carries delta.text
+      return (obj.delta && obj.delta.text) ? obj.delta.text : '';
+    } else {
+      // OpenAI-compatible: choices[0].delta.content
+      const c = obj.choices && obj.choices[0] && obj.choices[0].delta;
+      return (c && c.content) ? c.content : '';
+    }
+  } catch(e) {
+    return '';
+  }
+}
+
+let urlObj;
+try { urlObj = new URL(url); } catch(e) { putError('Invalid URL: ' + url); }
+const mod = urlObj.protocol === 'https:' ? https : http;
+const reqOpts = {
+  hostname: urlObj.hostname,
+  port: urlObj.port ? parseInt(urlObj.port) : (urlObj.protocol === 'https:' ? 443 : 80),
+  path: (urlObj.pathname || '/') + (urlObj.search || ''),
+  method: method || 'POST',
+  headers: reqHeaders || {},
+  timeout: 120000,
+};
+const req = mod.request(reqOpts, function(res) {
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    let errBody = '';
+    res.on('data', function(c) { errBody += c.toString('utf8'); });
+    res.on('end', function() { putError('HTTP ' + res.statusCode + ': ' + errBody.slice(0, 200)); });
+    return;
+  }
+  let remainder = '';
+  res.on('data', function(chunk) {
+    const text = remainder + chunk.toString('utf8');
+    const lines = text.split('\\n');
+    remainder = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const token = parseSSELine(trimmed);
+      if (token) putToken(token);
+    }
+  });
+  res.on('end', function() {
+    // Process any remaining buffered line.
+    if (remainder.trim()) {
+      const token = parseSSELine(remainder.trim());
+      if (token) putToken(token);
+    }
+    putDone();
+  });
+});
+req.on('error', function(e) { putError(e.message); });
+if (body) req.write(body);
+req.end();
 `;
 
 function syncHttpRequest(opts: {
@@ -347,6 +483,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Trace span table: spanId → { op, startMs, events[] }
   const spanTable = new Map<number, { op: string; start: number; events: string[] }>();
   let nextSpanId = 1;
+
+  // Stream session table: handle → { sab, ctrl, worker, lastError? }
+  interface StreamSession { sab: SharedArrayBuffer; ctrl: Int32Array; worker: import("node:worker_threads").Worker; lastError?: string; }
+  const streamSessions = new Map<number, StreamSession>();
+  let nextStreamHandle = 1;
 
   // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
   function allocOptionI32(value: number | null): number {
@@ -1982,6 +2123,114 @@ export function createRuntime(config: RuntimeConfig = {}) {
           const msg = e instanceof Error ? e.message : String(e);
           return allocResultString(false, writeString(msg));
         }
+      },
+
+      // -----------------------------------------------------------------------
+      // Streaming builtins
+      // -----------------------------------------------------------------------
+
+      stream_start(modelPtr: number, promptPtr: number, systemPtr: number): number {
+        const model = readString(modelPtr);
+        const prompt = readString(promptPtr);
+        const system = readString(systemPtr);
+        const effectErr = policyCheckEffect("Model");
+        if (effectErr) return allocResultI64(false, 0n, writeString(effectErr));
+        try {
+          const sab = new SharedArrayBuffer(STREAM_SAB_SIZE);
+          const isAnthropic = model.startsWith("claude-");
+          let url: string, reqHeaders: Record<string, string>, body: string;
+          if (isAnthropic) {
+            const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+            const baseUrl = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, "");
+            const urlErr = policyCheckUrl(`${baseUrl}/v1/messages`);
+            if (urlErr) return allocResultI64(false, 0n, writeString(urlErr));
+            url = `${baseUrl}/v1/messages`;
+            reqHeaders = {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            };
+            body = JSON.stringify({
+              model,
+              max_tokens: 4096,
+              stream: true,
+              ...(system ? { system } : {}),
+              messages: [{ role: "user", content: prompt }],
+            });
+          } else {
+            const apiKey = process.env.OPENAI_API_KEY ?? "";
+            const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+            const urlErr = policyCheckUrl(`${baseUrl}/v1/chat/completions`);
+            if (urlErr) return allocResultI64(false, 0n, writeString(urlErr));
+            url = `${baseUrl}/v1/chat/completions`;
+            reqHeaders = {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+            };
+            const messages = system
+              ? [{ role: "system", content: system }, { role: "user", content: prompt }]
+              : [{ role: "user", content: prompt }];
+            body = JSON.stringify({ model, max_tokens: 4096, stream: true, messages });
+          }
+          const worker = new Worker(_STREAM_WORKER_CODE, {
+            eval: true,
+            workerData: {
+              sab,
+              url,
+              method: "POST",
+              reqHeaders,
+              body,
+              isAnthropic,
+              tokenOffset: STREAM_TOKEN_OFFSET,
+              errorOffset: STREAM_ERROR_OFFSET,
+              maxToken: STREAM_MAX_TOKEN,
+              maxError: STREAM_MAX_ERROR,
+            },
+          });
+          const handle = nextStreamHandle++;
+          streamSessions.set(handle, { sab, ctrl: new Int32Array(sab, 0, 1), worker });
+          return allocResultI64(true, BigInt(handle));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultI64(false, 0n, writeString(msg));
+        }
+      },
+
+      stream_next(handleN: bigint): number {
+        const handle = Number(handleN);
+        const session = streamSessions.get(handle);
+        if (!session) return allocOptionI32(null); // unknown handle → None
+        const { ctrl, sab } = session;
+        // Block until status is no longer IDLE (token ready, done, or error).
+        Atomics.wait(ctrl, 0, 0 /* STATUS_IDLE */, 120000);
+        const status = Atomics.load(ctrl, 0);
+        if (status === 2 /* DONE */ || status === 3 /* ERROR */) {
+          // Store any error in the session so stream_close can return it.
+          if (status === 3) {
+            const meta = new DataView(sab);
+            const errLen = meta.getInt32(8, true);
+            const errBytes = new Uint8Array(sab, STREAM_ERROR_OFFSET, errLen);
+            session.lastError = Buffer.from(errBytes).toString("utf-8");
+          }
+          return allocOptionI32(null); // None → stream ended
+        }
+        // STATUS_TOKEN: read token, reset to IDLE, wake worker.
+        const meta = new DataView(sab);
+        const tokenLen = meta.getInt32(4, true);
+        const tokenBytes = new Uint8Array(sab, STREAM_TOKEN_OFFSET, tokenLen);
+        const token = Buffer.from(tokenBytes).toString("utf-8");
+        Atomics.store(ctrl, 0, 0 /* STATUS_IDLE */);
+        Atomics.notify(ctrl, 0, 1);
+        return allocOptionI32(writeString(token)); // Some(token)
+      },
+
+      stream_close(handleN: bigint): number {
+        const handle = Number(handleN);
+        const session = streamSessions.get(handle);
+        if (!session) return writeString("");
+        session.worker.terminate();
+        streamSessions.delete(handle);
+        return writeString(session.lastError ?? "");
       },
     },
   };

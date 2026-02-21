@@ -1,0 +1,79 @@
+// std/stream — Pull-based streaming LLM calls for Clarity
+//
+// Wraps the stream_start / stream_next / stream_close builtins into ergonomic
+// helpers. All functions require the Model effect.
+//
+// How it works
+// ------------
+// Streaming is implemented as a pull-based loop:
+//   1. stream_start(model, prompt, system) → Ok(handle) | Err(msg)
+//   2. stream_next(handle) → Some(token) while tokens arrive, None when done
+//   3. stream_close(handle) → "" if ok, error message if the stream failed
+//
+// The worker thread opens an SSE connection to the LLM API and pushes tokens
+// into a SharedArrayBuffer one at a time. stream_next() blocks (Atomics.wait)
+// until the next token is available — no polling, no spinning.
+//
+// Usage
+// -----
+//   import { call, call_with_system } from "std/stream"
+//
+//   // Stream a model call and collect into a single string
+//   effect[Model] function ask(prompt: String) -> Result<String, String> {
+//     call("gpt-4o", prompt)
+//   }
+//
+//   // With a system prompt
+//   effect[Model] function ask_system(prompt: String) -> Result<String, String> {
+//     call_with_system("gpt-4o", "You are a helpful assistant.", prompt)
+//   }
+//
+// Environment variables
+// ---------------------
+//   OPENAI_API_KEY      — required for OpenAI-compatible models
+//   ANTHROPIC_API_KEY   — required for claude-* models
+//   OPENAI_BASE_URL     — override endpoint (Ollama, Groq, etc.)
+//   ANTHROPIC_BASE_URL  — override Anthropic endpoint
+
+module Stream
+
+// ---------------------------------------------------------------------------
+// Internal: collect all tokens from an open stream into a string.
+// Recurses via tail call (TCO) until stream_next returns None.
+// ---------------------------------------------------------------------------
+effect[Model] function collect_tokens(handle: Int64, acc: String) -> String {
+  match stream_next(handle) {
+    None -> acc,
+    Some(token) -> collect_tokens(handle, acc ++ token)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+// Stream a model call with an optional system prompt and collect the full
+// response. Returns Ok(response) on success or Err(message) on failure.
+export effect[Model] function call_with_system(
+  model: String,
+  system: String,
+  prompt: String
+) -> Result<String, String> {
+  match stream_start(model, prompt, system) {
+    Err(e) -> Err(e),
+    Ok(handle) -> {
+      let response = collect_tokens(handle, "");
+      let err = stream_close(handle);
+      match err == "" {
+        True -> Ok(response),
+        False -> Err(err)
+      }
+    }
+  }
+}
+
+// Stream a model call and collect the full response.
+// Convenience wrapper over call_with_system with no system prompt.
+export effect[Model] function call(model: String, prompt: String) -> Result<String, String> {
+  call_with_system(model, "", prompt)
+}

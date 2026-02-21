@@ -290,7 +290,7 @@ Support programs larger than a single file.
 1. ✓ **Import/export syntax** — `import { User } from "models"`, `export function`, `export type`.
 2. ✓ **Module resolution** — File-based resolution. `"math"` → `math.clarity` relative to importing file.
 3. ✓ **Merge compilation** — All imported modules compiled into a single WASM binary. Entry module's functions exported as WASM exports.
-4. ✓ **Standard library** — `std/math` (abs, min, max, clamp, sign, is_even, is_odd), `std/string` (length, repeat, strip, to_int, to_float, etc.). `std/list` deferred until cross-module generics work.
+4. ✓ **Standard library** — `std/math` (abs, min, max, clamp, sign, is_even, is_odd), `std/string` (length, repeat, strip, to_int, to_float, etc.), `std/list` (map, filter, fold, find, any, all, zip_with, flatten, flat_map, take, drop, range, sum, product, maximum, minimum, replicate — all generic).
 
 ### Phase 4 — Runtime & Performance (v0.5)
 Make programs viable beyond demos.
@@ -326,7 +326,7 @@ Make Clarity viable for production agentic and retrieval-augmented-generation wo
 5. ✓ **`std/agent` module** — `run(key, initial, step_fn)` runs an agent loop with automatic checkpointing and resume. `resume(key, step_fn)` continues from last checkpoint. Step functions receive/return state as JSON strings; loop terminates when state contains `"done":true`.
 6. ✓ **`std/rag` module** — `retrieve(query, text, chunk_size, top_k)` does end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON. `embed(text)` and `similarity(a, b)` for lower-level use.
 7. ✓ **`Eval` effect + LLM evals** — `eval_exact`, `eval_contains` (pure), `eval_llm_judge` (LLM-as-judge, returns score JSON), `eval_semantic` (embedding-based similarity). `std/eval` module wraps them with `exact`, `contains`, `semantic`, `judge`, `pass`.
-8. **Streaming support** — Token-by-token streaming from model calls. Architecturally constrained by synchronous WASM imports; requires a callback/channel primitive or async WASM component model. Deferred.
+8. ✓ **Streaming support** — Pull-based token streaming via `stream_start(model, prompt, system)` / `stream_next(handle) -> Option<String>` / `stream_close(handle) -> String` (all require Model effect). Worker thread + SharedArrayBuffer + Atomics.wait handshake sidesteps the WASM synchronous-import constraint. `std/stream` provides `call(model, prompt)` and `call_with_system(model, system, prompt)`. Also fixed latent codegen bug: `generateConstructorCall` was using the declared field type from whichever `Result<T,E>` instantiation `findConstructorType` found first, causing `i64.store` of i32 values when multiple instantiations coexist; fix uses `inferExprType(arg)` for the actual store width.
 9. **HITL (`HumanInLoop` effect)** — Pause agent execution and emit a prompt to a human operator; resume when a response arrives. Requires a durable suspension mechanism. Deferred.
 
 - No lambdas or closures — pass named functions only

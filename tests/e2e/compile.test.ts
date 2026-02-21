@@ -4444,3 +4444,318 @@ describe("std/eval module", () => {
     expect((instance.exports.do_has as (a: number, b: number) => number)(hayPtr, missingPtr)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Streaming builtins (stream_start, stream_next, stream_close)
+// ---------------------------------------------------------------------------
+describe("Streaming builtins", () => {
+  it("stream_start / stream_next / stream_close compile with Model effect", () => {
+    const src = `
+      module Test
+      effect[Model] function go(model: String, prompt: String) -> Result<String, String> {
+        match stream_start(model, prompt, "") {
+          Err(e) -> Err(e),
+          Ok(handle) -> {
+            let token = stream_next(handle);
+            let err = stream_close(handle);
+            match token {
+              None -> Ok("done"),
+              Some(t) -> Ok(t)
+            }
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("rejects stream_start without Model effect", () => {
+    const src = `
+      module Test
+      function bad(model: String, prompt: String) -> Result<String, String> {
+        stream_start(model, prompt, "")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("stream_start returns Ok(handle) immediately; error surfaces via stream_close", async () => {
+    // stream_start spawns the worker asynchronously and always returns Ok(handle).
+    // The HTTP/auth error surfaces when the worker signals ERROR status, which
+    // stream_next delivers as None and stream_close returns as an error string.
+    const src = `
+      module Test
+      effect[Model] function start_handle(model: String, prompt: String) -> Int64 {
+        match stream_start(model, prompt, "") {
+          Err(_) -> 0 - 1,
+          Ok(handle) -> handle
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const mPtr = runtime.writeString("gpt-4o");
+    const pPtr = runtime.writeString("hello");
+    const handle = (instance.exports.start_handle as (m: number, p: number) => bigint)(mPtr, pPtr);
+    // Should have returned a positive handle (worker spawned ok)
+    expect(Number(handle)).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/stream module
+// ---------------------------------------------------------------------------
+describe("std/stream module", () => {
+  function setupStreamTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-stream-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "stream.clarity");
+    return dir;
+  }
+
+  it("imports call and call_with_system from std/stream", () => {
+    const dir = setupStreamTest(`
+      module Main
+      import { call, call_with_system } from "std/stream"
+      effect[Model] function ask(model: String, prompt: String) -> Result<String, String> {
+        call(model, prompt)
+      }
+      effect[Model] function ask_sys(model: String, sys: String, prompt: String) -> Result<String, String> {
+        call_with_system(model, sys, prompt)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("call returns Err when no API key", async () => {
+    const dir = setupStreamTest(`
+      module Main
+      import { call } from "std/stream"
+      effect[Model] function ask(model: String, prompt: String) -> Result<String, String> {
+        call(model, prompt)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const mPtr = runtime.writeString("gpt-4o");
+    const pPtr = runtime.writeString("hello");
+    const resPtr = (instance.exports.ask as (m: number, p: number) => number)(mPtr, pPtr);
+    const view = new DataView((instance.exports.memory as WebAssembly.Memory).buffer);
+    const tag = view.getInt32(resPtr, true);
+    expect(tag).toBe(1); // Err — no API key in test environment
+  });
+});
+
+// ---------------------------------------------------------------------------
+// None / [] placeholder type inference
+// ---------------------------------------------------------------------------
+describe("None / [] placeholder type inference", () => {
+  it("None is accepted as Option<Int64> return type", () => {
+    const src = `module T function f() -> Option<Int64> { None }`;
+    expect(compile(src, "t.clarity").errors).toHaveLength(0);
+  });
+
+  it("None in match arm unifies with Some(Int64)", () => {
+    const src = `module T
+      function g(x: Bool) -> Option<Int64> {
+        match x { True -> Some(42), False -> None }
+      }`;
+    expect(compile(src, "t.clarity").errors).toHaveLength(0);
+  });
+
+  it("[] is accepted as List<String> return type", () => {
+    const src = `module T function f() -> List<String> { [] }`;
+    expect(compile(src, "t.clarity").errors).toHaveLength(0);
+  });
+
+  it("generic find returns Option<T>", () => {
+    const src = `module T
+      function find_h<T>(xs: List<T>, pred: (T) -> Bool) -> Option<T> {
+        match is_empty(xs) {
+          True  -> None,
+          False -> { let h = head(xs); match pred(h) { True -> Some(h), False -> find_h(tail(xs), pred) } }
+        }
+      }
+      function gt5(x: Int64) -> Bool { x > 5 }
+      export function run() -> Option<Int64> { find_h([1, 7, 3], gt5) }`;
+    const result = compile(src, "t.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/list module
+// ---------------------------------------------------------------------------
+describe("std/list module", () => {
+  function setupListTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-list-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "list.clarity");
+    return dir;
+  }
+
+  it("map doubles a list", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { map } from "std/list"
+      function double(x: Int64) -> Int64 { x * 2 }
+      export function run() -> Int64 {
+        let xs = map([1, 2, 3], double);
+        length(xs)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(3n);
+  });
+
+  it("filter keeps even numbers", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { filter } from "std/list"
+      function is_even(x: Int64) -> Bool { x % 2 == 0 }
+      export function run() -> Int64 { length(filter([1, 2, 3, 4, 5, 6], is_even)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(3n);
+  });
+
+  it("fold_left sums a list", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { fold_left } from "std/list"
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      export function run() -> Int64 { fold_left([1, 2, 3, 4, 5], 0, add) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(15n);
+  });
+
+  it("any / all work", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { any, all } from "std/list"
+      function gt0(x: Int64) -> Bool { x > 0 }
+      function gt10(x: Int64) -> Bool { x > 10 }
+      export function run_any() -> Bool { any([1, 2, 3], gt0) }
+      export function run_all() -> Bool { all([1, 2, 3], gt0) }
+      export function run_any2() -> Bool { any([1, 2, 3], gt10) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run_any as () => number)()).toBe(1);
+    expect((instance.exports.run_all as () => number)()).toBe(1);
+    expect((instance.exports.run_any2 as () => number)()).toBe(0);
+  });
+
+  it("find returns Some / None", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { find } from "std/list"
+      function gt5(x: Int64) -> Bool { x > 5 }
+      export function run_found() -> Int64 {
+        match find([1, 7, 3], gt5) { None -> 0 - 1, Some(v) -> v }
+      }
+      export function run_missing() -> Int64 {
+        match find([1, 2, 3], gt5) { None -> 0 - 1, Some(v) -> v }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run_found as () => bigint)()).toBe(7n);
+    expect((instance.exports.run_missing as () => bigint)()).toBe(-1n);
+  });
+
+  it("range generates correct sequence", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { range, sum } from "std/list"
+      export function run() -> Int64 { sum(range(1, 6)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(15n);
+  });
+
+  it("zip_with adds corresponding elements", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { zip_with, sum } from "std/list"
+      function add(a: Int64, b: Int64) -> Int64 { a + b }
+      export function run() -> Int64 { sum(zip_with([1, 2, 3], [10, 20, 30], add)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(66n);
+  });
+
+  it("take and drop split a list", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { take, drop } from "std/list"
+      export function run_take() -> Int64 { length(take([1, 2, 3, 4, 5], 3)) }
+      export function run_drop() -> Int64 { length(drop([1, 2, 3, 4, 5], 2)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run_take as () => bigint)()).toBe(3n);
+    expect((instance.exports.run_drop as () => bigint)()).toBe(3n);
+  });
+
+  it("flatten concatenates nested lists", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { flatten } from "std/list"
+      export function run() -> Int64 { length(flatten([[1, 2], [3, 4], [5]])) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(5n);
+  });
+
+  it("flat_map works", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { flat_map } from "std/list"
+      function dup(x: Int64) -> List<Int64> { [x, x] }
+      export function run() -> Int64 { length(flat_map([1, 2, 3], dup)) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run as () => bigint)()).toBe(6n);
+  });
+
+  it("maximum and minimum work", async () => {
+    const dir = setupListTest(`
+      module Main
+      import { maximum, minimum } from "std/list"
+      export function run_max() -> Int64 { maximum([3, 1, 4, 1, 5, 9, 2, 6], 0) }
+      export function run_min() -> Int64 { minimum([3, 1, 4, 1, 5, 9, 2, 6], 999) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.run_max as () => bigint)()).toBe(9n);
+    expect((instance.exports.run_min as () => bigint)()).toBe(1n);
+  });
+});

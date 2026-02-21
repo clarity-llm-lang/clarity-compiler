@@ -1498,7 +1498,12 @@ export class CodeGenerator {
     const layout = this.recordLayout(info.variant.fields);
     const fieldEntries = [...info.variant.fields.entries()];
     for (let i = 0; i < args.length && i < fieldEntries.length; i++) {
-      const fieldType = fieldEntries[i][1];
+      // Use the actual argument's inferred type for the store width rather than the
+      // declared field type from the union schema. This avoids type-width mismatches
+      // when the same constructor name (e.g. Ok) appears in multiple generic
+      // instantiations (e.g. Result<Int64,String> and Result<String,String>) and
+      // findConstructorType() happens to return the wrong one.
+      const fieldType = this.inferExprType(args[i].value);
       const fieldOffset = layout[i].offset + 4; // +4 for tag
       const value = this.generateExpr(args[i].value);
       stmts.push(this.storeField(getPtr(), fieldOffset, value, fieldType));
@@ -2362,6 +2367,10 @@ export class CodeGenerator {
       eval_contains: BOOL,
       eval_llm_judge: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       eval_semantic: { kind: "Result", ok: FLOAT64, err: { kind: "String" } as ClarityType } as ClarityType,
+      // Streaming
+      stream_start: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
+      stream_next: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      stream_close: { kind: "String" } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

@@ -1143,6 +1143,33 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "List available model identifiers from the configured LLM provider. Returns an empty list on failure. Requires OPENAI_API_KEY environment variable.",
     category: "model",
   },
+  {
+    name: "stream_start",
+    params: [STRING, STRING, STRING],
+    paramNames: ["model", "prompt", "system"],
+    returnType: { kind: "Result", ok: INT64, err: STRING } as ClarityType,
+    effects: ["Model"],
+    doc: "Start a streaming LLM call. Returns Ok(handle) where handle is an opaque Int64 stream identifier, or Err(message) on failure. Pass the handle to stream_next() to receive tokens one at a time, and stream_close() when done. Use empty string for system if no system prompt is needed. Supports the same multi-provider routing as call_model (claude-* → Anthropic, others → OpenAI-compatible). Example: match stream_start(\"gpt-4o\", prompt, \"\") { Ok(h) -> ..., Err(e) -> ... }.",
+    category: "model",
+  },
+  {
+    name: "stream_next",
+    params: [INT64],
+    paramNames: ["handle"],
+    returnType: OPTION_STRING,
+    effects: ["Model"],
+    doc: "Receive the next token from a streaming LLM call. Blocks until a token is available. Returns Some(token) when a token arrives, or None when the stream ends (either normally or due to an error). Call stream_close(handle) after None is returned to retrieve any error message and release resources. Example: match stream_next(handle) { Some(t) -> ..., None -> ... }.",
+    category: "model",
+  },
+  {
+    name: "stream_close",
+    params: [INT64],
+    paramNames: ["handle"],
+    returnType: STRING,
+    effects: ["Model"],
+    doc: "Close a streaming LLM call and release its resources. Returns an empty string if the stream completed normally, or an error message if the stream ended due to an error. Always call this after stream_next() returns None. Example: let err = stream_close(handle).",
+    category: "model",
+  },
 
   // --- MCP operations (require MCP effect) ---
   {
