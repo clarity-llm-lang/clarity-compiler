@@ -1,0 +1,33 @@
+// std/result — Result<String, String> helpers
+//
+// Shared utilities imported by std/llm, std/mcp, and std/a2a.
+// Import directly when working with any builtin that returns Result<String, String>.
+//
+// Usage:
+//   import { unwrap_or, is_ok, error_of } from "std/result"
+
+module Result
+
+// Extract the Ok value, or use fallback if Err.
+export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
+  match result {
+    Ok(s) -> s,
+    Err(_) -> fallback
+  }
+}
+
+// True if the result is Ok.
+export function is_ok(result: Result<String, String>) -> Bool {
+  match result {
+    Ok(_) -> True,
+    Err(_) -> False
+  }
+}
+
+// Extract the error message, or "" if Ok.
+export function error_of(result: Result<String, String>) -> String {
+  match result {
+    Ok(_) -> "",
+    Err(msg) -> msg
+  }
+}

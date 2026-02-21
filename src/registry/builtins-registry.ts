@@ -79,6 +79,14 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
 const LIST_INT: ClarityType = { kind: "List", element: INT64 };
 const LIST_STRING: ClarityType = { kind: "List", element: STRING };
 const MAP_STRING_STRING: ClarityType = { kind: "Map", key: STRING, value: STRING };
+const OPTION_STRING: ClarityType = {
+  kind: "Union",
+  name: "Option<String>",
+  variants: [
+    { name: "Some", fields: new Map([["value", STRING]]) },
+    { name: "None", fields: new Map() },
+  ],
+};
 const OPTION_MAP_STRING_STRING: ClarityType = {
   kind: "Union",
   name: "Option<Map<String, String>>",
@@ -871,6 +879,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: STRING,
     effects: [],
     doc: "Serialize a Map<String, String> to JSON. Values matching JSON literals (null/true/false/number) are emitted as literals; others are emitted as strings.",
+    category: "json",
+  },
+  {
+    name: "json_get",
+    params: [STRING, STRING],
+    paramNames: ["json", "key"],
+    returnType: OPTION_STRING,
+    effects: [],
+    doc: "Extract a single top-level string value from a JSON object by key. Returns Some(value) if the key exists and its value is a scalar, None otherwise. Avoids manual string arithmetic for common JSON field access.",
     category: "json",
   },
 

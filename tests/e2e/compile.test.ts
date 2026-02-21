@@ -3207,17 +3207,18 @@ describe("Model builtins (call_model, call_model_system, list_models)", () => {
   });
 });
 
+function copyStdFile(dir: string, name: string) {
+  const src = fs.readFileSync(path.join(process.cwd(), "std", name), "utf-8");
+  fs.writeFileSync(path.join(dir, "std", name), src);
+}
+
 describe("std/llm module", () => {
   function setupLlmTest(src: string) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-llm-"));
     fs.writeFileSync(path.join(dir, "main.clarity"), src);
     fs.mkdirSync(path.join(dir, "std"), { recursive: true });
-    // Copy std/llm.clarity into the temp directory
-    const llmSrc = fs.readFileSync(
-      path.join(process.cwd(), "std", "llm.clarity"),
-      "utf-8",
-    );
-    fs.writeFileSync(path.join(dir, "std", "llm.clarity"), llmSrc);
+    copyStdFile(dir, "llm.clarity");
+    copyStdFile(dir, "result.clarity");
     return dir;
   }
 
@@ -3384,11 +3385,8 @@ describe("std/mcp module", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-mcp-"));
     fs.writeFileSync(path.join(dir, "main.clarity"), src);
     fs.mkdirSync(path.join(dir, "std"), { recursive: true });
-    const mcpSrc = fs.readFileSync(
-      path.join(process.cwd(), "std", "mcp.clarity"),
-      "utf-8",
-    );
-    fs.writeFileSync(path.join(dir, "std", "mcp.clarity"), mcpSrc);
+    copyStdFile(dir, "mcp.clarity");
+    copyStdFile(dir, "result.clarity");
     return dir;
   }
 
@@ -3533,11 +3531,8 @@ describe("std/a2a module", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-a2a-"));
     fs.writeFileSync(path.join(dir, "main.clarity"), src);
     fs.mkdirSync(path.join(dir, "std"), { recursive: true });
-    const a2aSrc = fs.readFileSync(
-      path.join(process.cwd(), "std", "a2a.clarity"),
-      "utf-8",
-    );
-    fs.writeFileSync(path.join(dir, "std", "a2a.clarity"), a2aSrc);
+    copyStdFile(dir, "a2a.clarity");
+    copyStdFile(dir, "result.clarity");
     return dir;
   }
 
@@ -3831,5 +3826,98 @@ describe("Policy builtins (policy_is_url_allowed, policy_is_effect_allowed) and 
       if (savedHosts !== undefined) process.env.CLARITY_ALLOW_HOSTS = savedHosts;
       else delete process.env.CLARITY_ALLOW_HOSTS;
     }
+  });
+});
+
+describe("json_get builtin", () => {
+  it("extracts a string field from a JSON object", async () => {
+    const source = `
+      module Test
+      function get_name() -> String {
+        match json_get("""{"name":"Alice","age":"30"}""", "name") {
+          Some(v) -> v,
+          None -> "missing"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_name as () => number)();
+    expect(runtime.readString(ptr)).toBe("Alice");
+  });
+
+  it("returns None for a missing key", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_get("""{"x":"1"}""", "y") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+
+  it("returns None for invalid JSON", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_get("not-json", "key") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+
+  it("extracts numeric values as strings", async () => {
+    const source = `
+      module Test
+      function get_age() -> String {
+        match json_get("""{"age":42}""", "age") {
+          Some(v) -> v,
+          None -> "missing"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_age as () => number)();
+    expect(runtime.readString(ptr)).toBe("42");
+  });
+});
+
+describe("std/result module", () => {
+  it("imports and uses unwrap_or, is_ok, error_of", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-result-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    copyStdFile(dir, "result.clarity");
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { unwrap_or, is_ok, error_of } from "std/result"
+      function test_ok() -> Bool { is_ok(Ok("hi")) }
+      function test_err() -> Bool { is_ok(Err("bad")) }
+      function test_unwrap() -> String { unwrap_or(Ok("val"), "fallback") }
+      function test_fallback() -> String { unwrap_or(Err("e"), "fallback") }
+      function test_error_of() -> String { error_of(Err("oops")) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_ok as () => number)()).toBe(1);
+    expect((instance.exports.test_err as () => number)()).toBe(0);
+    expect(runtime.readString((instance.exports.test_unwrap as () => number)())).toBe("val");
+    expect(runtime.readString((instance.exports.test_fallback as () => number)())).toBe("fallback");
+    expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("oops");
   });
 });

@@ -129,6 +129,7 @@ export function getBuiltins(): BuiltinDef[] {
     // --- JSON operations ---
     { name: "json_parse", importModule: "env", importName: "json_parse", params: i32, result: i32 },
     { name: "json_stringify", importModule: "env", importName: "json_stringify", params: i32, result: i32 },
+    { name: "json_get", importModule: "env", importName: "json_get", params: pair_i32, result: i32 },
 
     // --- Map operations ---
     // Maps are opaque i32 handles. Keys: i32 (String ptr) or i64 (Int64). Values: i32 or i64.
