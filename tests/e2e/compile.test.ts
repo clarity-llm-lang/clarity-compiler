@@ -4310,3 +4310,137 @@ describe("std/rag module", () => {
     expect(Math.abs(sim - 1.0)).toBeLessThan(1e-6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Eval builtins (eval_exact, eval_contains, eval_llm_judge, eval_semantic)
+// ---------------------------------------------------------------------------
+describe("Eval builtins", () => {
+  it("eval_exact returns true for equal strings (pure, no effect)", async () => {
+    const src = `
+      module Test
+      function check(a: String, b: String) -> Bool { eval_exact(a, b) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const aPtr = runtime.writeString("Paris");
+    const bPtr = runtime.writeString("Paris");
+    const cPtr = runtime.writeString("London");
+    expect((instance.exports.check as (a: number, b: number) => number)(aPtr, bPtr)).toBe(1);
+    expect((instance.exports.check as (a: number, b: number) => number)(aPtr, cPtr)).toBe(0);
+  });
+
+  it("eval_contains returns true when substring present (pure, no effect)", async () => {
+    const src = `
+      module Test
+      function check(a: String, b: String) -> Bool { eval_contains(a, b) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const hayPtr = runtime.writeString("The capital of France is Paris.");
+    const needlePtr = runtime.writeString("Paris");
+    const missingPtr = runtime.writeString("Berlin");
+    expect((instance.exports.check as (a: number, b: number) => number)(hayPtr, needlePtr)).toBe(1);
+    expect((instance.exports.check as (a: number, b: number) => number)(hayPtr, missingPtr)).toBe(0);
+  });
+
+  it("eval_exact compiles and rejects misuse without Eval effect for pure check", () => {
+    // eval_exact is pure so should compile without effect
+    const src = `
+      module Test
+      function check(a: String, b: String) -> Bool { eval_exact(a, b) }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("eval_llm_judge compiles with Eval effect", () => {
+    const src = `
+      module Test
+      effect[Eval] function grade(model: String, prompt: String, resp: String, rubric: String) -> Result<String, String> {
+        eval_llm_judge(model, prompt, resp, rubric)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects eval_llm_judge without Eval effect", () => {
+    const src = `
+      module Test
+      function bad(model: String, prompt: String, resp: String, rubric: String) -> Result<String, String> {
+        eval_llm_judge(model, prompt, resp, rubric)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("eval_semantic compiles with Eval effect", () => {
+    const src = `
+      module Test
+      effect[Eval] function sim(a: String, b: String) -> Result<Float64, String> {
+        eval_semantic(a, b)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/eval module
+// ---------------------------------------------------------------------------
+describe("std/eval module", () => {
+  function setupEvalTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-eval-"));
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    copyStdFile(dir, "eval.clarity");
+    return dir;
+  }
+
+  it("imports and compiles exact, has_match, judge, pass from std/eval", () => {
+    const dir = setupEvalTest(`
+      module Main
+      import { exact, has_match, judge, pass } from "std/eval"
+      function check_exact(a: String, b: String) -> Bool { exact(a, b) }
+      function check_has(a: String, b: String) -> Bool { has_match(a, b) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("exact returns correct values via std/eval", async () => {
+    const dir = setupEvalTest(`
+      module Main
+      import { exact } from "std/eval"
+      function do_exact(a: String, b: String) -> Bool { exact(a, b) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const aPtr = runtime.writeString("hello");
+    const bPtr = runtime.writeString("hello");
+    const cPtr = runtime.writeString("world");
+    expect((instance.exports.do_exact as (a: number, b: number) => number)(aPtr, bPtr)).toBe(1);
+    expect((instance.exports.do_exact as (a: number, b: number) => number)(aPtr, cPtr)).toBe(0);
+  });
+
+  it("has_match returns correct values via std/eval", async () => {
+    const dir = setupEvalTest(`
+      module Main
+      import { has_match } from "std/eval"
+      function do_has(a: String, b: String) -> Bool { has_match(a, b) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const hayPtr = runtime.writeString("hello world");
+    const needlePtr = runtime.writeString("world");
+    const missingPtr = runtime.writeString("foo");
+    expect((instance.exports.do_has as (a: number, b: number) => number)(hayPtr, needlePtr)).toBe(1);
+    expect((instance.exports.do_has as (a: number, b: number) => number)(hayPtr, missingPtr)).toBe(0);
+  });
+});

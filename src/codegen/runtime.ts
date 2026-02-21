@@ -1908,6 +1908,81 @@ export function createRuntime(config: RuntimeConfig = {}) {
           return allocResultString(false, writeString(msg));
         }
       },
+
+      // -----------------------------------------------------------------------
+      // Eval builtins
+      // -----------------------------------------------------------------------
+
+      eval_exact(gotPtr: number, expectedPtr: number): number {
+        const got = readString(gotPtr);
+        const expected = readString(expectedPtr);
+        return got === expected ? 1 : 0;
+      },
+
+      eval_contains(gotPtr: number, expectedPtr: number): number {
+        const got = readString(gotPtr);
+        const expected = readString(expectedPtr);
+        return got.includes(expected) ? 1 : 0;
+      },
+
+      eval_llm_judge(modelPtr: number, promptPtr: number, responsePtr: number, rubricPtr: number): number {
+        const model = readString(modelPtr);
+        const prompt = readString(promptPtr);
+        const response = readString(responsePtr);
+        const rubric = readString(rubricPtr);
+        const effectErr = policyCheckEffect("Eval");
+        if (effectErr) return allocResultString(false, writeString(effectErr));
+        const sysContent = "You are an impartial evaluator. Given the original prompt, a response, and a rubric, output ONLY a JSON object with keys: \"score\" (float 0.0-1.0), \"pass\" (boolean, true when score >= 0.7), \"reason\" (one sentence). Do not include any other text.";
+        const userMsg = `Prompt: ${prompt}\n\nResponse: ${response}\n\nRubric: ${rubric}`;
+        const resultPtr = callLLM(model, [{ role: "system", content: sysContent }, { role: "user", content: userMsg }]);
+        // resultPtr is a Result<String,String>. On Ok, verify it looks like JSON.
+        const view = new DataView(memory.buffer);
+        const tag = view.getInt32(resultPtr, true);
+        if (tag !== 0) return resultPtr; // propagate Err
+        const textPtr = view.getInt32(resultPtr + 4, true);
+        const text = readString(textPtr).trim();
+        // Attempt to extract JSON from the response (models sometimes wrap in ```json```)
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const json = jsonMatch ? jsonMatch[0] : text;
+        return allocResultString(true, writeString(json));
+      },
+
+      eval_semantic(gotPtr: number, expectedPtr: number): number {
+        const got = readString(gotPtr);
+        const expected = readString(expectedPtr);
+        const effectErr = policyCheckEffect("Eval");
+        if (effectErr) return allocResultString(false, writeString(effectErr));
+        try {
+          const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
+          const apiKey = process.env.OPENAI_API_KEY ?? "";
+          const model = process.env.CLARITY_EMBED_MODEL ?? "text-embedding-ada-002";
+          if (!apiKey) return allocResultString(false, writeString("OPENAI_API_KEY not set"));
+          const resp = syncHttpRequest({
+            url: `${baseUrl}/v1/embeddings`,
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+            body: JSON.stringify({ input: [got, expected], model }),
+            timeoutMs: 30000,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          const parsed = JSON.parse(resp.body) as { data?: Array<{ embedding: number[]; index: number }> };
+          const data = (parsed.data ?? []).sort((a, b) => a.index - b.index);
+          if (data.length < 2) throw new Error("Expected 2 embeddings");
+          const a = data[0].embedding, b = data[1].embedding;
+          let dot = 0, nA = 0, nB = 0;
+          for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
+          const sim = Math.sqrt(nA) * Math.sqrt(nB) === 0 ? 0 : dot / (Math.sqrt(nA) * Math.sqrt(nB));
+          // Result<Float64, String>: [tag:i32][f64] = 12 bytes
+          const ptr = alloc(12);
+          const v2 = new DataView(memory.buffer);
+          v2.setInt32(ptr, 0, true); // Ok
+          v2.setFloat64(ptr + 4, sim, true);
+          return ptr;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
     },
   };
 

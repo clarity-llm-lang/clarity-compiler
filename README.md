@@ -354,7 +354,7 @@ clarity/
 
 ## Current Status (v0.8)
 
-**339 tests passing.**
+**348 tests passing.**
 
 **Working:**
 - Int64 and Float64 arithmetic (including Float64 modulo)
@@ -398,6 +398,8 @@ clarity/
 - **Embed effect + vector search**: `embed_text(text)` (calls `/v1/embeddings`), `cosine_similarity(a_json, b_json)`, `chunk_text(text, size)`, `embed_and_retrieve(query, chunks_json, top_k)` — full RAG pipeline in builtins
 - **`std/agent`**: `run(key, initial, step_fn)` — resumable agent loop with automatic checkpointing; terminates when state JSON contains `"done":true`; `resume(key, step_fn)` continues from last checkpoint
 - **`std/rag`**: `retrieve(query, text, chunk_size, top_k)` — end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON
+- **Eval effect + LLM evals**: `eval_exact`, `eval_contains` (pure), `eval_llm_judge` (LLM-as-judge with score JSON), `eval_semantic` (embedding-based cosine similarity)
+- **`std/eval`**: `exact`, `has_match`, `semantic`, `judge`, `pass` — evaluation framework for assessing model responses against expected outputs or rubrics
 - Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
 - String interning (runtime deduplicates identical strings)
 - Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
@@ -471,6 +473,7 @@ Make Clarity viable for production agentic and retrieval-augmented-generation wo
 - ~~Embed effect~~ (done — `embed_text`, `cosine_similarity`, `chunk_text`, `embed_and_retrieve`)
 - ~~`std/agent` module~~ (done — resumable agent loop with automatic checkpointing; step function receives/returns JSON state)
 - ~~`std/rag` module~~ (done — `retrieve`, `chunk`, `embed`, `similarity`; end-to-end RAG pipeline)
+- ~~`Eval` effect~~ (done — `eval_exact`, `eval_contains`, `eval_llm_judge`, `eval_semantic`; `std/eval` module with `exact`, `has_match`, `semantic`, `judge`, `pass`)
 
 ---
 

@@ -58,7 +58,7 @@ function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 
 **All known effects:**
 `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
-`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`
 
 ## Control flow — match only (no if/else, no loops)
 ```
@@ -197,6 +197,15 @@ For Anthropic models (`claude-*`), set `ANTHROPIC_API_KEY` instead.
 
 Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding-ada-002`).
 
+### Eval (pure checks need no effect; LLM/embedding calls require Eval effect)
+
+| Function | Signature | Effect | Notes |
+|----------|-----------|--------|-------|
+| `eval_exact(got, expected)` | `String, String -> Bool` | — | Exact string equality |
+| `eval_contains(got, expected)` | `String, String -> Bool` | — | Substring membership |
+| `eval_llm_judge(model, prompt, resp, rubric)` | `String×4 -> Result<String, String>` | Eval | Returns `{"score":0.0-1.0,"pass":bool,"reason":"..."}` |
+| `eval_semantic(got, expected)` | `String, String -> Result<Float64, String>` | Eval | Cosine similarity via embeddings |
+
 ### Policy (no effect required)
 
 | Function | Signature | Notes |
@@ -221,6 +230,7 @@ Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding
 | `std/a2a` | `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of` |
 | `std/agent` | `run(key, initial, step_fn)`, `resume(key, step_fn)`, `clear(key)` — resumable agent loop with auto-checkpointing |
 | `std/rag` | `retrieve(query, text, chunk_size, top_k)`, `chunk(text, size)`, `embed(text)`, `similarity(a, b)` |
+| `std/eval` | `exact(got, expected)`, `has_match(got, expected)`, `semantic(got, expected)`, `judge(model, prompt, resp, rubric)`, `pass(model, prompt, resp, rubric)` |
 
 Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 

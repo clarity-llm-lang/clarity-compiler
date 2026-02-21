@@ -325,8 +325,9 @@ Make Clarity viable for production agentic and retrieval-augmented-generation wo
 4. ✓ **`Embed` effect + vector search** — `embed_text(text)` calls `/v1/embeddings`, returns JSON float array. `cosine_similarity(a, b)` for pure similarity computation. `chunk_text(text, size)` splits text into JSON chunk array. `embed_and_retrieve(query, chunks_json, top_k)` does full retrieval in one call.
 5. ✓ **`std/agent` module** — `run(key, initial, step_fn)` runs an agent loop with automatic checkpointing and resume. `resume(key, step_fn)` continues from last checkpoint. Step functions receive/return state as JSON strings; loop terminates when state contains `"done":true`.
 6. ✓ **`std/rag` module** — `retrieve(query, text, chunk_size, top_k)` does end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON. `embed(text)` and `similarity(a, b)` for lower-level use.
-7. **Streaming support** — Token-by-token streaming from model calls. Architecturally constrained by synchronous WASM imports; requires a callback/channel primitive or async WASM component model. Deferred.
-8. **HITL (`HumanInLoop` effect)** — Pause agent execution and emit a prompt to a human operator; resume when a response arrives. Requires a durable suspension mechanism. Deferred.
+7. ✓ **`Eval` effect + LLM evals** — `eval_exact`, `eval_contains` (pure), `eval_llm_judge` (LLM-as-judge, returns score JSON), `eval_semantic` (embedding-based similarity). `std/eval` module wraps them with `exact`, `contains`, `semantic`, `judge`, `pass`.
+8. **Streaming support** — Token-by-token streaming from model calls. Architecturally constrained by synchronous WASM imports; requires a callback/channel primitive or async WASM component model. Deferred.
+9. **HITL (`HumanInLoop` effect)** — Pause agent execution and emit a prompt to a human operator; resume when a response arrives. Requires a durable suspension mechanism. Deferred.
 
 - No lambdas or closures — pass named functions only
 - No automatic garbage collection — free-list allocator helps but programs that allocate unboundedly will exhaust memory

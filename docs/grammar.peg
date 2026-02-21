@@ -119,4 +119,7 @@ LineComment     <- '//' [^\n]*
 # Embed (Embed effect for network; pure for computation):
 #   embed_text, embed_and_retrieve  [Embed effect]
 #   cosine_similarity, chunk_text   [pure — no effect]
+# Eval (Eval effect for LLM/embedding calls; pure for string checks):
+#   eval_llm_judge, eval_semantic   [Eval effect]
+#   eval_exact, eval_contains       [pure — no effect]
 # Policy (no effect): policy_is_url_allowed, policy_is_effect_allowed

@@ -424,6 +424,7 @@ The effect system tracks **side effects** at the type level. A function that rea
 | `Trace` | Structured span tracing for observability |
 | `Persist` | Durable key-value checkpointing for resumable agents |
 | `Embed` | Text embedding and vector similarity (network I/O to embeddings API) |
+| `Eval` | LLM output evaluation — judge responses against rubrics or measure semantic similarity |
 
 ### 6.3 Rules
 
@@ -1152,6 +1153,32 @@ effect[Embed] function search(doc: String, query: String) -> String {
     Ok(chunks_json) -> chunks_json,
     Err(msg) -> "Error: " ++ msg
   }
+}
+```
+
+### 15.7 `std/eval` — LLM Output Evaluation
+
+```clarity
+import { exact, has_match, semantic, judge, pass } from "std/eval"
+```
+
+- `exact(got: String, expected: String) -> Bool` — Exact string equality (pure).
+- `has_match(got: String, expected: String) -> Bool` — Substring membership (pure).
+- `semantic(got: String, expected: String) -> Result<Float64, String>` — Cosine similarity via embeddings; values above ~0.85 indicate semantic equivalence.
+- `judge(model: String, prompt: String, response: String, rubric: String) -> Result<String, String>` — Ask a judge LLM to score a response against a rubric. Returns JSON: `{"score": 0.0-1.0, "pass": true/false, "reason": "..."}`.
+- `pass(model, prompt, response, rubric) -> Bool` — Convenience: returns `True` when judge score >= 0.7.
+
+```clarity
+module Main
+import { exact, has_match, judge } from "std/eval"
+
+// Pure checks
+function test_exact(resp: String) -> Bool { exact(resp, "Paris") }
+function test_contains(resp: String) -> Bool { has_match(resp, "France") }
+
+// LLM-as-judge
+effect[Eval] function grade(prompt: String, resp: String) -> Result<String, String> {
+  judge("gpt-4o", prompt, resp, "The response must name the capital of France.")
 }
 ```
 

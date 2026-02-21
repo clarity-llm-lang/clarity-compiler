@@ -53,13 +53,14 @@ describe("builtins registry", () => {
     expect(effectNames).toContain("Trace");
     expect(effectNames).toContain("Persist");
     expect(effectNames).toContain("Embed");
-    expect(effectNames).toHaveLength(14);
+    expect(effectNames).toContain("Eval");
+    expect(effectNames).toHaveLength(15);
   });
 
   it("getKnownEffectNames returns a Set of all effect names", () => {
     const names = getKnownEffectNames();
     expect(names).toBeInstanceOf(Set);
-    expect(names.size).toBe(14);
+    expect(names.size).toBe(15);
     expect(names.has("FileSystem")).toBe(true);
   });
 

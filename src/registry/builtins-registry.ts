@@ -73,6 +73,7 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
   { name: "Trace", description: "Structured span tracing — start/end named spans and log events within them. Spans are written to the audit log with timing and event lists." },
   { name: "Persist", description: "Durable key-value checkpointing backed by the local filesystem (CLARITY_CHECKPOINT_DIR). Used to save and resume agent state across restarts." },
   { name: "Embed", description: "Text embedding and vector retrieval — call an embedding model and perform cosine-similarity search over a corpus. Requires OPENAI_API_KEY (or compatible)." },
+  { name: "Eval", description: "LLM output evaluation — assess model responses against expected outputs or rubrics. Supports exact match, substring match, semantic similarity, and LLM-as-judge scoring." },
 ];
 
 // -----------------------------------------------------------------------------
@@ -1313,6 +1314,44 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: ["Embed"],
     doc: "Embed the query and all chunks in chunks_json (a JSON string array), rank chunks by cosine similarity to the query, and return the top_k most relevant chunks as a JSON string array. Example: embed_and_retrieve(query, chunk_text(doc, 512), 5).",
     category: "embed",
+  },
+
+  // --- Eval operations ---
+  {
+    name: "eval_exact",
+    params: [STRING, STRING],
+    paramNames: ["got", "expected"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Exact string equality check. Returns True when got == expected. Pure — no effect required. Example: eval_exact(response, \"Paris\").",
+    category: "eval",
+  },
+  {
+    name: "eval_contains",
+    params: [STRING, STRING],
+    paramNames: ["got", "expected"],
+    returnType: BOOL,
+    effects: [],
+    doc: "Substring check. Returns True when got contains expected as a substring. Case-sensitive. Pure — no effect required. Example: eval_contains(response, \"France\").",
+    category: "eval",
+  },
+  {
+    name: "eval_llm_judge",
+    params: [STRING, STRING, STRING, STRING],
+    paramNames: ["model", "prompt", "response", "rubric"],
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
+    effects: ["Eval"],
+    doc: "Ask a language model to judge a response against a rubric. Returns Ok(json) where json contains {\"score\": 0.0-1.0, \"pass\": true/false, \"reason\": \"...\"}. model is the judge model name, prompt is the original prompt given to the model under test, response is what it returned, rubric describes the evaluation criteria. Example: eval_llm_judge(\"gpt-4o\", prompt, response, \"Answer must name the capital of France.\").",
+    category: "eval",
+  },
+  {
+    name: "eval_semantic",
+    params: [STRING, STRING],
+    paramNames: ["got", "expected"],
+    returnType: { kind: "Result", ok: FLOAT64, err: STRING } as ClarityType,
+    effects: ["Eval"],
+    doc: "Measure semantic similarity between two strings using text embeddings. Embeds both strings and returns Ok(cosine_similarity) in [0.0, 1.0]. A value above ~0.85 typically indicates semantic equivalence. Requires OPENAI_API_KEY. Example: eval_semantic(response, \"The capital of France is Paris.\").",
+    category: "eval",
   },
 
   // --- Policy introspection (no effect required) ---

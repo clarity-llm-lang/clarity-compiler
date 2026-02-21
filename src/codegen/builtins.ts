@@ -214,6 +214,16 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "chunk_text", importModule: "env", importName: "chunk_text", params: binaryen.createType([i32, i64]), result: i32 },
     { name: "embed_and_retrieve", importModule: "env", importName: "embed_and_retrieve", params: binaryen.createType([i32, i32, i64]), result: i32 },
 
+    // --- Eval operations ---
+    // eval_exact(got, expected) → Bool (i32)
+    { name: "eval_exact", importModule: "env", importName: "eval_exact", params: pair_i32, result: i32 },
+    // eval_contains(got, expected) → Bool (i32)
+    { name: "eval_contains", importModule: "env", importName: "eval_contains", params: pair_i32, result: i32 },
+    // eval_llm_judge(model, prompt, response, rubric) → Result<String,String> (i32)
+    { name: "eval_llm_judge", importModule: "env", importName: "eval_llm_judge", params: binaryen.createType([i32, i32, i32, i32]), result: i32 },
+    // eval_semantic(got, expected) → Result<Float64,String> (i32)
+    { name: "eval_semantic", importModule: "env", importName: "eval_semantic", params: pair_i32, result: i32 },
+
     // --- Policy introspection ---
     // policy_is_url_allowed(url) → Bool (i32: 1=allowed, 0=denied)
     { name: "policy_is_url_allowed", importModule: "env", importName: "policy_is_url_allowed", params: i32, result: i32 },
