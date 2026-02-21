@@ -177,6 +177,16 @@ export function getBuiltins(): BuiltinDef[] {
     // list_models() → List<String> as i32 pointer
     { name: "list_models", importModule: "env", importName: "list_models", params: none, result: i32 },
 
+    // --- MCP operations ---
+    // mcp_connect(url) → Result<Int64, String> as i32 pointer
+    { name: "mcp_connect", importModule: "env", importName: "mcp_connect", params: i32, result: i32 },
+    // mcp_list_tools(session_id) → Result<String, String> as i32 pointer
+    { name: "mcp_list_tools", importModule: "env", importName: "mcp_list_tools", params: i64, result: i32 },
+    // mcp_call_tool(session_id, tool_name, args_json) → Result<String, String> as i32 pointer
+    { name: "mcp_call_tool", importModule: "env", importName: "mcp_call_tool", params: binaryen.createType([i64, i32, i32]), result: i32 },
+    // mcp_disconnect(session_id) → Unit
+    { name: "mcp_disconnect", importModule: "env", importName: "mcp_disconnect", params: i64, result: none },
+
     // --- Timestamp operations ---
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },

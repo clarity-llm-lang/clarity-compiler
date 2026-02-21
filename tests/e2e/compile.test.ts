@@ -3274,3 +3274,162 @@ describe("std/llm module", () => {
     expect(runtime.readString((instance.exports.test_error_of_ok as () => number)())).toBe("");
   });
 });
+
+describe("MCP builtins (mcp_connect, mcp_list_tools, mcp_call_tool, mcp_disconnect)", () => {
+  it("mcp_connect compiles with MCP effect annotation and returns Result<Int64, String>", async () => {
+    const source = `
+      module Test
+      effect[MCP] function try_connect() -> Int64 {
+        match mcp_connect("http://localhost:9999/mcp") {
+          Ok(session) -> session,
+          Err(_) -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("mcp_connect stores session and returns non-zero handle", async () => {
+    const source = `
+      module Test
+      effect[MCP] function get_session_id() -> Int64 {
+        match mcp_connect("http://localhost:9999/mcp") {
+          Ok(id) -> id,
+          Err(_) -> 0
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const fn = instance.exports.get_session_id as () => bigint;
+    // mcp_connect is a no-op that always succeeds (session IDs start at 1)
+    expect(fn()).toBe(1n);
+  });
+
+  it("mcp_disconnect compiles and runs without error", async () => {
+    const source = `
+      module Test
+      effect[MCP] function connect_and_close() -> Unit {
+        match mcp_connect("http://localhost:9999/mcp") {
+          Ok(session) -> mcp_disconnect(session),
+          Err(_) -> {}
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(() => (instance.exports.connect_and_close as () => void)()).not.toThrow();
+  });
+
+  it("mcp_list_tools returns Err for unknown session", async () => {
+    const source = `
+      module Test
+      effect[MCP] function list_unknown() -> Bool {
+        match mcp_list_tools(999) {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // Session 999 doesn't exist → should return Err → False (0)
+    expect((instance.exports.list_unknown as () => number)()).toBe(0);
+  });
+
+  it("mcp_call_tool returns Err for unknown session", async () => {
+    const source = `
+      module Test
+      effect[MCP] function call_unknown() -> Bool {
+        match mcp_call_tool(999, "some_tool", "{}") {
+          Ok(_) -> True,
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.call_unknown as () => number)()).toBe(0);
+  });
+
+  it("multiple mcp_connect calls return different session IDs", async () => {
+    const source = `
+      module Test
+      effect[MCP] function two_sessions() -> Bool {
+        match mcp_connect("http://a.invalid/mcp") {
+          Ok(s1) -> {
+            match mcp_connect("http://b.invalid/mcp") {
+              Ok(s2) -> s1 != s2,
+              Err(_) -> False
+            }
+          },
+          Err(_) -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.two_sessions as () => number)()).toBe(1);
+  });
+});
+
+describe("std/mcp module", () => {
+  function setupMcpTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-mcp-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    const mcpSrc = fs.readFileSync(
+      path.join(process.cwd(), "std", "mcp.clarity"),
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(dir, "std", "mcp.clarity"), mcpSrc);
+    return dir;
+  }
+
+  it("imports and compiles connect, call_tool, disconnect from std/mcp", async () => {
+    const dir = setupMcpTest(`
+      module Main
+      import { connect, call_tool, disconnect, unwrap_or } from "std/mcp"
+
+      effect[MCP] function run() -> String {
+        match connect("http://localhost:9999/mcp") {
+          Ok(session) -> {
+            let result = call_tool(session, "ping", "{}");
+            disconnect(session);
+            unwrap_or(result, "error")
+          },
+          Err(msg) -> "connect error: " ++ msg
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("unwrap_or and is_ok work on Result<String, String>", async () => {
+    const dir = setupMcpTest(`
+      module Main
+      import { unwrap_or, is_ok, error_of } from "std/mcp"
+
+      function test_ok() -> Bool { is_ok(Ok("great")) }
+      function test_err() -> Bool { is_ok(Err("oops")) }
+      function test_unwrap_ok() -> String { unwrap_or(Ok("value"), "fallback") }
+      function test_unwrap_err() -> String { unwrap_or(Err("fail"), "fallback") }
+      function test_error_of() -> String { error_of(Err("bad")) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_ok as () => number)()).toBe(1);
+    expect((instance.exports.test_err as () => number)()).toBe(0);
+    expect(runtime.readString((instance.exports.test_unwrap_ok as () => number)())).toBe("value");
+    expect(runtime.readString((instance.exports.test_unwrap_err as () => number)())).toBe("fallback");
+    expect(runtime.readString((instance.exports.test_error_of as () => number)())).toBe("bad");
+  });
+});

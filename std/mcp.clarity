@@ -1,0 +1,79 @@
+// std/mcp — Model Context Protocol client for Clarity
+//
+// Provides wrappers around the mcp_connect / mcp_list_tools / mcp_call_tool
+// built-in primitives. Requires the MCP effect on all connection-using functions.
+//
+// Usage:
+//   import { connect, call_tool, disconnect } from "std/mcp"
+//
+// Quick start:
+//   import { connect, call_tool, unwrap_or, disconnect } from "std/mcp"
+//
+//   effect[MCP] function run() -> Unit {
+//     match connect("http://localhost:3000/mcp") {
+//       Ok(session) -> {
+//         let result = call_tool(session, "read_file", "{\"path\":\"/etc/hosts\"}");
+//         print_string(unwrap_or(result, "error"));
+//         disconnect(session)
+//       },
+//       Err(msg) -> print_string("Connect failed: " ++ msg)
+//     }
+//   }
+
+module Mcp
+
+// Connect to an MCP server at the given HTTP URL.
+// Returns Ok(session) on success, Err(message) on failure.
+// The session handle is used in subsequent tool calls.
+export effect[MCP] function connect(url: String) -> Result<Int64, String> {
+  mcp_connect(url)
+}
+
+// List tools available in an MCP session.
+// Returns Ok(json_string) — a JSON array of tool descriptor objects.
+// Each descriptor has at least a "name" field.
+export effect[MCP] function list_tools(session: Int64) -> Result<String, String> {
+  mcp_list_tools(session)
+}
+
+// Call a named tool with a JSON object of arguments.
+// args_json must be a valid JSON object string, e.g. "{\"key\":\"value\"}".
+// Use "{}" for tools that take no arguments.
+// Returns Ok(output) on success — the text content of the tool result.
+export effect[MCP] function call_tool(session: Int64, tool: String, args_json: String) -> Result<String, String> {
+  mcp_call_tool(session, tool, args_json)
+}
+
+// Call a tool with no arguments.
+export effect[MCP] function call_tool_no_args(session: Int64, tool: String) -> Result<String, String> {
+  mcp_call_tool(session, tool, "{}")
+}
+
+// Disconnect an MCP session and release its resources.
+export effect[MCP] function disconnect(session: Int64) -> Unit {
+  mcp_disconnect(session)
+}
+
+// Extract the string value from a Result, or use the fallback on error.
+export function unwrap_or(result: Result<String, String>, fallback: String) -> String {
+  match result {
+    Ok(s) -> s,
+    Err(_) -> fallback
+  }
+}
+
+// True if the result succeeded.
+export function is_ok(result: Result<String, String>) -> Bool {
+  match result {
+    Ok(_) -> True,
+    Err(_) -> False
+  }
+}
+
+// Extract the error message from a failed result, or "" if it succeeded.
+export function error_of(result: Result<String, String>) -> String {
+  match result {
+    Ok(_) -> "",
+    Err(msg) -> msg
+  }
+}

@@ -2330,6 +2330,11 @@ export class CodeGenerator {
       call_model: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       call_model_system: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       list_models: { kind: "List", element: { kind: "String" } } as ClarityType,
+      // MCP
+      mcp_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
+      mcp_list_tools: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      mcp_call_tool: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      mcp_disconnect: UNIT,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

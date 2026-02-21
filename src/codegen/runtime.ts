@@ -61,6 +61,14 @@ export function createRuntime(config: RuntimeConfig = {}) {
   const allocSizeMap = new Map<number, number>(); // ptr → size_class
   const freeLists    = new Map<number, number[]>(); // size_class → ptrs
 
+  // ---------------------------------------------------------------------------
+  // MCP session registry
+  // ---------------------------------------------------------------------------
+  // Each call to mcp_connect() registers an HTTP endpoint and returns an
+  // opaque integer session handle. mcp_disconnect() removes the entry.
+  let mcpNextId = 1;
+  const mcpSessions = new Map<number, { url: string }>();
+
   /** Round `size` up to the next power of two, minimum 8. */
   function sizeClass(size: number): number {
     let cls = 8;
@@ -137,6 +145,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
     internedStrings.clear();
     allocSizeMap.clear();
     freeLists.clear();
+    mcpSessions.clear();
+    mcpNextId = 1;
   }
 
   function bindMemory(mem: WebAssembly.Memory) {
@@ -1277,6 +1287,77 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return callOpenAI(body);
       },
 
+      // --- MCP operations ---
+      // Connects to an HTTP MCP server. Stores the URL in the session registry
+      // and returns an opaque Int64 session handle.
+      // Returns Result<Int64, String>: Ok(session_id) or Err(message).
+      mcp_connect(urlPtr: number): number {
+        const url = readString(urlPtr);
+        const id = mcpNextId++;
+        mcpSessions.set(id, { url });
+        return allocResultI64(true, BigInt(id));
+      },
+
+      // Lists the tools available from an MCP session.
+      // Returns Result<String, String>: Ok(json_array) or Err(message).
+      mcp_list_tools(sessionId: bigint): number {
+        const session = mcpSessions.get(Number(sessionId));
+        if (!session) {
+          return allocResultString(false, writeString(`Unknown MCP session: ${sessionId}`));
+        }
+        const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+        try {
+          const raw = callMcp(session.url, body);
+          const parsed = JSON.parse(raw) as { result?: { tools?: unknown[] }; error?: { message?: string } };
+          if (parsed.error) {
+            return allocResultString(false, writeString(`MCP error: ${parsed.error.message ?? "unknown"}`));
+          }
+          return allocResultString(true, writeString(JSON.stringify(parsed.result?.tools ?? [])));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Calls a named tool in the MCP session with JSON-encoded arguments.
+      // args_json must be a JSON object string, e.g. '{"path":"/tmp/foo"}'.
+      // Returns Result<String, String>: Ok(output_text) or Err(message).
+      mcp_call_tool(sessionId: bigint, toolPtr: number, argsPtr: number): number {
+        const session = mcpSessions.get(Number(sessionId));
+        if (!session) {
+          return allocResultString(false, writeString(`Unknown MCP session: ${sessionId}`));
+        }
+        const tool = readString(toolPtr);
+        const argsJson = readString(argsPtr);
+        let args: unknown;
+        try { args = JSON.parse(argsJson); } catch { args = {}; }
+        const body = JSON.stringify({
+          jsonrpc: "2.0", id: 2, method: "tools/call",
+          params: { name: tool, arguments: args },
+        });
+        try {
+          const raw = callMcp(session.url, body);
+          const parsed = JSON.parse(raw) as {
+            result?: { content?: Array<{ type: string; text?: string }> };
+            error?: { message?: string };
+          };
+          if (parsed.error) {
+            return allocResultString(false, writeString(`MCP error: ${parsed.error.message ?? "unknown"}`));
+          }
+          const content = parsed.result?.content ?? [];
+          const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+          return allocResultString(true, writeString(text || JSON.stringify(parsed.result)));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      // Removes the MCP session from the registry.
+      mcp_disconnect(sessionId: bigint): void {
+        mcpSessions.delete(Number(sessionId));
+      },
+
       list_models(): number {
         const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
         const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -1324,6 +1405,33 @@ export function createRuntime(config: RuntimeConfig = {}) {
       const msg = e instanceof Error ? e.message : String(e);
       return allocResultString(false, writeString(msg));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helper: POST a JSON-RPC body to an MCP HTTP endpoint.
+  // Handles both plain JSON and Server-Sent Events (SSE) responses.
+  // Throws on HTTP errors so callers can wrap in try/catch.
+  // ---------------------------------------------------------------------------
+  function callMcp(url: string, body: string): string {
+    const raw = execFileSync(
+      "curl",
+      [
+        "-sS", "--max-time", "60", "--fail",
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", "Accept: application/json, text/event-stream",
+        url,
+        "--data-raw", body,
+      ],
+      { encoding: "utf-8" },
+    );
+    // Handle SSE responses: lines starting with "data: "
+    if (raw.trimStart().startsWith("data:")) {
+      const lines = raw.split("\n").filter((l) => l.startsWith("data:"));
+      const last = lines[lines.length - 1];
+      return last ? last.slice("data:".length).trim() : "{}";
+    }
+    return raw;
   }
 
   return {
