@@ -583,7 +583,7 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `to_int(s: String) -> Option<Int64>` — Parse to integer
 - `to_float(s: String) -> Option<Float64>` — Parse to float
 
-**std/list** — Generic list utilities
+**std/list** — Generic list utilities (higher-order functions require named function references)
 - `size<T>(items: List<T>) -> Int64` — List length
 - `first<T>(items: List<T>) -> T` — First element (traps on empty)
 - `rest<T>(items: List<T>) -> List<T>` — Tail (all but first element)
@@ -592,7 +592,52 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `reversed<T>(items: List<T>) -> List<T>` — Reverse a list
 - `empty<T>(items: List<T>) -> Bool` — Empty-check
 - `get<T>(items: List<T>, index: Int64) -> T` — Index lookup (traps if out of bounds)
-- `set_at<T>(items: List<T>, index: Int64, value: T) -> List<T>` — Immutable index update (traps if out of bounds)
+- `set_at<T>(items: List<T>, index: Int64, value: T) -> List<T>` — Immutable index update
+- `map<A, B>(items: List<A>, f: (A) -> B) -> List<B>` — Transform each element
+- `filter<T>(items: List<T>, pred: (T) -> Bool) -> List<T>` — Keep matching elements
+- `fold_left<A, B>(items: List<A>, acc: B, f: (B, A) -> B) -> B` — Left fold/reduce
+- `fold_right<A, B>(items: List<A>, acc: B, f: (A, B) -> B) -> B` — Right fold
+- `any<T>(items: List<T>, pred: (T) -> Bool) -> Bool` — True if any element matches
+- `all<T>(items: List<T>, pred: (T) -> Bool) -> Bool` — True if all elements match
+- `count_where<T>(items: List<T>, pred: (T) -> Bool) -> Int64` — Count matching elements
+- `zip_with<A, B, C>(a: List<A>, b: List<B>, f: (A, B) -> C) -> List<C>` — Combine two lists
+- `flatten<T>(items: List<List<T>>) -> List<T>` — Flatten one level
+- `take<T>(items: List<T>, n: Int64) -> List<T>` — First n elements
+- `drop<T>(items: List<T>, n: Int64) -> List<T>` — Skip first n elements
+- `sum(items: List<Int64>) -> Int64` — Sum of integers
+- `product(items: List<Int64>) -> Int64` — Product of integers
+- `maximum(items: List<Int64>) -> Int64` — Max value (traps on empty)
+- `minimum(items: List<Int64>) -> Int64` — Min value (traps on empty)
+- `range(start: Int64, end: Int64) -> List<Int64>` — Inclusive integer range
+- `replicate<T>(value: T, count: Int64) -> List<T>` — Repeat value n times
+
+**std/llm** — LLM interop (requires `Model` effect; needs `OPENAI_API_KEY` env var)
+- `prompt(text: String) -> Result<String, String>` — Call default model with user prompt
+- `prompt_with(model: String, text: String) -> Result<String, String>` — Specify model
+- `chat(model: String, system: String, user: String) -> Result<String, String>` — System + user
+- `prompt_with_system(system: String, user: String) -> Result<String, String>` — System + user with default model
+- `unwrap_or(result: Result<String, String>, fallback: String) -> String` — Extract or default
+- `is_ok(result: Result<String, String>) -> Bool` — Success check
+- `error_of(result: Result<String, String>) -> String` — Extract error message
+
+**std/mcp** — MCP tool-server client (requires `MCP` effect)
+- `connect(url: String) -> Result<Int64, String>` — Connect to HTTP MCP server; returns session handle
+- `list_tools(session: Int64) -> Result<String, String>` — JSON array of tool descriptors
+- `call_tool(session: Int64, tool: String, args_json: String) -> Result<String, String>` — Invoke tool
+- `call_tool_no_args(session: Int64, tool: String) -> Result<String, String>` — Tool with no arguments
+- `disconnect(session: Int64) -> Unit` — Release session
+- `unwrap_or`, `is_ok`, `error_of` — Result helpers (same as std/llm)
+
+**std/a2a** — A2A agent client (requires `A2A` effect; Google A2A JSON-RPC 2.0 protocol)
+- `discover(url: String) -> Result<String, String>` — Fetch agent card JSON
+- `submit(url: String, message: String) -> Result<String, String>` — Submit task; returns task_id
+- `poll(url: String, task_id: String) -> Result<String, String>` — Get status JSON: `{ "id", "status", "output" }`
+- `cancel(url: String, task_id: String) -> Result<String, String>` — Cancel task
+- `is_done(status_json: String) -> Bool` — True if status contains `"completed"`
+- `is_failed(status_json: String) -> Bool` — True if status contains `"failed"`
+- `is_canceled(status_json: String) -> Bool` — True if status contains `"canceled"`
+- `unwrap_output(status_json: String) -> String` — Extract the `output` field value
+- `unwrap_or`, `is_ok`, `error_of` — Result helpers
 
 ---
 
@@ -853,208 +898,147 @@ All built-in functions and effects are defined in a single registry file (`src/r
 
 ---
 
-## 14. Native Agent and Model Interop Requirements (A2A, MCP, LLM APIs)
+## 14. Native Agent and Model Interop (v0.7)
 
-Clarity v0.7+ MUST provide native interop for:
-1. **A2A** (agent-to-agent task exchange)
-2. **MCP** (Model Context Protocol tool/resource integration)
-3. **LLM provider APIs** (OpenAI-compatible, Anthropic-style, local runtimes)
+Clarity provides native interop for LLM APIs, MCP tool servers, and A2A agents through
+built-in functions, four new effects, and three standard library modules.
 
-This is a language/runtime requirement, not a framework convention.
-
-### 14.1 Design Constraints
-
-1. No provider-specific syntax in the core grammar. Interop is exposed through typed std modules and built-ins.
-2. All network/protocol operations are effect-checked and return `Result<T, InteropError>`.
-3. Runtime errors are represented as values (`Err`) and never as language-level exceptions.
-4. Timeouts and cancellation are required for every remote call.
-5. Payload schemas exchanged with tools/agents/models are JSON strings validated at runtime boundaries.
-
-### 14.2 Required New Effects (v0.7+)
+### 14.1 New Effects
 
 | Effect | Description |
 |--------|-------------|
-| `A2A` | Agent discovery, task submit/poll/cancel, agent message exchange |
-| `MCP` | MCP session connect/list/read/call operations |
-| `Model` | LLM completion/stream operations |
-| `Secret` | Secret retrieval for API credentials and tokens |
+| `Model` | LLM completion via OpenAI-compatible API |
+| `Secret` | Read secrets from environment variables |
+| `MCP` | Connect to MCP tool servers and invoke tools |
+| `A2A` | Communicate with A2A-protocol agents |
 
-### 14.3 Required Interop Types
+### 14.2 Built-in Functions
+
+#### Secret (Secret effect)
 
 ```clarity
-type Json = String
-type Metadata = Map<String, String>
+get_secret(name: String) -> Option<String>
+```
+Reads an environment variable. Returns `Some(value)` if set, `None` if absent.
 
-type InteropError = {
-  code: String,
-  message: String,
-  retryable: Bool,
-  provider: Option<String>,
-}
+#### LLM (Model effect)
 
-type MessageRole =
-  | System
-  | User
-  | Assistant
-  | Tool
+```clarity
+call_model(model: String, prompt: String) -> Result<String, String>
+call_model_system(model: String, system_prompt: String, user_prompt: String) -> Result<String, String>
+list_models() -> List<String>
+```
 
-type MessagePart =
-  | Text(value: String)
-  | Binary(data: Bytes, mime_type: String)
-  | JsonPart(value: Json)
+Calls an OpenAI-compatible chat completions endpoint. Reads `OPENAI_API_KEY` from the
+environment; set `OPENAI_BASE_URL` to override the endpoint (Ollama, Groq, etc.).
 
-type ChatMessage = {
-  role: MessageRole,
-  parts: List<MessagePart>,
-  name: Option<String>,
-  metadata: Metadata,
+#### MCP (MCP effect)
+
+```clarity
+mcp_connect(url: String) -> Result<Int64, String>      // register server, get session handle
+mcp_list_tools(session: Int64) -> Result<String, String>  // JSON array of tool schemas
+mcp_call_tool(session: Int64, tool: String, args_json: String) -> Result<String, String>
+mcp_disconnect(session: Int64) -> Unit
+```
+
+HTTP transport only. `args_json` is a JSON object string. The session handle is an opaque `Int64`.
+Tool call output is extracted from the MCP `content[].text` array.
+
+#### A2A (A2A effect)
+
+```clarity
+a2a_discover(url: String) -> Result<String, String>            // GET /.well-known/agent.json
+a2a_submit(url: String, message: String) -> Result<String, String>  // returns task_id
+a2a_poll(url: String, task_id: String) -> Result<String, String>   // status JSON
+a2a_cancel(url: String, task_id: String) -> Result<String, String> // final status JSON
+```
+
+Implements the Google A2A JSON-RPC 2.0 protocol. `a2a_poll` returns a JSON object:
+```json
+{ "id": "task-id", "status": "submitted|working|completed|failed|canceled", "output": "..." }
+```
+
+#### Policy (no effect required)
+
+```clarity
+policy_is_url_allowed(url: String) -> Bool
+policy_is_effect_allowed(effect_name: String) -> Bool
+```
+
+Query the active runtime policy. Both return `True` when no policy is configured.
+
+### 14.3 Standard Library Modules
+
+See Section 10.4 for the full function lists for `std/llm`, `std/mcp`, and `std/a2a`.
+
+#### Quick usage example — LLM
+
+```clarity
+module Main
+import { prompt, is_ok, unwrap_or } from "std/llm"
+
+effect[Model, FileSystem] function run() -> Unit {
+  match prompt("Explain tail calls in one sentence") {
+    Ok(answer) -> print_string(answer),
+    Err(msg) -> print_string("Error: " ++ msg)
+  }
 }
 ```
 
-### 14.4 Required Standard Modules and APIs
-
-#### `std/a2a`
+#### Quick usage example — MCP
 
 ```clarity
-type AgentCard = {
-  id: String,
-  name: String,
-  endpoint: String,
-  skills_json: Json,
+module Main
+import { connect, call_tool, disconnect, unwrap_or } from "std/mcp"
+
+effect[MCP, FileSystem] function run() -> Unit {
+  match connect("http://localhost:3000/mcp") {
+    Ok(session) -> {
+      let result = call_tool(session, "read_file", """{"path":"/etc/hostname"}""");
+      disconnect(session);
+      print_string(unwrap_or(result, "error"))
+    },
+    Err(msg) -> print_string("Connect failed: " ++ msg)
+  }
 }
-
-type A2ATaskState =
-  | Queued
-  | Running
-  | Succeeded
-  | Failed(reason: String)
-  | Cancelled
-
-type A2ATask = {
-  id: String,
-  agent_id: String,
-  state: A2ATaskState,
-  output_json: Option<Json>,
-  metadata: Metadata,
-}
-
-effect[A2A] function a2a_discover(registry_url: String) -> Result<List<AgentCard>, InteropError>
-effect[A2A] function a2a_send_task(agent_endpoint: String, task_input_json: Json, correlation_id: String) -> Result<A2ATask, InteropError>
-effect[A2A] function a2a_get_task(agent_endpoint: String, task_id: String) -> Result<A2ATask, InteropError>
-effect[A2A] function a2a_cancel_task(agent_endpoint: String, task_id: String) -> Result<Unit, InteropError>
 ```
 
-#### `std/mcp`
+#### Quick usage example — A2A
 
 ```clarity
-type MCPConnection = {
-  id: String,
-  transport: String,
-  endpoint: String,
+module Main
+import { submit, poll, is_done, unwrap_output, unwrap_or } from "std/a2a"
+
+effect[A2A] function ask(url: String, question: String) -> String {
+  match submit(url, question) {
+    Ok(task_id) -> wait(url, task_id),
+    Err(msg) -> "submit failed: " ++ msg
+  }
 }
 
-type MCPTool = {
-  name: String,
-  description: String,
-  input_schema_json: Json,
-  output_schema_json: Json,
+effect[A2A] function wait(url: String, task_id: String) -> String {
+  match poll(url, task_id) {
+    Ok(status) ->
+      match is_done(status) {
+        True -> unwrap_output(status),
+        False -> wait(url, task_id)
+      },
+    Err(msg) -> "poll failed: " ++ msg
+  }
 }
-
-effect[MCP] function mcp_connect_stdio(command: String, args: List<String>) -> Result<MCPConnection, InteropError>
-effect[MCP] function mcp_connect_http(endpoint: String, headers: Metadata) -> Result<MCPConnection, InteropError>
-effect[MCP] function mcp_list_tools(conn: MCPConnection) -> Result<List<MCPTool>, InteropError>
-effect[MCP] function mcp_call_tool(conn: MCPConnection, tool_name: String, arguments_json: Json) -> Result<Json, InteropError>
-effect[MCP] function mcp_close(conn: MCPConnection) -> Unit
 ```
 
-#### `std/llm`
+### 14.4 Runtime Policy and Audit
 
-```clarity
-type ModelProvider =
-  | OpenAI
-  | Anthropic
-  | Ollama
-  | Custom(name: String)
+Policy is configured entirely via environment variables — no code changes required:
 
-type LLMRequest = {
-  model: String,
-  messages: List<ChatMessage>,
-  temperature: Float64,
-  max_tokens: Int64,
-  metadata: Metadata,
-}
+| Variable | Purpose |
+|----------|---------|
+| `CLARITY_ALLOW_HOSTS` | Comma-separated hostname globs allowed for network ops (e.g. `api.openai.com,*.corp`). Empty = allow all. |
+| `CLARITY_DENY_EFFECTS` | Comma-separated effect names to block entirely (e.g. `MCP,A2A`). Denied calls return `Err(...)` or `None`. |
+| `CLARITY_AUDIT_LOG` | Path to a JSONL file. Every network call appends: `{ timestamp, effect, op, url/tool/model, result, duration_ms }` |
 
-type LLMToolCall = {
-  id: String,
-  name: String,
-  arguments_json: Json,
-}
-
-type LLMResponse = {
-  text: String,
-  finish_reason: String,
-  tool_calls: List<LLMToolCall>,
-  prompt_tokens: Int64,
-  completion_tokens: Int64,
-}
-
-type LLMStreamEvent =
-  | Delta(text: String)
-  | ToolCall(call: LLMToolCall)
-  | Done(response: LLMResponse)
-  | StreamError(error: InteropError)
-
-type StreamHandle = String
-
-effect[Model] function llm_complete(
-  provider: ModelProvider,
-  api_base: String,
-  api_key_name: String,
-  request: LLMRequest,
-) -> Result<LLMResponse, InteropError>
-
-effect[Model] function llm_stream_start(
-  provider: ModelProvider,
-  api_base: String,
-  api_key_name: String,
-  request: LLMRequest,
-) -> Result<StreamHandle, InteropError>
-
-effect[Model] function llm_stream_next(handle: StreamHandle) -> Result<LLMStreamEvent, InteropError>
-effect[Model] function llm_stream_close(handle: StreamHandle) -> Unit
-```
-
-#### `std/secret`
-
-```clarity
-effect[Secret] function secret_get(name: String) -> Result<String, InteropError>
-```
-
-### 14.5 Security and Policy Requirements
-
-1. API keys/tokens MUST be loaded via `secret_get` or runtime-injected secure env bindings, never hardcoded in source.
-2. Runtime MUST support endpoint allowlists for `A2A`, `MCP`, and `Model` effects.
-3. Runtime MUST emit structured audit logs (endpoint, operation, latency, status, correlation id) for effectful interop calls.
-4. Host can deny specific effect families at runtime even if code type-checks.
-
-### 14.6 Streaming and Cancellation Requirements
-
-1. Streaming APIs MUST be pull-based (`llm_stream_next`) for deterministic WASM host integration.
-2. Streams MUST terminate with exactly one terminal event (`Done` or `StreamError`).
-3. Cancellation MUST be supported for A2A tasks and active model streams.
-
-### 14.7 Minimal Implementation Plan
-
-1. **Phase 6.1: Registry + Effects**
-   - Add `A2A`, `MCP`, `Model`, `Secret` effects to registry and introspection.
-2. **Phase 6.2: MCP Client Core**
-   - Implement stdio/http MCP sessions, tool listing, and tool invocation.
-3. **Phase 6.3: LLM Provider Layer**
-   - Implement `std/llm` with at least one OpenAI-compatible adapter and one local adapter (Ollama).
-4. **Phase 6.4: A2A Client Core**
-   - Implement discovery + task lifecycle (submit/poll/cancel) and typed result mapping.
-5. **Phase 6.5: Integration Quality**
-   - Add e2e tests, policy enforcement tests, and example programs combining `std/llm` + `std/mcp` + `std/a2a`.
+Policy enforcement is transparent — calls fail with descriptive `Err` messages when denied.
 
 ---
 
