@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compile, compileFile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
@@ -15,47 +17,52 @@ const program = new Command()
 
 const DEFAULT_DAEMON_URL = process.env.CLARITYD_URL ?? "http://localhost:4707";
 
-async function runtimeApi<T>(baseUrl: string, pathname: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${baseUrl}${pathname}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  const text = await res.text();
-  const payload = text ? JSON.parse(text) : {};
-  if (!res.ok) {
-    throw new Error((payload as { error?: string }).error ?? `${res.status} ${res.statusText}`);
+async function emitAgentEvent(
+  daemonUrl: string,
+  authToken: string | undefined,
+  event: {
+    kind: string;
+    message: string;
+    runId: string;
+    stepId?: string;
+    agent?: string;
+    level?: "info" | "warn" | "error";
+    data?: Record<string, unknown>;
   }
-  return payload as T;
-}
-
-function extractServiceId(payload: unknown): string {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("unexpected runtime response shape");
-  }
-  const out = payload as {
-    service?: {
-      manifest?: {
-        metadata?: {
-          serviceId?: string;
-        };
-      };
+): Promise<void> {
+  try {
+    const headers: Record<string, string> = {
+      "content-type": "application/json"
     };
-  };
-
-  const serviceId = out.service?.manifest?.metadata?.serviceId;
-  if (!serviceId) {
-    throw new Error("runtime did not return serviceId");
+    if (authToken) {
+      headers["x-clarity-token"] = authToken;
+    }
+    const payload: Record<string, unknown> = {
+      kind: event.kind,
+      message: event.message,
+      runId: event.runId,
+      level: event.level ?? "info",
+      data: {
+        ...(event.data ?? {}),
+        runId: event.runId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        ...(event.agent ? { agent: event.agent } : {})
+      }
+    };
+    if (event.stepId) {
+      payload.stepId = event.stepId;
+    }
+    if (event.agent) {
+      payload.agent = event.agent;
+    }
+    await fetch(`${daemonUrl.replace(/\/+$/, "")}/api/agents/events`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    // Telemetry emission is best-effort and must not break compile/start flows.
   }
-  return serviceId;
-}
-
-function moduleFromFile(file: string): string {
-  const base = path.basename(file, path.extname(file));
-  return base.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
 program
@@ -200,83 +207,182 @@ program
 
 program
   .command("start <file>")
-  .description("Compile a .clarity file and start it in Clarity Runtime")
-  .option("-o, --output <file>", "Output .wasm file (default: ./.clarity/build/<module>.wasm)")
-  .option("--module <name>", "Module name override (default: derived from filename)")
+  .description("Register and start a .clarity service in Clarity Runtime (delegates to clarityctl add)")
+  .option("-o, --output <file>", "Compiled .wasm output path (passed through as --wasm)")
+  .option("--module <name>", "Module name override")
   .option("--entry <name>", "MCP entry function", "mcp_main")
   .option("--name <display>", "Optional display name")
+  .option("--service-type <type>", "Service type: mcp | agent", "mcp")
+  .option("--agent-id <id>", "Agent id (required for service-type=agent unless inferred)")
+  .option("--agent-name <name>", "Agent name (required for service-type=agent unless inferred)")
+  .option("--agent-role <role>", "Agent role (required for service-type=agent)")
+  .option("--agent-objective <objective>", "Agent objective (required for service-type=agent)")
+  .option("--agent-inputs <csv>", "Comma-separated agent inputs")
+  .option("--agent-outputs <csv>", "Comma-separated agent outputs")
+  .option("--agent-mcp-tools <csv>", "Comma-separated allowed MCP tools for this agent")
+  .option("--agent-llm-providers <csv>", "Comma-separated allowed LLM providers for this agent")
+  .option("--agent-handoff-targets <csv>", "Comma-separated handoff target agent ids")
+  .option("--agent-depends-on <csv>", "Comma-separated dependencies on other agent ids")
+  .option("--agent-version <version>", "Agent descriptor version")
   .option("--daemon-url <url>", "Clarity Runtime daemon URL", DEFAULT_DAEMON_URL)
+  .option("--auth-token <token>", "Runtime auth token", process.env.CLARITYD_AUTH_TOKEN ?? process.env.CLARITY_API_TOKEN)
+  .option("--run-id <id>", "Agent orchestration run id (auto-generated when omitted)")
+  .option("--agent <name>", "Agent name for orchestration telemetry", "clarityc")
+  .option("--clarityctl-bin <bin>", "clarityctl binary", process.env.CLARITYCTL_BIN ?? "clarityctl")
+  .option("--compiler-bin <bin>", "Compiler binary for delegated add flow", process.env.CLARITYC_BIN ?? "clarityc")
   .action(async (file: string, opts: Record<string, unknown>) => {
+    const daemonUrl = (opts.daemonUrl as string | undefined) ?? DEFAULT_DAEMON_URL;
+    const authToken = opts.authToken as string | undefined;
+    const runId = (opts.runId as string | undefined) ?? `run_${randomUUID()}`;
+    const agent = (opts.agent as string | undefined) ?? "clarityc";
+    const stepId = "clarityctl_add";
+    const sourceFile = path.resolve(file);
+    const serviceType = String((opts.serviceType as string | undefined) ?? "mcp").trim().toLowerCase();
     try {
-      const source = await readFile(file, "utf-8");
-      const result = compileFile(file);
-
-      if (result.errors.length > 0) {
-        console.error(formatDiagnostics(source, result.errors));
-        process.exit(1);
+      const clarityctlBin = (opts.clarityctlBin as string | undefined) ?? "clarityctl";
+      const compilerBin = (opts.compilerBin as string | undefined) ?? "clarityc";
+      if (serviceType !== "mcp" && serviceType !== "agent") {
+        throw new Error("--service-type must be either 'mcp' or 'agent'");
+      }
+      if (serviceType === "agent") {
+        if (!opts.agentRole || String(opts.agentRole).trim().length === 0) {
+          throw new Error("--agent-role is required when --service-type agent");
+        }
+        if (!opts.agentObjective || String(opts.agentObjective).trim().length === 0) {
+          throw new Error("--agent-objective is required when --service-type agent");
+        }
       }
 
-      if (!result.wasm) {
-        console.error("No WASM output produced");
-        process.exit(1);
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.run_created",
+        message: `clarityc start created run for ${sourceFile}`,
+        runId,
+        agent,
+        data: { command: "clarityc start", sourceFile }
+      });
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.run_started",
+        message: `clarityc start began for ${sourceFile}`,
+        runId,
+        agent,
+        data: { command: "clarityc start", sourceFile }
+      });
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.step_started",
+        message: "Delegating to clarityctl add",
+        runId,
+        stepId,
+        agent,
+        data: { command: "clarityctl add", sourceFile }
+      });
+
+      const args: string[] = ["--daemon-url", daemonUrl];
+      if (authToken) {
+        args.push("--auth-token", authToken);
       }
+      args.push("add", sourceFile);
+      if (opts.module) {
+        args.push("--module", String(opts.module));
+      }
+      if (opts.output) {
+        args.push("--wasm", path.resolve(String(opts.output)));
+      }
+      if (opts.entry) {
+        args.push("--entry", String(opts.entry));
+      }
+      if (opts.name) {
+        args.push("--name", String(opts.name));
+      }
+      args.push("--service-type", serviceType);
+      if (opts.agentId) {
+        args.push("--agent-id", String(opts.agentId));
+      }
+      if (opts.agentName) {
+        args.push("--agent-name", String(opts.agentName));
+      }
+      if (opts.agentRole) {
+        args.push("--agent-role", String(opts.agentRole));
+      }
+      if (opts.agentObjective) {
+        args.push("--agent-objective", String(opts.agentObjective));
+      }
+      if (opts.agentInputs) {
+        args.push("--agent-inputs", String(opts.agentInputs));
+      }
+      if (opts.agentOutputs) {
+        args.push("--agent-outputs", String(opts.agentOutputs));
+      }
+      if (opts.agentMcpTools) {
+        args.push("--agent-mcp-tools", String(opts.agentMcpTools));
+      }
+      if (opts.agentLlmProviders) {
+        args.push("--agent-llm-providers", String(opts.agentLlmProviders));
+      }
+      if (opts.agentHandoffTargets) {
+        args.push("--agent-handoff-targets", String(opts.agentHandoffTargets));
+      }
+      if (opts.agentDependsOn) {
+        args.push("--agent-depends-on", String(opts.agentDependsOn));
+      }
+      if (opts.agentVersion) {
+        args.push("--agent-version", String(opts.agentVersion));
+      }
+      args.push("--compiler-bin", compilerBin);
 
-      const moduleName = (opts.module as string | undefined) ?? moduleFromFile(file);
-      const outputFile =
-        (opts.output as string | undefined)
-        ?? path.resolve(process.cwd(), ".clarity", "build", `${moduleName}.wasm`);
-      await mkdir(path.dirname(outputFile), { recursive: true });
-      await writeFile(outputFile, result.wasm);
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(clarityctlBin, args, {
+          stdio: ["ignore", "pipe", "pipe"]
+        });
 
-      const manifest = {
-        apiVersion: "clarity.runtime/v1",
-        kind: "MCPService",
-        metadata: {
-          sourceFile: path.resolve(file),
-          module: moduleName,
-          ...(opts.name ? { displayName: opts.name as string } : {}),
-        },
-        spec: {
-          origin: {
-            type: "local_wasm",
-            wasmPath: outputFile,
-            entry: (opts.entry as string) ?? "mcp_main",
-          },
-          enabled: true,
-          autostart: true,
-          restartPolicy: {
-            mode: "on-failure",
-            maxRestarts: 5,
-            windowSeconds: 60,
-          },
-          policyRef: "default",
-          toolNamespace: moduleName.toLowerCase(),
-        },
-      };
-
-      const daemonUrl = (opts.daemonUrl as string | undefined) ?? DEFAULT_DAEMON_URL;
-      const applyResult = await runtimeApi<{ service: unknown }>(daemonUrl, "/api/services/apply", {
-        method: "POST",
-        body: JSON.stringify({ manifest }),
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk: Buffer | string) => {
+          stdout += String(chunk);
+        });
+        child.stderr.on("data", (chunk: Buffer | string) => {
+          stderr += String(chunk);
+        });
+        child.on("error", reject);
+        child.on("close", (code) => {
+          if (code !== 0) {
+            reject(new Error(stderr.trim() || `clarityctl exited with code ${code ?? "unknown"}`));
+            return;
+          }
+          if (stdout.trim().length > 0) {
+            process.stdout.write(`${stdout.trim()}\n`);
+          }
+          resolve();
+        });
       });
-      const serviceId = extractServiceId(applyResult);
 
-      await runtimeApi(daemonUrl, `/api/services/${encodeURIComponent(serviceId)}/start`, {
-        method: "POST",
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.step_completed",
+        message: "clarityctl add completed",
+        runId,
+        stepId,
+        agent,
+        data: { command: "clarityctl add", sourceFile }
       });
-      await runtimeApi(daemonUrl, `/api/services/${encodeURIComponent(serviceId)}/introspect`, {
-        method: "POST",
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.run_completed",
+        message: `clarityc start completed for ${sourceFile}`,
+        runId,
+        agent,
+        data: { command: "clarityc start", sourceFile }
       });
-
-      console.log(JSON.stringify({
-        ok: true,
-        serviceId,
-        sourceFile: path.resolve(file),
-        wasmPath: outputFile,
-        module: moduleName,
-        daemonUrl,
-      }, null, 2));
     } catch (e) {
+      await emitAgentEvent(daemonUrl, authToken, {
+        kind: "agent.run_failed",
+        message: `clarityc start failed for ${sourceFile}`,
+        runId,
+        agent,
+        level: "error",
+        data: {
+          command: "clarityc start",
+          sourceFile,
+          error: e instanceof Error ? e.message : String(e)
+        }
+      });
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
     }
