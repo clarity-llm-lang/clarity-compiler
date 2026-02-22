@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compile, compileFile } from "./compiler.js";
 import { formatDiagnostics } from "./errors/reporter.js";
@@ -10,10 +10,23 @@ import { createRuntime } from "./codegen/runtime.js";
 import { CLARITY_BUILTINS, EFFECT_DEFINITIONS } from "./registry/builtins-registry.js";
 import { typeToString } from "./checker/types.js";
 
+async function resolveDefaultFile(file: string | undefined): Promise<string> {
+  if (file) return file;
+  const entries = await readdir(process.cwd());
+  const found = entries.filter(f => f.endsWith(".clarity"));
+  if (found.length === 0) {
+    throw new Error("No .clarity file found in the current directory. Pass a file path explicitly.");
+  }
+  if (found.length > 1) {
+    throw new Error(`Multiple .clarity files found: ${found.join(", ")}. Pass a file path explicitly.`);
+  }
+  return path.join(process.cwd(), found[0]);
+}
+
 const program = new Command()
   .name("clarityc")
   .description("Clarity language compiler — optimized for LLM code generation, compiles to WASM")
-  .version("0.2.1");
+  .version("0.9.0");
 
 const DEFAULT_DAEMON_URL = process.env.CLARITYD_URL ?? "http://localhost:4707";
 
@@ -66,15 +79,16 @@ async function emitAgentEvent(
 }
 
 program
-  .command("compile <file>")
-  .description("Compile a .clarity file to WASM")
+  .command("compile [file]")
+  .description("Compile a .clarity file to WASM (defaults to the single .clarity file in the current directory)")
   .option("-o, --output <file>", "Output .wasm file")
   .option("--emit-ast", "Print the AST as JSON")
   .option("--emit-tokens", "Print the token stream")
   .option("--emit-wat", "Print WASM text format instead of binary")
   .option("--check-only", "Type-check without generating WASM")
-  .action(async (file: string, opts: Record<string, unknown>) => {
+  .action(async (file: string | undefined, opts: Record<string, unknown>) => {
     try {
+      file = await resolveDefaultFile(file);
       const options = {
         emitAst: !!opts.emitAst,
         emitTokens: !!opts.emitTokens,
@@ -125,12 +139,13 @@ program
   });
 
 program
-  .command("run <file>")
-  .description("Compile and run a .clarity file")
+  .command("run [file]")
+  .description("Compile and run a .clarity file (defaults to the single .clarity file in the current directory)")
   .option("-f, --function <name>", "Function to call", "main")
   .option("-a, --args <args...>", "Arguments to pass to the function")
-  .action(async (file: string, opts: Record<string, unknown>) => {
+  .action(async (file: string | undefined, opts: Record<string, unknown>) => {
     try {
+      file = await resolveDefaultFile(file);
       const source = await readFile(file, "utf-8");
       const result = compileFile(file);
 
@@ -205,51 +220,76 @@ program
     }
   });
 
+// clarity.json schema loaded by `clarityc start`
+interface ClarityProjectMeta {
+  name?: string;
+  version?: string;
+  entry?: string;
+  module?: string;
+  service_type?: string;
+  agent?: {
+    id?: string;
+    name?: string;
+    role?: string;
+    objective?: string;
+    inputs?: string[];
+    outputs?: string[];
+    mcp_tools?: string[];
+    llm_providers?: string[];
+    handoff_targets?: string[];
+    depends_on?: string[];
+    version?: string;
+  };
+}
+
+async function loadProjectMeta(sourceFile: string): Promise<ClarityProjectMeta> {
+  const dir = path.dirname(path.resolve(sourceFile));
+  const metaPath = path.join(dir, "clarity.json");
+  try {
+    const raw = await readFile(metaPath, "utf-8");
+    return JSON.parse(raw) as ClarityProjectMeta;
+  } catch {
+    return {};
+  }
+}
+
 program
-  .command("start <file>")
-  .description("Register and start a .clarity service in Clarity Runtime (delegates to clarityctl add)")
-  .option("-o, --output <file>", "Compiled .wasm output path (passed through as --wasm)")
-  .option("--module <name>", "Module name override")
-  .option("--entry <name>", "MCP entry function", "mcp_main")
-  .option("--name <display>", "Optional display name")
-  .option("--service-type <type>", "Service type: mcp | agent", "mcp")
-  .option("--agent-id <id>", "Agent id (required for service-type=agent unless inferred)")
-  .option("--agent-name <name>", "Agent name (required for service-type=agent unless inferred)")
-  .option("--agent-role <role>", "Agent role (required for service-type=agent)")
-  .option("--agent-objective <objective>", "Agent objective (required for service-type=agent)")
-  .option("--agent-inputs <csv>", "Comma-separated agent inputs")
-  .option("--agent-outputs <csv>", "Comma-separated agent outputs")
-  .option("--agent-mcp-tools <csv>", "Comma-separated allowed MCP tools for this agent")
-  .option("--agent-llm-providers <csv>", "Comma-separated allowed LLM providers for this agent")
-  .option("--agent-handoff-targets <csv>", "Comma-separated handoff target agent ids")
-  .option("--agent-depends-on <csv>", "Comma-separated dependencies on other agent ids")
-  .option("--agent-version <version>", "Agent descriptor version")
-  .option("--daemon-url <url>", "Clarity Runtime daemon URL", DEFAULT_DAEMON_URL)
-  .option("--auth-token <token>", "Runtime auth token", process.env.CLARITYD_AUTH_TOKEN ?? process.env.CLARITY_API_TOKEN)
-  .option("--run-id <id>", "Agent orchestration run id (auto-generated when omitted)")
-  .option("--agent <name>", "Agent name for orchestration telemetry", "clarityc")
-  .option("--clarityctl-bin <bin>", "clarityctl binary", process.env.CLARITYCTL_BIN ?? "clarityctl")
-  .option("--compiler-bin <bin>", "Compiler binary for delegated add flow", process.env.CLARITYC_BIN ?? "clarityc")
-  .action(async (file: string, opts: Record<string, unknown>) => {
+  .command("start [file]")
+  .description(
+    "Register and start a .clarity service in Clarity Runtime.\n" +
+    "Project metadata (service type, agent config, entry point, etc.) is read from clarity.json\n" +
+    "in the same directory as the source file."
+  )
+  .option("-o, --output <file>", "Compiled .wasm output path")
+  .option("--daemon-url <url>", "Clarity Runtime daemon URL (default: CLARITYD_URL or http://localhost:4707)")
+  .option("--auth-token <token>", "Runtime auth token (default: CLARITYD_AUTH_TOKEN env var)")
+  .action(async (file: string | undefined, opts: Record<string, unknown>) => {
     const daemonUrl = (opts.daemonUrl as string | undefined) ?? DEFAULT_DAEMON_URL;
-    const authToken = opts.authToken as string | undefined;
-    const runId = (opts.runId as string | undefined) ?? `run_${randomUUID()}`;
-    const agent = (opts.agent as string | undefined) ?? "clarityc";
+    const authToken = (opts.authToken as string | undefined) ?? process.env.CLARITYD_AUTH_TOKEN ?? process.env.CLARITY_API_TOKEN;
+    const runId = `run_${randomUUID()}`;
+    const agentTelemetry = "clarityc";
     const stepId = "clarityctl_add";
-    const sourceFile = path.resolve(file);
-    const serviceType = String((opts.serviceType as string | undefined) ?? "mcp").trim().toLowerCase();
+    let sourceFile: string;
     try {
-      const clarityctlBin = (opts.clarityctlBin as string | undefined) ?? "clarityctl";
-      const compilerBin = (opts.compilerBin as string | undefined) ?? "clarityc";
+      file = await resolveDefaultFile(file);
+      sourceFile = path.resolve(file);
+    } catch (e) {
+      console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+      return;
+    }
+    try {
+      const meta = await loadProjectMeta(sourceFile);
+      const serviceType = String(meta.service_type ?? "mcp").trim().toLowerCase();
       if (serviceType !== "mcp" && serviceType !== "agent") {
-        throw new Error("--service-type must be either 'mcp' or 'agent'");
+        throw new Error(`clarity.json: service_type must be 'mcp' or 'agent', got '${serviceType}'`);
       }
       if (serviceType === "agent") {
-        if (!opts.agentRole || String(opts.agentRole).trim().length === 0) {
-          throw new Error("--agent-role is required when --service-type agent");
+        if (!meta.agent?.role?.trim()) {
+          throw new Error("clarity.json: agent.role is required when service_type is 'agent'");
         }
-        if (!opts.agentObjective || String(opts.agentObjective).trim().length === 0) {
-          throw new Error("--agent-objective is required when --service-type agent");
+        if (!meta.agent?.objective?.trim()) {
+          throw new Error("clarity.json: agent.objective is required when service_type is 'agent'");
         }
       }
 
@@ -257,14 +297,7 @@ program
         kind: "agent.run_created",
         message: `clarityc start created run for ${sourceFile}`,
         runId,
-        agent,
-        data: { command: "clarityc start", sourceFile }
-      });
-      await emitAgentEvent(daemonUrl, authToken, {
-        kind: "agent.run_started",
-        message: `clarityc start began for ${sourceFile}`,
-        runId,
-        agent,
+        agent: agentTelemetry,
         data: { command: "clarityc start", sourceFile }
       });
       await emitAgentEvent(daemonUrl, authToken, {
@@ -272,102 +305,58 @@ program
         message: "Delegating to clarityctl add",
         runId,
         stepId,
-        agent,
+        agent: agentTelemetry,
         data: { command: "clarityctl add", sourceFile }
       });
 
+      const clarityctlBin = process.env.CLARITYCTL_BIN ?? "clarityctl";
+      const compilerBin = process.env.CLARITYC_BIN ?? "clarityc";
+
       const args: string[] = ["--daemon-url", daemonUrl];
-      if (authToken) {
-        args.push("--auth-token", authToken);
-      }
+      if (authToken) args.push("--auth-token", authToken);
       args.push("add", sourceFile);
-      if (opts.module) {
-        args.push("--module", String(opts.module));
-      }
-      if (opts.output) {
-        args.push("--wasm", path.resolve(String(opts.output)));
-      }
-      if (opts.entry) {
-        args.push("--entry", String(opts.entry));
-      }
-      if (opts.name) {
-        args.push("--name", String(opts.name));
-      }
+      if (meta.module) args.push("--module", meta.module);
+      if (opts.output) args.push("--wasm", path.resolve(String(opts.output)));
+      if (meta.entry) args.push("--entry", meta.entry);
+      if (meta.name) args.push("--name", meta.name);
       args.push("--service-type", serviceType);
-      if (opts.agentId) {
-        args.push("--agent-id", String(opts.agentId));
-      }
-      if (opts.agentName) {
-        args.push("--agent-name", String(opts.agentName));
-      }
-      if (opts.agentRole) {
-        args.push("--agent-role", String(opts.agentRole));
-      }
-      if (opts.agentObjective) {
-        args.push("--agent-objective", String(opts.agentObjective));
-      }
-      if (opts.agentInputs) {
-        args.push("--agent-inputs", String(opts.agentInputs));
-      }
-      if (opts.agentOutputs) {
-        args.push("--agent-outputs", String(opts.agentOutputs));
-      }
-      if (opts.agentMcpTools) {
-        args.push("--agent-mcp-tools", String(opts.agentMcpTools));
-      }
-      if (opts.agentLlmProviders) {
-        args.push("--agent-llm-providers", String(opts.agentLlmProviders));
-      }
-      if (opts.agentHandoffTargets) {
-        args.push("--agent-handoff-targets", String(opts.agentHandoffTargets));
-      }
-      if (opts.agentDependsOn) {
-        args.push("--agent-depends-on", String(opts.agentDependsOn));
-      }
-      if (opts.agentVersion) {
-        args.push("--agent-version", String(opts.agentVersion));
-      }
+      if (meta.agent?.id) args.push("--agent-id", meta.agent.id);
+      if (meta.agent?.name) args.push("--agent-name", meta.agent.name);
+      if (meta.agent?.role) args.push("--agent-role", meta.agent.role);
+      if (meta.agent?.objective) args.push("--agent-objective", meta.agent.objective);
+      if (meta.agent?.inputs?.length) args.push("--agent-inputs", meta.agent.inputs.join(","));
+      if (meta.agent?.outputs?.length) args.push("--agent-outputs", meta.agent.outputs.join(","));
+      if (meta.agent?.mcp_tools?.length) args.push("--agent-mcp-tools", meta.agent.mcp_tools.join(","));
+      if (meta.agent?.llm_providers?.length) args.push("--agent-llm-providers", meta.agent.llm_providers.join(","));
+      if (meta.agent?.handoff_targets?.length) args.push("--agent-handoff-targets", meta.agent.handoff_targets.join(","));
+      if (meta.agent?.depends_on?.length) args.push("--agent-depends-on", meta.agent.depends_on.join(","));
+      if (meta.agent?.version) args.push("--agent-version", meta.agent.version);
       args.push("--compiler-bin", compilerBin);
 
       await new Promise<void>((resolve, reject) => {
         const child = spawn(clarityctlBin, args, {
           stdio: ["ignore", "pipe", "pipe"]
         });
-
         let stdout = "";
         let stderr = "";
-        child.stdout.on("data", (chunk: Buffer | string) => {
-          stdout += String(chunk);
-        });
-        child.stderr.on("data", (chunk: Buffer | string) => {
-          stderr += String(chunk);
-        });
+        child.stdout.on("data", (chunk: Buffer | string) => { stdout += String(chunk); });
+        child.stderr.on("data", (chunk: Buffer | string) => { stderr += String(chunk); });
         child.on("error", reject);
         child.on("close", (code) => {
           if (code !== 0) {
             reject(new Error(stderr.trim() || `clarityctl exited with code ${code ?? "unknown"}`));
             return;
           }
-          if (stdout.trim().length > 0) {
-            process.stdout.write(`${stdout.trim()}\n`);
-          }
+          if (stdout.trim().length > 0) process.stdout.write(`${stdout.trim()}\n`);
           resolve();
         });
       });
 
       await emitAgentEvent(daemonUrl, authToken, {
-        kind: "agent.step_completed",
-        message: "clarityctl add completed",
-        runId,
-        stepId,
-        agent,
-        data: { command: "clarityctl add", sourceFile }
-      });
-      await emitAgentEvent(daemonUrl, authToken, {
         kind: "agent.run_completed",
         message: `clarityc start completed for ${sourceFile}`,
         runId,
-        agent,
+        agent: agentTelemetry,
         data: { command: "clarityc start", sourceFile }
       });
     } catch (e) {
@@ -375,13 +364,9 @@ program
         kind: "agent.run_failed",
         message: `clarityc start failed for ${sourceFile}`,
         runId,
-        agent,
+        agent: agentTelemetry,
         level: "error",
-        data: {
-          command: "clarityc start",
-          sourceFile,
-          error: e instanceof Error ? e.message : String(e)
-        }
+        data: { command: "clarityc start", sourceFile, error: e instanceof Error ? e.message : String(e) }
       });
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
       process.exit(1);
@@ -574,7 +559,7 @@ program
     const declarations: string[] = [];
     let evalCounter = 0;
 
-    console.log("Clarity REPL v0.2.1 — Type expressions or declarations. Ctrl+D to exit.");
+    console.log("Clarity REPL v0.9.0 — Type expressions or declarations. Ctrl+D to exit.");
 
     const prompt = () => new Promise<string | null>((resolve) => {
       rl.question("clarity> ", (answer) => resolve(answer));
@@ -699,7 +684,7 @@ program
     } else if (opts.types) {
       console.log(JSON.stringify({ types }, null, 2));
     } else {
-      console.log(JSON.stringify({ version: "0.2.1", builtins, effects, types }, null, 2));
+      console.log(JSON.stringify({ version: "0.9.0", builtins, effects, types }, null, 2));
     }
   });
 
