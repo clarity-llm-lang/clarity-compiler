@@ -1,0 +1,73 @@
+// std/hitl — Human-in-the-loop helpers for Clarity agents
+//
+// Wraps the HumanInLoop effect builtins with higher-level functions for common
+// patterns: free-form questions, yes/no confirmation, and supervised agent steps.
+//
+// Protocol
+// --------
+// hitl_ask() uses a file-based handshake via CLARITY_HITL_DIR (default .clarity-hitl/):
+//   1. Writes {key}.question as JSON  → broker/operator sees it
+//   2. Blocks until {key}.answer appears  → broker/operator writes the response
+//   3. Returns the response string
+//
+// The clarity-hitl-broker CLI/web UI watches CLARITY_HITL_DIR and provides a
+// human-friendly interface for reading questions and writing answers.
+//
+// Usage
+// -----
+//   import { ask, confirm, supervised_step } from "std/hitl"
+//
+//   effect[HumanInLoop] function review_summary(summary: String) -> String {
+//     let feedback = ask("review", "Does this summary look correct?\n" ++ summary);
+//     feedback
+//   }
+//
+// Environment variables
+// ---------------------
+//   CLARITY_HITL_DIR           — handshake directory (default .clarity-hitl/)
+//   CLARITY_HITL_TIMEOUT_SECS  — max wait for human response in seconds (default 600)
+
+module Hitl
+
+// Ask a human operator a free-form question and return their response.
+// key      — unique identifier for this interaction point (used for file naming
+//            and resumability; use a stable name like "review-step-3")
+// question — the text to present to the human operator
+export effect[HumanInLoop] function ask(key: String, question: String) -> String {
+  hitl_ask(key, question)
+}
+
+// Ask a yes/no question. Returns True for "yes", "y", "Yes", "Y", or "true",
+// False for anything else.
+export effect[HumanInLoop] function confirm(key: String, question: String) -> Bool {
+  let response = hitl_ask(key, question ++ " (yes/no)");
+  match response == "yes" or response == "y" or response == "Yes" or response == "Y" or response == "true" {
+    True -> True,
+    False -> False
+  }
+}
+
+// Run one agent step under human supervision.
+// Calls step_fn(state), presents the result to the human for approval, and
+// returns the (possibly edited) next state. If the human rejects the step
+// (responds with "reject"), returns the original state unchanged so the
+// caller can retry or take a different action.
+//
+// Example:
+//   let next = supervised_step("step-review", state, my_step_fn);
+export effect[HumanInLoop] function supervised_step(
+  key: String,
+  state: String,
+  step_fn: (String) -> String
+) -> String {
+  let proposed = step_fn(state);
+  let prompt = "Agent proposed the following state. Approve (enter to accept), edit the JSON to override, or type 'reject' to keep current state:\n\n" ++ proposed;
+  let response = hitl_ask(key, prompt);
+  match response == "reject" or response == "" {
+    True -> match response == "reject" {
+      True -> state,
+      False -> proposed
+    },
+    False -> response
+  }
+}

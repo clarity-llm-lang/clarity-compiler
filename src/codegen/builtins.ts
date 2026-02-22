@@ -164,6 +164,8 @@ export function getBuiltins(): BuiltinDef[] {
     // arena_restore(mark) reclaims all heap memory allocated since arena_save() was called.
     // Pointers into the freed region must not be used after this call.
     { name: "arena_restore", importModule: "env", importName: "arena_restore", params: i64, result: none },
+    // arena_restore_keeping_str(mark, str) — copy str below mark, restore arena, return new str ptr.
+    { name: "arena_restore_keeping_str", importModule: "env", importName: "arena_restore_keeping_str", params: binaryen.createType([i64, i32]), result: i32 },
     // memory_stats() returns a JSON string with current allocator statistics (debugging aid).
     { name: "memory_stats", importModule: "env", importName: "memory_stats", params: none, result: i32 },
 
@@ -213,6 +215,12 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "checkpoint_save", importModule: "env", importName: "checkpoint_save", params: pair_i32, result: i32 },
     { name: "checkpoint_load", importModule: "env", importName: "checkpoint_load", params: i32, result: i32 },
     { name: "checkpoint_delete", importModule: "env", importName: "checkpoint_delete", params: i32, result: none },
+    // checkpoint_save_raw(key, value) → Bool (i32: 1=ok, 0=error) — no heap allocation, safe before arena_restore
+    { name: "checkpoint_save_raw", importModule: "env", importName: "checkpoint_save_raw", params: pair_i32, result: i32 },
+
+    // --- HumanInLoop operations ---
+    // hitl_ask(key, question) → String (i32 ptr) — blocks until human writes answer file
+    { name: "hitl_ask", importModule: "env", importName: "hitl_ask", params: pair_i32, result: i32 },
 
     // --- Embed operations ---
     { name: "embed_text", importModule: "env", importName: "embed_text", params: i32, result: i32 },

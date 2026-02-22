@@ -1061,6 +1061,32 @@ export function createRuntime(config: RuntimeConfig = {}) {
         heapPtr = markPtr;
       },
 
+      // arena_restore_keeping_str: copy the string at strPtr to below the mark, then
+      // restore the arena. Returns the new pointer for the preserved string.
+      // Use to keep a step-function result alive while freeing all its intermediates.
+      arena_restore_keeping_str(mark: bigint, strPtr: number): number {
+        const str = readString(strPtr); // read before restore invalidates strPtr
+        const markPtr = Number(mark);
+
+        if (markPtr < heapPtr) {
+          // Same logic as arena_restore
+          for (const [s, p] of internedStrings) {
+            if (p >= markPtr) internedStrings.delete(s);
+          }
+          for (const [p] of allocSizeMap) {
+            if (p >= markPtr) allocSizeMap.delete(p);
+          }
+          for (const [cls, list] of freeLists) {
+            const trimmed = list.filter(p => p < markPtr);
+            if (trimmed.length !== list.length) freeLists.set(cls, trimmed);
+          }
+          heapPtr = markPtr;
+        }
+
+        // Allocate the preserved string at the restored heap position.
+        return writeString(str);
+      },
+
       // Return current heap usage statistics as a JSON string.
       // Useful for debugging memory consumption from Clarity programs.
       memory_stats(): number {
@@ -1992,6 +2018,75 @@ export function createRuntime(config: RuntimeConfig = {}) {
           const path = `${dir}/${safeKey}.ckpt`;
           if (nodeFs.existsSync(path)) nodeFs.unlinkSync(path);
         } catch { /* ignore */ }
+      },
+
+      // checkpoint_save_raw: same as checkpoint_save but returns Bool (1/0) with no heap allocation.
+      // Safe to call before arena_restore() since the result is a plain i32.
+      checkpoint_save_raw(keyPtr: number, valuePtr: number): number {
+        const key = readString(keyPtr);
+        const value = readString(valuePtr);
+        const effectErr = policyCheckEffect("Persist");
+        if (effectErr) return 0;
+        try {
+          const dir = process.env.CLARITY_CHECKPOINT_DIR ?? ".clarity-checkpoints";
+          nodeFs.mkdirSync(dir, { recursive: true });
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+          nodeFs.writeFileSync(`${dir}/${safeKey}.ckpt`, value, "utf-8");
+          return 1;
+        } catch {
+          return 0;
+        }
+      },
+
+      // hitl_ask: pause execution and wait for a human response via file-based handshake.
+      // Writes {CLARITY_HITL_DIR}/{safeKey}.question as JSON, polls for {safeKey}.answer.
+      // Blocks synchronously using Atomics.wait (500 ms intervals) to avoid busy-waiting.
+      // Timeout controlled by CLARITY_HITL_TIMEOUT_SECS (default 600 = 10 minutes).
+      hitl_ask(keyPtr: number, questionPtr: number): number {
+        const key = readString(keyPtr);
+        const question = readString(questionPtr);
+        const effectErr = policyCheckEffect("HumanInLoop");
+        if (effectErr) return writeString(`[HumanInLoop denied: ${effectErr}]`);
+
+        const dir = process.env.CLARITY_HITL_DIR ?? ".clarity-hitl";
+        const timeoutSecs = parseInt(process.env.CLARITY_HITL_TIMEOUT_SECS ?? "600", 10);
+        nodeFs.mkdirSync(dir, { recursive: true });
+
+        const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const questionFile = `${dir}/${safeKey}.question`;
+        const answerFile = `${dir}/${safeKey}.answer`;
+
+        // Write the question so the broker/operator can see it.
+        nodeFs.writeFileSync(questionFile, JSON.stringify({
+          key,
+          question,
+          timestamp: Date.now(),
+          pid: process.pid,
+        }), "utf-8");
+
+        // Poll for the answer file using Atomics.wait for non-busy sleep.
+        const sab = new SharedArrayBuffer(4);
+        const ctrl = new Int32Array(sab);
+        const deadline = Date.now() + timeoutSecs * 1000;
+        const pollIntervalMs = 500;
+
+        while (Date.now() < deadline) {
+          Atomics.wait(ctrl, 0, 0, pollIntervalMs);
+          if (nodeFs.existsSync(answerFile)) {
+            try {
+              const answer = nodeFs.readFileSync(answerFile, "utf-8").trim();
+              nodeFs.unlinkSync(answerFile);
+              try { nodeFs.unlinkSync(questionFile); } catch { /* ignore */ }
+              return writeString(answer);
+            } catch {
+              // race — broker still writing; retry next poll
+            }
+          }
+        }
+
+        // Timeout: clean up question file and return a timeout marker.
+        try { nodeFs.unlinkSync(questionFile); } catch { /* ignore */ }
+        return writeString("[hitl_ask timeout]");
       },
 
       // --- Embed operations ---
