@@ -3,211 +3,320 @@
 </p>
 
 <p align="center">
-  <strong>A programming language designed for LLM code generation.</strong>
+  <strong>A programming language designed for LLM code generation.</strong><br>
+  Statically typed · Compiles to WASM · Built for agents
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+  <img src="https://img.shields.io/badge/version-0.9.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/tests-379%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/target-WebAssembly-purple.svg" alt="Target: WASM">
 </p>
 
 ---
 
-Clarity is a statically typed, compiled language that optimizes for what matters when an LLM writes code: **correctness on first generation**. It compiles to WebAssembly.
+Clarity is a statically typed language that compiles to WebAssembly. It is built from first principles around two goals: **LLMs generate correct code on the first attempt**, and **agents run reliably in production**.
 
 ```
 module Example
 
-function fibonacci(n: Int64) -> Int64 {
-  match n <= 1 {
-    True -> n,
-    False -> {
-      let a = fibonacci(n - 1);
-      let b = fibonacci(n - 2);
-      a + b
-    }
+import { run } from "std/agent"
+import { prompt } from "std/llm"
+
+effect[Model, Persist] function my_step(state: String) -> String {
+  let answer = prompt("claude-3-5-haiku-20241022", "Summarize this in one sentence: " ++ state);
+  match answer {
+    Ok(summary) -> "{\"done\":true,\"result\":\"" ++ summary ++ "\"}",
+    Err(_) -> state
   }
 }
-```
 
-```bash
-$ clarityc compile fibonacci.clarity
-Compiled fibonacci.clarity -> fibonacci.wasm (116 bytes)
-
-$ clarityc run fibonacci.clarity -f fibonacci -a 10
-55
+effect[Model, Persist] function main() -> Result<String, String> {
+  run("summarizer", "{\"text\":\"Clarity is a language for agents.\"}", my_step)
+}
 ```
 
 ---
 
-## Why Clarity?
+## Installation
 
-Every mainstream language was designed for **humans** to write. Clarity is designed for **LLMs** to write.
+```bash
+npm install -g clarity-lang
+```
 
-When an LLM generates Python, JavaScript, or Java, it must choose between dozens of ways to express the same logic — and every choice is a chance to introduce a bug. Clarity eliminates these choices.
+This installs `clarityc` globally. No `npx` needed.
 
-### The problem with existing languages
+```bash
+clarityc --version    # 0.9.0
+clarityc --help
+```
 
-| Issue | Python | JavaScript | Java | Clarity |
-|-------|--------|-----------|------|---------|
-| Ways to write a conditional | `if`, `elif`, ternary, `match` | `if`, `switch`, ternary, `??` | `if`, `switch`, ternary | `match` (one way) |
-| Null/undefined handling | `None` + crashes | `null` + `undefined` + crashes | `null` + NullPointerException | No null. `Option<T>` enforced at compile time |
-| Error handling | Exceptions (easy to forget) | Exceptions + callbacks + Promise rejection | Checked + unchecked exceptions | Union types. Compiler enforces handling |
-| Side effects | Invisible | Invisible | Invisible | Declared in function signature, compiler-enforced |
-| Type coercion | `"5" + 3 = "53"` | `"5" + 3 = "53"` | String concat rules | No implicit conversions. Compile error |
-| Mutable state | Default | Default | Default | Immutable by default |
+To build from source:
 
-### What this means for LLM-generated code
+```bash
+git clone https://github.com/clarity-llm-lang/clarity-compiler.git
+cd clarity-compiler
+npm install -g .
+```
 
-**Fewer tokens generated** — Clarity is more compact than Java and has less boilerplate than Python. Fewer tokens = lower cost per generation, lower latency, and fewer chances to hallucinate.
+---
 
-**Higher first-pass accuracy** — One syntax for branching (`match`), mandatory exhaustiveness checking, no null, no forgotten error handling. The compiler catches what the LLM gets wrong.
+## Quick Start
 
-**Faster feedback loops** — Compilation is near-instant. The LLM generates code, the compiler validates it in milliseconds, and errors are specific and actionable ("missing pattern for variant `Failure`" rather than a runtime stack trace).
+```bash
+# Compile the single .clarity file in the current directory
+clarityc compile
 
-**Deterministic behavior** — No implicit conversions, no hidden state, no undefined behavior. What the LLM writes is what runs.
+# Run it (calls main() by default)
+clarityc run
+
+# Run a specific function with arguments
+clarityc run myfile.clarity -f fibonacci -a 10
+
+# Type-check only
+clarityc compile --check-only
+
+# Introspect all language capabilities (JSON — great for LLM context)
+clarityc introspect
+```
+
+---
+
+## Why Clarity for Agents?
+
+Every mainstream language was designed for humans to write. Clarity is designed for **LLMs to write and agents to run**.
+
+### Agents need determinism
+
+No implicit type coercions. No null. No exceptions. No hidden state. What an LLM writes is exactly what runs, every time.
+
+### Agents need explicit side effects
+
+Every I/O capability is declared in the function signature and enforced at compile time. The effect system tells you — and the LLM — exactly what a function can do.
+
+```
+// This function can ONLY compute. No I/O allowed.
+function score(text: String) -> Int64 { ... }
+
+// This function can call LLMs and access the file system.
+effect[Model, FileSystem] function analyze(path: String) -> String { ... }
+
+// Calling an effectful function from a pure one is a compile error.
+```
+
+### Agents need resumability
+
+The `Persist` effect and `std/agent` provide a checkpoint-and-resume loop out of the box. If your agent crashes or is restarted, it picks up exactly where it left off.
+
+### Agents need human oversight
+
+The `HumanInLoop` effect lets any step in your agent pause and wait for a human to review, approve, or edit the proposed output before continuing.
+
+---
+
+## Agent Standard Library
+
+### `std/agent` — Resumable agent loops
+
+```
+import { run, resume } from "std/agent"
+
+// Run a loop that checkpoints after every step.
+// Resumes automatically from the last checkpoint on restart.
+// Terminates when step_fn returns state containing "done":true
+effect[Model, Persist] function main() -> Result<String, String> {
+  run("my-agent", "{}", my_step)
+}
+```
+
+### `std/llm` — Multi-provider LLM calls
+
+```
+import { prompt, chat } from "std/llm"
+
+// Anthropic (claude-* models) — requires ANTHROPIC_API_KEY
+// OpenAI / Groq / Ollama — requires OPENAI_API_KEY + OPENAI_BASE_URL
+effect[Model] function ask(question: String) -> String {
+  let result = prompt("claude-3-5-haiku-20241022", question);
+  match result {
+    Ok(response) -> response,
+    Err(e) -> "Error: " ++ e
+  }
+}
+```
+
+### `std/hitl` — Human-in-the-loop
+
+```
+import { ask, confirm, supervised_step } from "std/hitl"
+
+// Pause agent, present a question to a human operator, return their response.
+// Uses CLARITY_HITL_DIR (default .clarity-hitl/) for the file handshake.
+effect[HumanInLoop] function review(summary: String) -> String {
+  ask("review-step", "Does this summary look correct?\n\n" ++ summary)
+}
+
+// Or supervise an entire step — human can approve, edit, or reject.
+effect[Model, HumanInLoop] function supervised(state: String) -> String {
+  supervised_step("step-review", state, my_step_fn)
+}
+```
+
+The `clarity-hitl-broker` tool (separate project) provides the operator-facing CLI and web UI — see `docs/hitl-broker-spec.md`.
+
+### `std/rag` — Retrieval-augmented generation
+
+```
+import { retrieve } from "std/rag"
+
+effect[Embed] function answer_from_doc(query: String, doc: String) -> String {
+  // chunk → embed → rank → return top-k chunks as JSON
+  retrieve(query, doc, 512, 3)
+}
+```
+
+### `std/stream` — Streaming LLM responses
+
+```
+import { call } from "std/stream"
+
+effect[Model] function stream_summary(text: String) -> Result<String, String> {
+  call("gpt-4o-mini", "Summarize: " ++ text)
+}
+```
+
+### `std/mcp` and `std/a2a` — Agent interop
+
+```
+import { connect, call_tool } from "std/mcp"
+import { submit, poll, is_done } from "std/a2a"
+
+// MCP: connect to a tool server, call a tool
+effect[MCP] function use_browser(url: String) -> Result<String, String> {
+  let session = connect("http://localhost:3000");
+  call_tool(session, "navigate", "{\"url\":\"" ++ url ++ "\"}")
+}
+
+// A2A: discover and delegate to another agent
+effect[A2A] function delegate(task: String) -> Result<String, String> {
+  let agent_url = "http://agent-b:8080";
+  submit(agent_url, "process", task)
+}
+```
 
 ---
 
 ## Language Overview
 
 ### Types
+
 ```
-// Built-in: Int64, Float64, String, Bool, Bytes, Unit
+// Built-in: Int64, Float64, String, Bool, Bytes, Timestamp, Unit
+// Generic: List<T>, Option<T>, Result<T, E>
 
 // Record types
-type User = {
-  id: Int64,
-  email: String,
-  active: Bool,
-}
+type User = { id: Int64, email: String, active: Bool }
 
 // Union types (tagged unions)
-type Result =
-  | Ok(value: Int64)
+type Response =
+  | Success(data: String)
+  | NotFound
   | Error(reason: String)
 
-// Generics (on types and functions)
+// Generics
 type Wrapper<T> = { value: T }
 function identity<T>(x: T) -> T { x }
 ```
 
-### Functions
+### Control flow — `match` only
+
 ```
-// Pure function — no side effects allowed
-function square(n: Int64) -> Int64 {
-  n * n
+function grade(score: Int64) -> String {
+  match score {
+    90..100 -> "A",
+    80..89  -> "B",
+    70..79  -> "C",
+    _       -> "F"
+  }
 }
 
-// Effectful function — side effects declared explicitly
-effect[DB, Log] function save_user(name: String, email: String) -> Int64 {
-  // The compiler ensures:
-  // - This function CAN access DB and Log
-  // - Pure functions CANNOT call this function
-  // - Callers must declare at least [DB, Log] in their effects
+// Union type destructuring — exhaustiveness is compile-enforced
+function describe(r: Response) -> String {
+  match r {
+    Success(data)  -> data,
+    NotFound       -> "not found",
+    Error(reason)  -> reason
+  }
+}
+```
+
+No `if`/`else`. No `for`/`while`. Use `match` and recursion. The LLM only has one way to write any conditional.
+
+### Effect system
+
+```
+effect[DB, Log] function save_user(name: String) -> Int64 {
+  // Calling this from a pure function is a compile error.
+  // The effect declaration is part of the type signature.
   42
 }
 ```
 
-### Pattern Matching (the only control flow)
-```
-// Boolean branching
-function abs(n: Int64) -> Int64 {
-  match n >= 0 {
-    True -> n,
-    False -> 0 - n
-  }
-}
-
-// Union type destructuring — compiler enforces all variants are handled
-function describe(r: Result) -> String {
-  match r {
-    Ok(value) -> "success",
-    Error(reason) -> reason
-  }
-}
-// Forgetting a variant = compile error
-```
-
-### Immutable by Default
-```
-let x = 42;         // immutable
-let mut y = 0;       // explicitly mutable
-y = y + 1;           // reassignment allowed for let mut
-```
-
-### No Null, No Exceptions
-```
-// Instead of null → Option type
-// Instead of exceptions → union types with error variants
-
-type FetchResult =
-  | Data(payload: String)
-  | NotFound
-  | NetworkError(message: String)
-
-// The compiler forces you to handle ALL cases
-function handle(r: FetchResult) -> String {
-  match r {
-    Data(payload) -> payload,
-    NotFound -> "not found",
-    NetworkError(message) -> message
-  }
-}
-```
-
----
-
-## Effect System
-
-Clarity tracks side effects at compile time. A pure function cannot call an effectful one:
-
-```
-effect[DB] function read_user(id: Int64) -> String { ... }
-
-// COMPILE ERROR:
-// Function requires effects [DB] but caller only declares [none]
-// help: Add the missing effects: effect[DB]
-function bad() -> String {
-  read_user(1)
-}
-
-// OK:
-effect[DB] function good() -> String {
-  read_user(1)
-}
-```
-
 Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
-`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`, `HumanInLoop`
+
+### No null, no exceptions
+
+```
+// Option instead of null
+function find_user(id: Int64) -> Option<String> { ... }
+
+// Result instead of exceptions
+function fetch(url: String) -> Result<String, String> { ... }
+
+// Compiler enforces handling all cases
+match fetch("https://example.com") {
+  Ok(body)  -> body,
+  Err(msg)  -> "failed: " ++ msg
+}
+```
 
 ---
 
-## Error Messages Designed for LLMs
+## Starting a Service in Clarity Runtime
 
-When an LLM accidentally uses a construct from another language, Clarity tells it exactly what to do instead:
+To register a compiled `.clarity` file as a running MCP or agent service, use `clarityc start`. Project metadata lives in `clarity.json` — not on the command line.
 
-```
-error: Clarity does not have 'if' expressions
-  --> app.clarity:5:3
-   = help: Use 'match' for conditional logic:
-           match condition { True -> ..., False -> ... }
-
-error: Clarity does not have 'return'
-  --> app.clarity:8:3
-   = help: The last expression in a block is the return value
-
-error: Clarity does not have 'null'
-  --> app.clarity:3:12
-   = help: Use Option type: Some(value) or None
-
-error: Clarity does not have exceptions ('try')
-  --> app.clarity:10:3
-   = help: Use Result type: Ok(value) or Error(reason)
+**`clarity.json`** (in the same directory as your `.clarity` file):
+```json
+{
+  "name": "my-agent",
+  "version": "1.0.0",
+  "entry": "mcp_main",
+  "service_type": "agent",
+  "agent": {
+    "role": "data summarizer",
+    "objective": "Summarize documents on demand",
+    "inputs": ["document"],
+    "outputs": ["summary"]
+  }
+}
 ```
 
-These messages are concise, actionable, and optimized for LLM self-correction.
+```bash
+# Start using metadata from clarity.json in the current directory
+clarityc start
+
+# Override the daemon (default: CLARITYD_URL or http://localhost:4707)
+clarityc start --daemon-url http://prod-runtime:4707 --auth-token $TOKEN
+```
+
+`clarityc start` delegates to `clarityctl add` under the hood.
 
 ---
 
 ## Self-Healing Test System
-
-Clarity includes a built-in test framework designed for LLM self-correction. Write tests inline with your code using `effect[Test]` functions:
 
 ```
 module Math
@@ -216,273 +325,98 @@ function add(a: Int64, b: Int64) -> Int64 { a + b }
 
 effect[Test] function test_add() -> Unit {
   assert_eq(add(2, 3), 5);
-  assert_eq(add(0, 0), 0);
-  assert_eq(add(-1, 1), 0)
+  assert_eq(add(0, 0), 0)
 }
 ```
 
 ```bash
-$ clarityc test math.clarity
-[PASS] test_add (3 assertions)
-
-1 tests, 1 passed, 0 failed
+clarityc test math.clarity          # run tests
+clarityc test math.clarity --json   # machine-readable output for LLM consumption
 ```
 
-When tests fail, the output is structured for LLM consumption:
-
-```
-[FAIL] test_broken
-  assertion_failed: assert_eq
-  actual: -1
-  expected: 5
-  function: test_broken
-  fix_hint: "Expected Int64 value 5 but got -1. Check arithmetic logic and edge cases."
-```
-
-The `--json` flag outputs machine-parseable JSON, enabling a **compile → test → fix** self-healing loop where the LLM reads structured failures, modifies the code, and re-runs until all tests pass.
-
-Available assertions: `assert_eq` (Int64), `assert_eq_float` (Float64), `assert_eq_string` (String), `assert_true` (Bool), `assert_false` (Bool). All require `effect[Test]`.
+Failures include structured `actual`, `expected`, `fix_hint` fields designed for LLM self-correction loops.
 
 ---
 
-## Installation
+## CLI Reference
 
 ```bash
-git clone https://github.com/clarity-llm-lang/clarity.git
-cd clarity
-npm install
+clarityc compile [file]             # compile to .wasm (defaults to cwd)
+clarityc compile [file] --check-only # type-check only
+clarityc compile [file] --emit-wat  # show WASM text format
+clarityc compile [file] --emit-ast  # show AST as JSON
+clarityc compile [file] -o out.wasm # specify output path
+
+clarityc run [file]                 # compile and run main()
+clarityc run [file] -f fn_name      # call a specific function
+clarityc run [file] -f fn -a arg1 arg2 # with arguments
+
+clarityc test [file]                # run test_ functions
+clarityc test [file] --json         # JSON output
+clarityc test [file] --fail-fast    # stop on first failure
+
+clarityc start [file]               # register service (reads clarity.json)
+clarityc start [file] --daemon-url <url> --auth-token <token>
+
+clarityc repl                       # interactive REPL
+
+clarityc introspect                 # all capabilities as JSON
+clarityc introspect --builtins      # built-in functions
+clarityc introspect --effects       # effects
+clarityc introspect --types         # built-in types
 ```
 
-### Compile a `.clarity` file
-```bash
-npx clarityc compile myfile.clarity
-```
-
-### Compile and run
-```bash
-npx clarityc run myfile.clarity -f function_name -a arg1 arg2
-```
-
-### Compile and start in Clarity Runtime
-```bash
-npx clarityc start myfile.clarity --daemon-url http://localhost:4707
-npx clarityc start myfile.clarity --daemon-url http://localhost:4707 --auth-token your-token
-npx clarityc start myfile.clarity --service-type agent --agent-role planner --agent-objective "Plan task execution"
-```
-
-`clarityc start` delegates to `clarityctl add` so runtime onboarding behavior stays consistent with the runtime project.
-When `--service-type agent` is used, `--agent-role` and `--agent-objective` are required and forwarded to runtime agent metadata.
-
-### Run inline tests (self-healing test runner)
-```bash
-npx clarityc test myfile.clarity            # run test functions
-npx clarityc test myfile.clarity --json      # machine-readable output
-npx clarityc test myfile.clarity --fail-fast  # stop on first failure
-```
-
-### Introspect language capabilities (for LLM consumption)
-```bash
-npx clarityc introspect              # full JSON: builtins, effects, types
-npx clarityc introspect --builtins   # built-in functions with signatures and docs
-npx clarityc introspect --effects    # effects with their function lists
-npx clarityc introspect --types      # built-in types
-```
-
-### Other commands
-```bash
-npx clarityc compile myfile.clarity --check-only   # type-check only
-npx clarityc compile myfile.clarity --emit-wat      # show WASM text format
-npx clarityc compile myfile.clarity --emit-ast      # show AST as JSON
-```
-
-### Run compiler tests
-```bash
-npm test    # comprehensive test suite across lexer, parser, checker, and e2e
-```
+When no `[file]` is given, `compile`, `run`, `test`, and `start` look for the single `.clarity` file in the current directory.
 
 ---
 
 ## Using Clarity with LLMs
 
 ### With Claude Code
+
 Add to your project's `CLAUDE.md`:
 ```
 Write all application code in the Clarity language.
-Language spec: /path/to/clarity/docs/language-spec.md
-Compile: npx tsx /path/to/clarity/src/index.ts compile <file>
+Quick reference: docs/clarity-quickref.md
+Full spec: docs/language-spec.md
 ```
-
-Then just describe what you want. Claude will write Clarity.
 
 ### With any LLM
-Include the [quick reference](docs/clarity-quickref.md) in your system prompt or context, then ask the LLM to generate Clarity code. The quickref is ~100 lines and designed for minimal token usage. For the full formal spec, see [language-spec.md](docs/language-spec.md).
 
-### Extending Clarity (for LLMs)
-Clarity is designed to be extended by LLMs. The `introspect` command lets any LLM discover current capabilities as JSON, and the [contributor protocol in CLAUDE.md](CLAUDE.md#extending-the-compiler) describes how to add new built-in functions (2-file edit) or new effects. All built-in functions and effects are defined in a single registry (`src/registry/builtins-registry.ts`).
+Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prompt. It is ~100 lines, covers all syntax, and is designed for minimal token usage.
 
----
-
-## Compilation Target
-
-Clarity compiles to **WebAssembly (WASM)** — a portable, sandboxed binary format that runs:
-
-- In **Node.js** (built-in `WebAssembly` API)
-- In **any browser** (Chrome, Firefox, Safari, Edge)
-- In **standalone runtimes** (Wasmtime, Wasmer, WasmEdge)
-- On **edge platforms** (Cloudflare Workers, Fastly Compute)
-
-Compiled output is small. The fibonacci example compiles to **116 bytes**.
+Use `clarityc introspect` to give the LLM a live JSON snapshot of all available built-ins and effects.
 
 ---
 
-## Project Structure
+## Current Status (v0.9.0)
 
-```
-clarity/
-├── src/
-│   ├── index.ts            # CLI entry point
-│   ├── compiler.ts         # Pipeline: lex → parse → check → codegen
-│   ├── lexer/              # Tokenizer
-│   ├── parser/             # Recursive descent + Pratt parser
-│   ├── checker/            # Type checker, effect system, exhaustiveness
-│   ├── registry/           # Built-in function & effect registry (single source of truth)
-│   ├── codegen/            # WASM code generation via binaryen
-│   └── errors/             # Diagnostics and error formatting
-├── docs/
-│   ├── language-spec.md    # Full language specification
-│   └── grammar.peg         # Formal PEG grammar
-├── examples/               # Example Clarity programs
-└── tests/                  # compiler and e2e tests
-```
+**379 tests passing.**
 
----
-
-## Current Status (v0.8)
-
-**368 tests passing.**
-
-**Working:**
-- Int64 and Float64 arithmetic (including Float64 modulo)
-- Boolean logic and comparisons
-- Pattern matching on booleans, union types, range patterns (`1..10`), and guards
-- Exhaustiveness checking
-- Let bindings (immutable and mutable) with reassignment for `let mut`
-- Blocks with multiple statements
-- Recursive function calls + tail call optimization (self-recursive loops)
-- Effect system with compile-time enforcement
-- Record types — declaration, construction, field access
-- Union types — constructors, pattern matching, destructuring
-- Option<T> as built-in (Some/None with correct polymorphism)
-- Result<T, E> as built-in (Ok/Err with polymorphic type inference)
-- Transparent type aliases (`type UserId = Int64`)
-- Parametric polymorphism / generics on functions and types (`function identity<T>(x: T) -> T`)
-- Higher-order functions (pass named functions as arguments, function type syntax)
-- List literals, length, head, tail, append, concat, reverse, is_empty, nth
-- Map<K, V> — immutable key-value maps: map_new, map_get, map_set, map_remove, map_has, map_size, map_keys, map_values
-- JSON builtins — `json_parse`, `json_stringify`, `json_parse_object`, `json_stringify_object`
-- String builtins — concat, length, substring, char_at, trim, split, replace, starts_with, ends_with, repeat
-- Named argument validation and reordering
-- Type conversions (int_to_float, float_to_int, int_to_string, etc.)
-- Math builtins (abs, min, max, clamp, sqrt, pow, floor, ceil)
-- HTTP client: `http_get`, `http_post` (Network effect)
-- Random: `random_int`, `random_float`
-- Regex: `regex_match`, `regex_captures`
-- I/O primitives: `read_line`, `read_all_stdin`, `read_file`, `write_file`, `get_args`, `exit` (FileSystem effect)
-- Bytes and Timestamp runtime support
+### Language
+- Full type system: Int64, Float64, String, Bool, Bytes, Timestamp, Unit, Option\<T\>, Result\<T,E\>, List\<T\>, Map\<K,V\>
+- Record and union types with exhaustive pattern matching
+- Pattern guards and range patterns (`1..10`)
+- Generics on functions and types with monomorphization
+- Higher-order functions (named functions as values)
+- Immutable-by-default bindings (`let` / `let mut`)
+- Tail call optimization (self-recursive loops)
 - Multi-file programs with import/export and file-based module resolution
-- Standard library: `std/math`, `std/string`, `std/list`, `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`, `std/eval`, `std/stream`
-- **Multi-provider LLM**: `claude-*` models route to Anthropic Messages API (`ANTHROPIC_API_KEY`); all others use OpenAI-compatible endpoint (`OPENAI_API_KEY` / `OPENAI_BASE_URL`)
-- **`std/llm`**: `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of` — works with Ollama/Groq/Anthropic via env vars
-- **MCP interop**: `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect` (MCP effect); HTTP transport with JSON-RPC 2.0 + SSE
-- **`std/mcp`**: `connect`, `list_tools`, `call_tool`, `call_tool_no_args`, `disconnect`, `unwrap_or`, `is_ok`, `error_of`
-- **A2A interop**: `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel` (A2A effect); JSON-RPC 2.0 over HTTP (Google A2A protocol)
-- **`std/a2a`**: `discover`, `submit`, `poll`, `cancel`, `is_done`, `is_failed`, `is_canceled`, `unwrap_output`, `unwrap_or`, `is_ok`, `error_of`
-- **Policy + audit**: `CLARITY_ALLOW_HOSTS` (hostname glob allowlist), `CLARITY_DENY_EFFECTS` (block effect families), `CLARITY_AUDIT_LOG` (JSONL file)
-- **Trace effect + observability**: `trace_start(op)`, `trace_end(span_id)`, `trace_log(span_id, msg)` — structured span tracing written to the audit log with duration and inline events
-- **Persist effect + checkpointing**: `checkpoint_save(key, value)`, `checkpoint_load(key)`, `checkpoint_delete(key)` — file-backed key-value store in `CLARITY_CHECKPOINT_DIR`; foundation for resumable agents
-- **Embed effect + vector search**: `embed_text(text)` (calls `/v1/embeddings`), `cosine_similarity(a_json, b_json)`, `chunk_text(text, size)`, `embed_and_retrieve(query, chunks_json, top_k)` — full RAG pipeline in builtins
-- **`std/agent`**: `run(key, initial, step_fn)` — resumable agent loop with automatic checkpointing; terminates when state JSON contains `"done":true`; `resume(key, step_fn)` continues from last checkpoint
-- **`std/rag`**: `retrieve(query, text, chunk_size, top_k)` — end-to-end RAG: chunk → embed → rank → return top-k chunks as JSON
-- **Eval effect + LLM evals**: `eval_exact`, `eval_contains` (pure), `eval_llm_judge` (LLM-as-judge with score JSON), `eval_semantic` (embedding-based cosine similarity)
-- **`std/eval`**: `exact`, `has_match`, `semantic`, `judge`, `pass` — evaluation framework for assessing model responses against expected outputs or rubrics
-- **Streaming LLM calls**: `stream_start(model, prompt, system)`, `stream_next(handle)`, `stream_close(handle)` (Model effect) — pull-based token streaming over SSE; worker thread + SharedArrayBuffer + Atomics.wait; supports OpenAI-compatible and Anthropic providers
-- **`std/stream`**: `call(model, prompt)`, `call_with_system(model, system, prompt)` — stream a model call and collect the full response as `Result<String, String>`
-- **`std/list`**: `map`, `filter`, `fold_left`, `fold_right`, `fold`, `any`, `all`, `find`, `count_where`, `zip_with`, `flatten`, `flat_map`, `take`, `drop`, `sum`, `product`, `maximum`, `minimum`, `range`, `replicate`, `size`, `first`, `rest`, `push` — full functional list library; all generic
-- **`None` / `[]` type inference**: bare `None` is now accepted anywhere `Option<T>` is expected; `[]` anywhere `List<T>` is expected; generic TypeVar substitution now correctly updates union type names (e.g. `Option<T>` → `Option<Int64>`)
-- Free-list memory allocator with `arena_save`/`arena_restore` for bulk-free of short-lived allocations
-- String interning (runtime deduplicates identical strings)
-- Self-healing test system (assert_eq, assert_true, etc. with structured LLM-friendly output)
-- WASM compilation and execution
-- LLM-friendly error messages with migration hints
 
----
+### Agent runtime
+- **Multi-provider LLM**: `claude-*` → Anthropic Messages API; others → OpenAI-compatible
+- **Streaming**: pull-based token streaming via `stream_start` / `stream_next` / `stream_close`
+- **Resumable agents**: `std/agent` with `Persist` effect + automatic checkpointing
+- **Human-in-the-loop**: `HumanInLoop` effect + `std/hitl`; file-based handshake protocol
+- **RAG pipeline**: `std/rag` — chunk → embed → rank → retrieve
+- **MCP interop**: `std/mcp` — connect, list tools, call tools
+- **A2A interop**: `std/a2a` — discover agents, submit tasks, poll results
+- **Observability**: `Trace` effect — structured span tracing in the audit log
+- **Policy + audit**: `CLARITY_ALLOW_HOSTS`, `CLARITY_DENY_EFFECTS`, `CLARITY_AUDIT_LOG`
+- **Memory**: free-list allocator + `arena_save`/`arena_restore` for step-bounded memory in agent loops
 
-## Roadmap
-
-Development follows a phased approach. Each phase builds on the previous one.
-
-### Phase 1 — Correctness & Soundness (v0.2) -- DONE
-Fix correctness bugs in the type system and codegen so that existing features actually work reliably.
-- AST carries resolved types from the checker into codegen (no duplicate type inference)
-- Option<T> polymorphism fixed (Option<Int64> and Option<String> coexist)
-- Record literal type matching uses declared type names
-- Float64 modulo operator
-- string_to_int / string_to_float return proper Option-tagged values
-
-### Phase 1.5 — I/O Primitives (v0.2.1) -- DONE
-Make Clarity usable for real CLI programs.
-- stdin/stdout: `read_line()`, `read_all_stdin()`
-- File I/O: `read_file(path)`, `write_file(path, content)`
-- Command-line arguments: `get_args() -> List<String>`
-- Process control: `exit(code)`
-
-### Phase 2 — Type System Foundations (v0.3)
-Make the type system robust enough for real programs.
-- ~~Parametric polymorphism / generics~~ (done — `function identity<T>(x: T) -> T` with monomorphization)
-- ~~Properly typed list builtins~~ (done — `head : List<T> -> T`, `tail : List<T> -> List<T>`, etc.)
-- ~~Built-in `Result<T, E>` type~~ (done — `Ok`/`Err` constructors with polymorphic type inference)
-- ~~Type aliases~~ (done — transparent: `type UserId = Int64`)
-- ~~Higher-order functions~~ (done — named functions as values via `(T) -> U` type syntax and `call_indirect`)
-- ~~Mutable binding reassignment~~ (done — `let mut x = 1; x = x + 1` works)
-
-### Phase 3 — Module System (v0.4)
-Support programs larger than a single file.
-- ~~Import/export syntax~~ (done — `import { X } from "module"`, `export function`, `export type`)
-- ~~File-based module resolution~~ (done — relative path resolution, merge compilation into single WASM)
-- ~~Standard library~~ (done — `std/math`, `std/string`, and `std/list` modules)
-
-### Phase 4 — Runtime & Performance (v0.5) — DONE
-Make programs viable for real workloads.
-- ~~Memory management~~ (done — free-list allocator with power-of-two size classes; `arena_save`/`arena_restore` for bulk-free; `memory_stats` for debug)
-- ~~Tail call optimization~~ (done — self-recursive tail calls converted to loops)
-- ~~String interning~~ (done — runtime deduplicates identical strings via intern table)
-
-### Phase 5 — Language Completeness (v0.6+) — DONE
-- ~~Pattern guards~~ (done — guards on wildcard, binding, literal, constructor, and range patterns)
-- ~~Range patterns~~ (done — `1..10` inclusive ranges on Int64)
-- ~~Named argument semantic checking~~ (done — named args validated and reordered)
-- ~~Bytes and Timestamp runtime support~~ (done — Bytes buffer with create/get/set/slice/concat/encode/decode; Timestamp as i64 ms-since-epoch with now/add/diff/to_string + `timestamp_parse_iso`)
-- REPL / browser playground
-
-### Phase 6 — Native AI Interop Requirements (v0.7) — DONE
-Make agent ecosystems and model APIs first-class language/runtime capabilities.
-- ~~New effects~~ (done — `Model`, `Secret`, `MCP`, `A2A` registered in the effect system)
-- ~~`std/llm` module~~ (done — `prompt`, `prompt_with`, `chat`, `prompt_with_system`, `unwrap_or`, `is_ok`, `error_of`)
-- ~~LLM builtins~~ (done — `call_model`, `call_model_system`, `list_models`; OpenAI-compatible via `OPENAI_API_KEY`/`OPENAI_BASE_URL`)
-- ~~Secret builtin~~ (done — `get_secret(name) -> Option<String>` reads from environment; requires Secret effect)
-- ~~MCP support~~ (done — `mcp_connect`, `mcp_list_tools`, `mcp_call_tool`, `mcp_disconnect`; HTTP transport with JSON-RPC 2.0 + SSE; `std/mcp` module)
-- ~~A2A support~~ (done — `a2a_discover`, `a2a_submit`, `a2a_poll`, `a2a_cancel`; JSON-RPC 2.0 over HTTP; `std/a2a` module with `is_done`, `is_failed`, `unwrap_output` helpers)
-- ~~Policy + audit~~ (done — `CLARITY_ALLOW_HOSTS` URL allowlist, `CLARITY_DENY_EFFECTS` effect deny list, `CLARITY_AUDIT_LOG` JSONL audit file; `policy_is_url_allowed`/`policy_is_effect_allowed` introspection builtins)
-
-### Phase 7 — Agent Orchestration & RAG (v0.8) — DONE
-Make Clarity viable for production agentic and retrieval-augmented-generation workloads.
-- ~~Multi-provider LLM~~ (done — `claude-*` routes to Anthropic Messages API, others to OpenAI-compatible)
-- ~~Trace effect~~ (done — `trace_start`, `trace_end`, `trace_log` for structured span tracing written to audit log)
-- ~~Persist effect~~ (done — `checkpoint_save`, `checkpoint_load`, `checkpoint_delete`; file-backed in `CLARITY_CHECKPOINT_DIR`)
-- ~~Embed effect~~ (done — `embed_text`, `cosine_similarity`, `chunk_text`, `embed_and_retrieve`)
-- ~~`std/agent` module~~ (done — resumable agent loop with automatic checkpointing; step function receives/returns JSON state)
-- ~~`std/rag` module~~ (done — `retrieve`, `chunk`, `embed`, `similarity`; end-to-end RAG pipeline)
-- ~~`Eval` effect~~ (done — `eval_exact`, `eval_contains`, `eval_llm_judge`, `eval_semantic`; `std/eval` module with `exact`, `has_match`, `semantic`, `judge`, `pass`)
+### Standard library
+`std/math`, `std/string`, `std/list`, `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`, `std/eval`, `std/stream`, `std/hitl`
 
 ---
 
