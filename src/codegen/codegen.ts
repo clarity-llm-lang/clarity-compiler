@@ -2329,6 +2329,7 @@ export class CodeGenerator {
       // Memory management
       arena_save: INT64,
       arena_restore: UNIT,
+      arena_restore_keeping_str: { kind: "String" } as ClarityType,
       memory_stats: { kind: "String" } as ClarityType,
       // Secret
       get_secret: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
@@ -2357,6 +2358,9 @@ export class CodeGenerator {
       checkpoint_save: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       checkpoint_load: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       checkpoint_delete: UNIT,
+      checkpoint_save_raw: BOOL,
+      // HumanInLoop
+      hitl_ask: { kind: "String" } as ClarityType,
       // Embed
       embed_text: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       cosine_similarity: FLOAT64,

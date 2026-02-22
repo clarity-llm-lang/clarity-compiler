@@ -4791,3 +4791,184 @@ describe("std/list module", () => {
     expect((instance.exports.run_min as () => bigint)()).toBe(1n);
   });
 });
+
+describe("checkpoint_save_raw builtin", () => {
+  it("compiles with Persist effect", () => {
+    const src = `
+      module Test
+      effect[Persist] function save(k: String, v: String) -> Bool {
+        checkpoint_save_raw(k, v)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects checkpoint_save_raw without Persist effect", () => {
+    const src = `
+      module Test
+      function bad(k: String, v: String) -> Bool {
+        checkpoint_save_raw(k, v)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Persist");
+  });
+
+  it("returns 1 (true) on successful save", async () => {
+    const src = `
+      module Test
+      effect[Persist] function save_it(k: String, v: String) -> Bool {
+        checkpoint_save_raw(k, v)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-raw-"));
+    process.env.CLARITY_CHECKPOINT_DIR = dir;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const kPtr = runtime.writeString("test-raw-key");
+    const vPtr = runtime.writeString("hello");
+    const res = (instance.exports.save_it as (k: number, v: number) => number)(kPtr, vPtr);
+    expect(res).toBe(1);
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe("HumanInLoop effect and hitl_ask builtin", () => {
+  it("hitl_ask compiles with HumanInLoop effect", () => {
+    const src = `
+      module Test
+      effect[HumanInLoop] function ask_human(key: String, q: String) -> String {
+        hitl_ask(key, q)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects hitl_ask without HumanInLoop effect", () => {
+    const src = `
+      module Test
+      function bad(key: String, q: String) -> String {
+        hitl_ask(key, q)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("HumanInLoop");
+  });
+
+  it("hitl_ask returns pre-placed answer immediately", async () => {
+    const src = `
+      module Test
+      effect[HumanInLoop] function ask_human(key: String, q: String) -> String {
+        hitl_ask(key, q)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.wasm).toBeDefined();
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-hitl-"));
+    process.env.CLARITY_HITL_DIR = dir;
+
+    // Pre-place the answer file so hitl_ask returns immediately.
+    fs.writeFileSync(path.join(dir, "test-key.answer"), "approved by human", "utf-8");
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const kPtr = runtime.writeString("test-key");
+    const qPtr = runtime.writeString("Is this correct?");
+    const resPtr = (instance.exports.ask_human as (k: number, q: number) => number)(kPtr, qPtr);
+    const answer = runtime.readString(resPtr);
+    expect(answer).toBe("approved by human");
+
+    delete process.env.CLARITY_HITL_DIR;
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe("std/hitl module", () => {
+  function setupHitlTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-hitl-std-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src, "utf-8");
+    fs.cpSync(path.join(process.cwd(), "std"), path.join(dir, "std"), { recursive: true });
+    return dir;
+  }
+
+  it("imports ask and confirm from std/hitl", () => {
+    const dir = setupHitlTest(`
+      module Main
+      import { ask, confirm } from "std/hitl"
+      export effect[HumanInLoop] function do_ask(key: String, q: String) -> String {
+        ask(key, q)
+      }
+      export effect[HumanInLoop] function do_confirm(key: String, q: String) -> Bool {
+        confirm(key, q)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe("arena GC in std/agent", () => {
+  function setupAgentTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-agent-gc-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src, "utf-8");
+    fs.cpSync(path.join(process.cwd(), "std"), path.join(dir, "std"), { recursive: true });
+    return dir;
+  }
+
+  it("agent run with arena GC compiles cleanly", () => {
+    const dir = setupAgentTest(`
+      module Main
+      import { run } from "std/agent"
+      function my_step(state: String) -> String {
+        "{\\"done\\":true,\\"result\\":\\"ok\\"}"
+      }
+      export effect[Persist] function go() -> Result<String, String> {
+        run("test-agent", "{}", my_step)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("agent loop runs 3 steps and returns final state", async () => {
+    const dir = setupAgentTest(`
+      module Main
+      import { run } from "std/agent"
+      function step(state: String) -> String {
+        match contains(state, "\\"n\\":2") {
+          True -> "{\\"done\\":true,\\"result\\":\\"finished\\"}",
+          False -> match contains(state, "\\"n\\":1") {
+            True -> "{\\"n\\":2}",
+            False -> "{\\"n\\":1}"
+          }
+        }
+      }
+      export effect[Persist] function go() -> String {
+        let result = run("gc-agent", "{\\"n\\":0}", step);
+        match result {
+          Ok(s) -> s,
+          Err(e) -> e
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const ckptDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ckpt-gc-"));
+    process.env.CLARITY_CHECKPOINT_DIR = ckptDir;
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const resPtr = (instance.exports.go as () => number)();
+    const res = runtime.readString(resPtr);
+    expect(res).toContain("finished");
+    delete process.env.CLARITY_CHECKPOINT_DIR;
+    fs.rmSync(dir, { recursive: true });
+    fs.rmSync(ckptDir, { recursive: true });
+  });
+});

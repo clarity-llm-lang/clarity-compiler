@@ -74,6 +74,7 @@ export const EFFECT_DEFINITIONS: EffectDefinition[] = [
   { name: "Persist", description: "Durable key-value checkpointing backed by the local filesystem (CLARITY_CHECKPOINT_DIR). Used to save and resume agent state across restarts." },
   { name: "Embed", description: "Text embedding and vector retrieval — call an embedding model and perform cosine-similarity search over a corpus. Requires OPENAI_API_KEY (or compatible)." },
   { name: "Eval", description: "LLM output evaluation — assess model responses against expected outputs or rubrics. Supports exact match, substring match, semantic similarity, and LLM-as-judge scoring." },
+  { name: "HumanInLoop", description: "Human-in-the-loop interaction — pause agent execution and emit a prompt to a human operator via CLARITY_HITL_DIR; resume when the operator writes a response. Enables supervised agentic workflows." },
 ];
 
 // -----------------------------------------------------------------------------
@@ -1303,6 +1304,35 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     effects: ["Persist"],
     doc: "Delete the checkpoint stored under the given key. Safe to call if the key does not exist. Example: checkpoint_delete(\"agent/step\").",
     category: "persist",
+  },
+  {
+    name: "checkpoint_save_raw",
+    params: [STRING, STRING],
+    paramNames: ["key", "value"],
+    returnType: BOOL,
+    effects: ["Persist"],
+    doc: "Save a string value under the given key, returning True on success or False on failure. Unlike checkpoint_save, this returns a plain Bool (no heap allocation), making it safe to call before arena_restore(). Example: let ok = checkpoint_save_raw(\"agent/step\", state_json).",
+    category: "persist",
+  },
+  {
+    name: "arena_restore_keeping_str",
+    params: [INT64, STRING],
+    paramNames: ["mark", "str"],
+    returnType: STRING,
+    effects: [],
+    doc: "Restore the heap arena to the given mark (freeing all allocations made after the mark), but first copy the given string to below the mark so it survives the restore. Returns the new pointer for the preserved string. Use this to free temporary allocations from a step function while keeping the step's result: let mark = arena_save(); let result = step(x); let kept = arena_restore_keeping_str(mark, result). After this call, 'kept' is valid but any other pointer obtained after arena_save() is invalid.",
+    category: "memory",
+  },
+
+  // --- HumanInLoop operations (require HumanInLoop effect) ---
+  {
+    name: "hitl_ask",
+    params: [STRING, STRING],
+    paramNames: ["key", "question"],
+    returnType: STRING,
+    effects: ["HumanInLoop"],
+    doc: "Pause execution and present a question to a human operator. Writes the question to CLARITY_HITL_DIR (default .clarity-hitl/) as {key}.question JSON, then blocks until a human (or the clarity-hitl-broker CLI/web UI) writes a response to {key}.answer. Returns the response string. Configurable timeout via CLARITY_HITL_TIMEOUT_SECS (default 600). Example: let feedback = hitl_ask(\"review-step\", \"Does this summary look correct? \" ++ summary).",
+    category: "hitl",
   },
 
   // --- Embed operations (require Embed effect, except pure computation builtins) ---

@@ -5,6 +5,15 @@
 // state after each step so that a crash or restart can resume from where
 // it left off.
 //
+// Memory management
+// -----------------
+// Each step is wrapped in arena_save()/arena_restore() so that all temporary
+// allocations made during a step (LLM responses, intermediate strings, RAG
+// chunks, embeddings, etc.) are bulk-freed after the step completes. Only the
+// checkpointed state string (reloaded fresh after each restore) persists across
+// steps, keeping memory growth proportional to step-count × state-size rather
+// than step-count × all-intermediate-allocations.
+//
 // State convention
 // ----------------
 // State is passed as a JSON string between steps. The loop terminates when
@@ -67,6 +76,8 @@ export effect[Persist] function clear(key: String) -> Unit {
 }
 
 // Internal: recursive step loop with safety cap of 10 000 iterations.
+// Arena GC: arena_save() before step, arena_restore_keeping_str() after to free
+// all temporaries while preserving only the step's output string.
 effect[Persist] function agent_loop(
   key: String,
   state: String,
@@ -76,7 +87,9 @@ effect[Persist] function agent_loop(
   match n >= 10000 {
     True -> Err("Agent exceeded maximum steps (10000)"),
     False -> {
-      let next = step(state);
+      let mark = arena_save();
+      let next_raw = step(state);
+      let next = arena_restore_keeping_str(mark, next_raw);
       match checkpoint_save(key, next) {
         Err(e) -> Err("Checkpoint failed: " ++ e),
         Ok(_) -> match contains(next, "\"done\":true") {
