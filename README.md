@@ -383,6 +383,7 @@ Add to your project's `CLAUDE.md`:
 Write all application code in the Clarity language.
 Quick reference: docs/clarity-quickref.md
 Full spec: docs/language-spec.md
+Runtime-agent CLI requirements: docs/runtime-agent-cli-requirements.md
 ```
 
 ### With any LLM
