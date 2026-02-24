@@ -647,6 +647,15 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `unwrap_output(status_json: String) -> String` — Extract the `output` field value
 - `unwrap_or`, `is_ok`, `error_of` — Result helpers
 
+**std/hitl** — Human-in-the-loop session I/O (requires `HumanInLoop` effect)
+- `ask(key: String, question: String) -> String` — Blocking question/answer handshake (existing behavior)
+- `session_open(run_id: String) -> Result<String, String>` — Start or attach to an interactive HITL session channel
+- `session_send(run_id: String, text: String) -> Result<Unit, String>` — Emit one human-authored CLI line into the active agent run
+- `session_recv(run_id: String) -> Result<String, String>` — Receive one pending agent line/event from the interactive session
+- `session_close(run_id: String) -> Unit` — Close interactive session resources
+- Runtime requirement: when a frontend opens a virtual CLI for an agent run, direct free-text messages MUST be routable to the run even when no `.question` file is pending.
+- Runtime requirement: interactive session messages MUST be represented as `agent.human_message` (or a superseding typed equivalent) in runtime telemetry for auditability.
+
 ---
 
 ## 11. Error Model
