@@ -4972,3 +4972,304 @@ describe("arena GC in std/agent", () => {
     fs.rmSync(ckptDir, { recursive: true });
   });
 });
+
+describe("http_request builtin", () => {
+  it("performs a GET via http_request with empty headers and body", async () => {
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_request("GET", url, "{}", "") {
+          Ok(body) -> body,
+          Err(msg) -> msg
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-req-"));
+    const filePath = path.join(tmpDir, "data.txt");
+    fs.writeFileSync(filePath, "hello from http_request", "utf-8");
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const ptr = (instance.exports.fetch as (u: number) => number)(urlPtr);
+    expect(runtime.readString(ptr)).toBe("hello from http_request");
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  it("rejects http_request without Network effect", () => {
+    const source = `
+      module Test
+      function fetch(url: String) -> String {
+        match http_request("GET", url, "{}", "") {
+          Ok(body) -> body,
+          Err(msg) -> msg
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Network");
+  });
+
+  it("compiles http_request with custom headers JSON", async () => {
+    const source = `
+      module Test
+      effect[Network] function post_it(url: String) -> String {
+        match http_request("POST", url, """{"Content-Type": "application/json"}""", """{"key":"value"}""") {
+          Ok(body) -> body,
+          Err(msg) -> msg
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+});
+
+describe("json_get nested object support", () => {
+  it("returns JSON string for nested object value", async () => {
+    const source = `
+      module Test
+      function get_nested() -> String {
+        match json_get("""{"agent":{"id":"a1","name":"bot"}}""", "agent") {
+          Some(v) -> v,
+          None -> "none"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_nested as () => number)();
+    const val = runtime.readString(ptr);
+    expect(val).toContain("id");
+    expect(val).toContain("a1");
+  });
+});
+
+describe("json_get_path builtin", () => {
+  it("extracts a nested value with dot path", async () => {
+    const source = `
+      module Test
+      function get_id() -> String {
+        match json_get_path("""{"agent":{"agentId":"abc123","name":"bot"}}""", "agent.agentId") {
+          Some(v) -> v,
+          None -> "none"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_id as () => number)();
+    expect(runtime.readString(ptr)).toBe("abc123");
+  });
+
+  it("returns None for a missing path segment", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_get_path("""{"agent":{"name":"bot"}}""", "agent.missing") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+
+  it("returns None for invalid JSON", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_get_path("bad json", "a.b") {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+});
+
+describe("json_array_length builtin", () => {
+  it("returns length of a JSON array", async () => {
+    const source = `
+      module Test
+      function get_len() -> Int64 {
+        json_array_length("""[1,2,3]""")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(Number((instance.exports.get_len as () => bigint)())).toBe(3);
+  });
+
+  it("returns -1 for non-array JSON", async () => {
+    const source = `
+      module Test
+      function check() -> Int64 {
+        json_array_length("""{"a":1}""")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(Number((instance.exports.check as () => bigint)())).toBe(-1);
+  });
+
+  it("returns -1 for invalid JSON", async () => {
+    const source = `
+      module Test
+      function check() -> Int64 {
+        json_array_length("not json")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(Number((instance.exports.check as () => bigint)())).toBe(-1);
+  });
+
+  it("returns 0 for an empty array", async () => {
+    const source = `
+      module Test
+      function check() -> Int64 { json_array_length("[]") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(Number((instance.exports.check as () => bigint)())).toBe(0);
+  });
+});
+
+describe("json_array_get builtin", () => {
+  it("returns element at index as string", async () => {
+    const source = `
+      module Test
+      function get_first() -> String {
+        match json_array_get("""["alpha","beta","gamma"]""", 0) {
+          Some(v) -> v,
+          None -> "none"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_first as () => number)();
+    expect(runtime.readString(ptr)).toBe("alpha");
+  });
+
+  it("returns object elements as JSON strings", async () => {
+    const source = `
+      module Test
+      function get_obj() -> String {
+        match json_array_get("""[{"id":"x1","name":"agent"}]""", 0) {
+          Some(v) -> v,
+          None -> "none"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.get_obj as () => number)();
+    const val = runtime.readString(ptr);
+    expect(val).toContain("id");
+    expect(val).toContain("x1");
+  });
+
+  it("returns None for out-of-bounds index", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_array_get("""["a"]""", 5) {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+
+  it("returns None for non-array input", async () => {
+    const source = `
+      module Test
+      function check() -> Bool {
+        match json_array_get("""{"a":1}""", 0) {
+          Some(_) -> True,
+          None -> False
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.check as () => number)()).toBe(0);
+  });
+});
+
+describe("std/http module", () => {
+  function setupHttpTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    copyStdFile(dir, "http.clarity");
+    return dir;
+  }
+
+  it("imports and compiles get, post_json, get_with_auth from std/http", () => {
+    const dir = setupHttpTest(`
+      module Main
+      import { get, post_json, get_with_auth, post_json_with_auth } from "std/http"
+      effect[Network] function do_get(url: String) -> String {
+        match get(url) { Ok(b) -> b, Err(e) -> e }
+      }
+      effect[Network] function do_post(url: String, body: String) -> String {
+        match post_json(url, body) { Ok(b) -> b, Err(e) -> e }
+      }
+      effect[Network] function do_auth(url: String, tok: String) -> String {
+        match get_with_auth(url, tok) { Ok(b) -> b, Err(e) -> e }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("get_json_field extracts a field from a JSON response", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-field-"));
+    fs.writeFileSync(path.join(tmpDir, "data.json"), '{"status":"ok","version":"1.0"}', "utf-8");
+    const dir = setupHttpTest(`
+      module Main
+      import { get_json_field } from "std/http"
+      effect[Network] function fetch_status(url: String) -> String {
+        match get_json_field(url, "status") {
+          Ok(v) -> v,
+          Err(e) -> e
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const urlPtr = runtime.writeString(`file://${path.join(tmpDir, "data.json")}`);
+    const ptr = (instance.exports.fetch_status as (u: number) => number)(urlPtr);
+    expect(runtime.readString(ptr)).toBe("ok");
+    fs.rmSync(dir, { recursive: true });
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+});
