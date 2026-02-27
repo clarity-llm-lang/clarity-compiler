@@ -61,7 +61,8 @@ True  False  and  or
 |------|--------|---------|
 | Integer | `[0-9]+` | `0`, `42`, `1000000` |
 | Float | `[0-9]+.[0-9]+` | `3.14`, `0.5`, `100.0` |
-| String | `"..."` with `\n`, `\t`, `\\`, `\"` escapes | `"hello"`, `"line\nbreak"` |
+| String | `"..."` with `\n`, `\t`, `\\`, `\"`, `\$` escapes; `${expr}` interpolation | `"hello"`, `"Hi ${name}!"`, `"n=\${int_to_string(n)}"` |
+| Multi-line string | `"""..."""` — leading newline stripped | `"""line1\nline2"""` |
 | Boolean | `True` or `False` | `True`, `False` |
 | List | `[expr, ...]` | `[1, 2, 3]`, `[]` |
 

@@ -93,6 +93,20 @@ b = b + 1;           // reassignment (let mut only)
 a + b                // last expression = return value
 ```
 
+## String literals
+```
+"plain string"
+"escape: \n \t \\ \""
+"Hello ${name}!"                   // interpolation — expr must be String
+"Count: ${int_to_string(n)}"       // call inside interpolation
+"${a} and ${b}"                    // multiple slots
+"Price: \$${int_to_string(n)}"     // \$ escapes the dollar sign
+"""
+multi
+line
+"""
+```
+
 ## Operators
 - Arithmetic: `+` `-` `*` `/` `%`
 - String concat: `++`

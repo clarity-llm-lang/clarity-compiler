@@ -1,4 +1,5 @@
 import { TokenKind, type Token } from "../lexer/tokens.js";
+import { Lexer } from "../lexer/lexer.js";
 import type { Diagnostic, Span } from "../errors/diagnostic.js";
 import { error } from "../errors/diagnostic.js";
 import { unexpectedToken, clarityHint } from "./errors.js";
@@ -30,6 +31,10 @@ export class Parser {
     const mod = this.parseModule();
     return { module: mod, errors: this.errors };
   }
+
+  // For sub-parsers used in interpolation desugaring.
+  parseExprPublic(): Expr { return this.parseExpr(); }
+  getErrors(): Diagnostic[] { return this.errors; }
 
   // ============================================================
   // Module
@@ -418,6 +423,10 @@ export class Parser {
         this.advance();
         return { kind: "StringLiteral", value: tok.value, span: tok.span } as StringLiteral;
       }
+      case TokenKind.InterpolatedString: {
+        this.advance();
+        return this.desugarInterpolation(tok);
+      }
       case TokenKind.True: {
         this.advance();
         return { kind: "BoolLiteral", value: true, span: tok.span } as BoolLiteral;
@@ -475,6 +484,63 @@ export class Parser {
         return { kind: "IdentifierExpr", name: "<error>", span: tok.span } as IdentifierExpr;
       }
     }
+  }
+
+  // Desugar an InterpolatedString token into a chain of ++ BinaryExpr nodes.
+  // "Hello ${name}, count: ${int_to_string(n)}!"
+  // → ("Hello " ++ name) ++ (", count: " ++ (int_to_string(n) ++ "!"))
+  // Empty literal segments become StringLiteral("") and are optimised away.
+  private desugarInterpolation(tok: Token): Expr {
+    const { parts, exprSources } = tok.interpolation!;
+    const span = tok.span;
+
+    // Parse each expression source using a sub-parser
+    const exprs: Expr[] = exprSources.map((src, i) => {
+      const subLexer = new Lexer(src, span.source);
+      const subTokens = subLexer.tokenize();
+      const subParser = new Parser(subTokens, span.source);
+      // Push sub-parser errors into our own error list
+      const exprResult = subParser.parseExprPublic();
+      for (const err of subParser.getErrors()) {
+        const offsetDelta = (tok.interpolation!.exprOffsets[i] ?? 0);
+        // Shift error spans so they point into the original source
+        this.errors.push({
+          ...err,
+          span: {
+            ...err.span,
+            start: { ...err.span.start, offset: err.span.start.offset + offsetDelta },
+            end:   { ...err.span.end,   offset: err.span.end.offset   + offsetDelta },
+          },
+        });
+      }
+      return exprResult;
+    });
+
+    // Build right-associative ++ chain: parts[0] ++ expr[0] ++ parts[1] ++ expr[1] ++ ... ++ parts[n]
+    // We build from right to left for a clean shape.
+    let result: Expr = { kind: "StringLiteral", value: parts[parts.length - 1], span } as StringLiteral;
+
+    for (let i = exprs.length - 1; i >= 0; i--) {
+      // expr[i] ++ rest
+      if ((result as StringLiteral).kind === "StringLiteral" && (result as StringLiteral).value === "") {
+        result = exprs[i];
+      } else {
+        result = {
+          kind: "BinaryExpr", op: "++" as BinaryOp,
+          left: exprs[i], right: result, span,
+        } as BinaryExpr;
+      }
+      // parts[i] ++ (expr[i] ++ rest)
+      if (parts[i] !== "") {
+        result = {
+          kind: "BinaryExpr", op: "++" as BinaryOp,
+          left: { kind: "StringLiteral", value: parts[i], span } as StringLiteral,
+          right: result, span,
+        } as BinaryExpr;
+      }
+    }
+
+    return result;
   }
 
   private parseMatchExpr(): MatchExpr {

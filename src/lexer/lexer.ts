@@ -111,7 +111,11 @@ export class Lexer {
       return this.readTripleQuoteString(startPos, startLine, startCol);
     }
 
-    let value = "";
+    // Scan for interpolation segments. We accumulate literal parts and ${...} exprs.
+    const literalParts: string[] = [];
+    const exprSources: string[] = [];
+    const exprOffsets: number[] = [];
+    let current = "";
 
     while (this.pos < this.source.length && this.source[this.pos] !== '"') {
       if (this.source[this.pos] === "\\") {
@@ -119,17 +123,52 @@ export class Lexer {
         if (this.pos < this.source.length) {
           const escaped = this.source[this.pos];
           switch (escaped) {
-            case "n": value += "\n"; break;
-            case "t": value += "\t"; break;
-            case "\\": value += "\\"; break;
-            case '"': value += '"'; break;
+            case "n": current += "\n"; break;
+            case "t": current += "\t"; break;
+            case "\\": current += "\\"; break;
+            case '"': current += '"'; break;
+            case "$": current += "$"; break; // \$ escapes the dollar sign
             default:
-              value += "\\" + escaped;
+              current += "\\" + escaped;
           }
           this.advance();
         }
+      } else if (
+        this.source[this.pos] === "$" &&
+        this.pos + 1 < this.source.length &&
+        this.source[this.pos + 1] === "{"
+      ) {
+        // Start of interpolation: ${ expr }
+        this.advance(); // skip $
+        this.advance(); // skip {
+        literalParts.push(current);
+        current = "";
+
+        const exprStart = this.pos;
+        exprOffsets.push(exprStart);
+
+        // Collect source until matching }, handling nested braces
+        let depth = 1;
+        let exprSrc = "";
+        while (this.pos < this.source.length && depth > 0) {
+          const ch = this.source[this.pos];
+          if (ch === "{") {
+            depth++;
+            exprSrc += ch;
+          } else if (ch === "}") {
+            depth--;
+            if (depth > 0) exprSrc += ch;
+          } else {
+            exprSrc += ch;
+          }
+          this.advance();
+        }
+        if (depth !== 0) {
+          return this.makeToken(TokenKind.Error, "Unterminated interpolation in string literal", startPos, startLine, startCol);
+        }
+        exprSources.push(exprSrc.trim());
       } else {
-        value += this.source[this.pos];
+        current += this.source[this.pos];
         this.advance();
       }
     }
@@ -139,7 +178,17 @@ export class Lexer {
     }
 
     this.advance(); // skip closing "
-    return this.makeToken(TokenKind.StringLiteral, value, startPos, startLine, startCol);
+    literalParts.push(current);
+
+    // Plain string — no interpolation segments
+    if (exprSources.length === 0) {
+      return this.makeToken(TokenKind.StringLiteral, literalParts[0], startPos, startLine, startCol);
+    }
+
+    // Interpolated string
+    const tok = this.makeToken(TokenKind.InterpolatedString, literalParts.join("${...}"), startPos, startLine, startCol);
+    tok.interpolation = { parts: literalParts, exprSources, exprOffsets };
+    return tok;
   }
 
   private readTripleQuoteString(startPos: number, startLine: number, startCol: number): Token {
