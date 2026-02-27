@@ -198,6 +198,14 @@ export function getBuiltins(): BuiltinDef[] {
     // stream_close(handle: i64) → String as i32 pointer (empty = ok, non-empty = error)
     { name: "stream_close", importModule: "env", importName: "stream_close", params: i64, result: i32 },
 
+    // --- SSE client ---
+    // sse_connect(url, headers_json) → Result<Int64, String> as i32 pointer
+    { name: "sse_connect", importModule: "env", importName: "sse_connect", params: binaryen.createType([i32, i32]), result: i32 },
+    // sse_next_event(handle: i64) → Option<String> as i32 pointer
+    { name: "sse_next_event", importModule: "env", importName: "sse_next_event", params: i64, result: i32 },
+    // sse_close(handle: i64) → void
+    { name: "sse_close", importModule: "env", importName: "sse_close", params: i64, result: none },
+
     // --- MCP operations ---
     // mcp_connect(url) → Result<Int64, String> as i32 pointer
     { name: "mcp_connect", importModule: "env", importName: "mcp_connect", params: i32, result: i32 },

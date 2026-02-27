@@ -1,0 +1,53 @@
+// std/sse — Server-Sent Events (SSE) client for Clarity
+//
+// Ergonomic wrappers around the sse_connect / sse_next_event / sse_close
+// built-in primitives for consuming runtime event streams.
+//
+// All functions require the Network effect.
+//
+// Typical usage:
+//   import { connect_auth, next_event, close } from "std/sse"
+//
+//   match connect_auth(url, token) {
+//     Ok(h) -> handle_stream(h),
+//     Err(e) -> print_string("connect failed: " ++ e)
+//   }
+//
+//   effect[Network] function handle_stream(h: Int64) -> Unit {
+//     match next_event(h) {
+//       Some(data) -> { process(data); handle_stream(h) },
+//       None       -> close(h)
+//     }
+//   }
+
+module SSE
+
+// Open an SSE stream (no auth).
+// Returns Ok(handle) on success, Err(message) on connection failure.
+export effect[Network] function connect(url: String) -> Result<Int64, String> {
+  sse_connect(url, "{}")
+}
+
+// Open an SSE stream with a Bearer auth token.
+// Returns Ok(handle) on success, Err(message) on connection failure.
+export effect[Network] function connect_auth(url: String, token: String) -> Result<Int64, String> {
+  sse_connect(url, "{\"Authorization\":\"Bearer " ++ token ++ "\"}")
+}
+
+// Open an SSE stream with arbitrary headers (headers_json is a JSON object string).
+// Returns Ok(handle) on success, Err(message) on connection failure.
+export effect[Network] function connect_headers(url: String, headers_json: String) -> Result<Int64, String> {
+  sse_connect(url, headers_json)
+}
+
+// Read the next event from an SSE stream.
+// Blocks until an event arrives.
+// Returns Some(data) with the raw data payload, or None when the stream ends.
+export effect[Network] function next_event(handle: Int64) -> Option<String> {
+  sse_next_event(handle)
+}
+
+// Close an SSE stream and release its resources.
+export effect[Network] function close(handle: Int64) -> Unit {
+  sse_close(handle)
+}

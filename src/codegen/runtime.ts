@@ -225,6 +225,99 @@ if (body) req.write(body);
 req.end();
 `;
 
+// SSE Worker: opens an SSE GET stream and pushes raw data payloads via SAB.
+// Uses the same STATUS_IDLE/TOKEN/DONE/ERROR handshake as _STREAM_WORKER_CODE.
+const _SSE_WORKER_CODE = `
+const { workerData } = require('worker_threads');
+const https = require('https');
+const http = require('http');
+const {
+  sab, url, reqHeaders,
+  tokenOffset, errorOffset, maxToken, maxError,
+} = workerData;
+
+const ctrl = new Int32Array(sab, 0, 1);
+const meta = new DataView(sab);
+const STATUS_IDLE = 0, STATUS_TOKEN = 1, STATUS_DONE = 2, STATUS_ERROR = 3;
+
+function putToken(token) {
+  if (!token) return;
+  Atomics.wait(ctrl, 0, STATUS_TOKEN);
+  const encoded = Buffer.from(token, 'utf8');
+  const len = Math.min(encoded.length, maxToken);
+  meta.setInt32(4, len, true);
+  new Uint8Array(sab, tokenOffset, len).set(encoded.subarray(0, len));
+  Atomics.store(ctrl, 0, STATUS_TOKEN);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+function putError(msg) {
+  let safety = 0;
+  while (Atomics.load(ctrl, 0) === STATUS_TOKEN && safety++ < 200) {
+    Atomics.wait(ctrl, 0, STATUS_TOKEN, 50);
+  }
+  const encoded = Buffer.from(String(msg).slice(0, maxError), 'utf8');
+  meta.setInt32(8, encoded.length, true);
+  new Uint8Array(sab, errorOffset, encoded.length).set(encoded);
+  Atomics.store(ctrl, 0, STATUS_ERROR);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+function putDone() {
+  let safety = 0;
+  while (Atomics.load(ctrl, 0) === STATUS_TOKEN && safety++ < 200) {
+    Atomics.wait(ctrl, 0, STATUS_TOKEN, 50);
+  }
+  Atomics.store(ctrl, 0, STATUS_DONE);
+  Atomics.notify(ctrl, 0, 1);
+}
+
+let urlObj;
+try { urlObj = new URL(url); } catch(e) { putError('Invalid URL: ' + url); }
+const mod = urlObj.protocol === 'https:' ? https : http;
+const reqOpts = {
+  hostname: urlObj.hostname,
+  port: urlObj.port ? parseInt(urlObj.port) : (urlObj.protocol === 'https:' ? 443 : 80),
+  path: (urlObj.pathname || '/') + (urlObj.search || ''),
+  method: 'GET',
+  headers: Object.assign({ 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' }, reqHeaders || {}),
+  timeout: 300000,
+};
+const req = mod.request(reqOpts, function(res) {
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    let errBody = '';
+    res.on('data', function(c) { errBody += c.toString('utf8'); });
+    res.on('end', function() { putError('HTTP ' + res.statusCode + ': ' + errBody.slice(0, 200)); });
+    return;
+  }
+  let remainder = '';
+  res.on('data', function(chunk) {
+    const text = remainder + chunk.toString('utf8');
+    const lines = text.split('\\n');
+    remainder = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(':')) continue; // skip empty / comment lines
+      if (trimmed.startsWith('data:')) {
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') { putDone(); return; }
+        if (data) putToken(data);
+      }
+      // Ignore event:, id:, retry: fields — only data matters for Clarity callers
+    }
+  });
+  res.on('end', function() {
+    if (remainder.trim().startsWith('data:')) {
+      const data = remainder.trim().slice(5).trim();
+      if (data && data !== '[DONE]') putToken(data);
+    }
+    putDone();
+  });
+});
+req.on('error', function(e) { putError(e.message); });
+req.end();
+`;
+
 function syncHttpRequest(opts: {
   url: string;
   method?: string;
@@ -492,6 +585,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
   interface StreamSession { sab: SharedArrayBuffer; ctrl: Int32Array; worker: import("node:worker_threads").Worker; lastError?: string; }
   const streamSessions = new Map<number, StreamSession>();
   let nextStreamHandle = 1;
+
+  // SSE session table: handle → { sab, ctrl, worker, lastError? }
+  // Uses the same SharedArrayBuffer layout as stream sessions.
+  const sseSessions = new Map<number, StreamSession>();
+  let nextSseHandle = 1;
 
   // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
   function allocOptionI32(value: number | null): number {
@@ -2604,6 +2702,77 @@ export function createRuntime(config: RuntimeConfig = {}) {
         session.worker.terminate();
         streamSessions.delete(handle);
         return writeString(session.lastError ?? "");
+      },
+
+      // -----------------------------------------------------------------------
+      // SSE client — pull-based Server-Sent Events streaming
+      // -----------------------------------------------------------------------
+
+      sse_connect(urlPtr: number, headersPtr: number): number {
+        const url = readString(urlPtr);
+        const headersJson = readString(headersPtr);
+        const effectErr = policyCheckEffect("Network");
+        if (effectErr) return allocResultI64(false, 0n, writeString(effectErr));
+        const urlErr = policyCheckUrl(url);
+        if (urlErr) return allocResultI64(false, 0n, writeString(urlErr));
+        try {
+          let reqHeaders: Record<string, string> = {};
+          if (headersJson && headersJson !== "{}") {
+            try { reqHeaders = JSON.parse(headersJson); } catch (_) { /* ignore bad headers */ }
+          }
+          const sab = new SharedArrayBuffer(STREAM_SAB_SIZE);
+          const worker = new Worker(_SSE_WORKER_CODE, {
+            eval: true,
+            workerData: {
+              sab,
+              url,
+              reqHeaders,
+              tokenOffset: STREAM_TOKEN_OFFSET,
+              errorOffset: STREAM_ERROR_OFFSET,
+              maxToken: STREAM_MAX_TOKEN,
+              maxError: STREAM_MAX_ERROR,
+            },
+          });
+          const handle = nextSseHandle++;
+          sseSessions.set(handle, { sab, ctrl: new Int32Array(sab, 0, 1), worker });
+          return allocResultI64(true, BigInt(handle));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultI64(false, 0n, writeString(msg));
+        }
+      },
+
+      sse_next_event(handleN: bigint): number {
+        const handle = Number(handleN);
+        const session = sseSessions.get(handle);
+        if (!session) return allocOptionI32(null);
+        const { ctrl, sab } = session;
+        Atomics.wait(ctrl, 0, 0 /* STATUS_IDLE */, 300000);
+        const status = Atomics.load(ctrl, 0);
+        if (status === 2 /* DONE */ || status === 3 /* ERROR */) {
+          if (status === 3) {
+            const meta = new DataView(sab);
+            const errLen = meta.getInt32(8, true);
+            const errBytes = new Uint8Array(sab, STREAM_ERROR_OFFSET, errLen);
+            session.lastError = Buffer.from(errBytes).toString("utf-8");
+          }
+          return allocOptionI32(null);
+        }
+        const meta = new DataView(sab);
+        const tokenLen = meta.getInt32(4, true);
+        const tokenBytes = new Uint8Array(sab, STREAM_TOKEN_OFFSET, tokenLen);
+        const event = Buffer.from(tokenBytes).toString("utf-8");
+        Atomics.store(ctrl, 0, 0 /* STATUS_IDLE */);
+        Atomics.notify(ctrl, 0, 1);
+        return allocOptionI32(writeString(event));
+      },
+
+      sse_close(handleN: bigint): void {
+        const handle = Number(handleN);
+        const session = sseSessions.get(handle);
+        if (!session) return;
+        session.worker.terminate();
+        sseSessions.delete(handle);
       },
     },
   };

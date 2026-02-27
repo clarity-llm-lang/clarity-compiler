@@ -2126,6 +2126,107 @@ describe("Standard library (std/)", () => {
   });
 });
 
+describe("Lambda expressions", () => {
+  it("zero-parameter lambda passed as HOF", async () => {
+    const source = `
+      module Test
+      function call_it(f: () -> Int64) -> Int64 { f() }
+      function test() -> Int64 { call_it(|| 42) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("single-param lambda with map", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 { apply(|x: Int64| x * 2, 21) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("two-param lambda", async () => {
+    const source = `
+      module Test
+      function apply2(f: (Int64, Int64) -> Int64, a: Int64, b: Int64) -> Int64 { f(a, b) }
+      function test() -> Int64 { apply2(|a: Int64, b: Int64| a + b, 10, 32) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("lambda with string param passed to map", async () => {
+    const source = `
+      module Test
+      function apply_str(f: (String) -> String, s: String) -> String { f(s) }
+      function test(s: String) -> String { apply_str(|x: String| x ++ "!", s) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.test as (p: number) => number;
+    expect(runtime.readString(fn(runtime.writeString("hello")))).toBe("hello!");
+  });
+
+  it("lambda with std/list map", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-lambda-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { map } from "std/list"
+      function test() -> Int64 {
+        let nums = append(append(append([], 1), 2), 3);
+        let doubled = map(nums, |x: Int64| x * 2);
+        head(doubled)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("lambda with std/list filter", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-lambda-filter-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { filter, size } from "std/list"
+      function test() -> Int64 {
+        let nums = append(append(append(append([], 1), 2), 3), 4);
+        let evens = filter(nums, |x: Int64| x % 2 == 0);
+        size(evens)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("multiple lambdas in same function get distinct indices", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 {
+        let a = apply(|x: Int64| x + 1, 10);
+        let b = apply(|x: Int64| x * 3, 4);
+        a + b
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(23n); // (10+1) + (4*3)
+  });
+});
+
 describe("String interpolation", () => {
   it("interpolates a simple variable", async () => {
     const source = `
@@ -5377,6 +5478,237 @@ describe("arena GC in std/agent", () => {
   });
 });
 
+// =============================================================================
+// std/cli module
+// =============================================================================
+
+describe("std/cli module", () => {
+  it("flag() extracts --name value from args", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { flag } from "std/cli"
+      function test() -> String {
+        let args = append(append(append([], "--token"), "abc123"), "--other");
+        match flag(args, "token") {
+          Some(v) -> v,
+          None    -> "missing"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("abc123");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("flag() returns None when flag is absent", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { flag } from "std/cli"
+      function test() -> String {
+        let args = append([], "--other");
+        match flag(args, "token") {
+          Some(v) -> v,
+          None    -> "missing"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("missing");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("flag_or() returns default when flag is absent", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { flag_or } from "std/cli"
+      function test() -> String {
+        let args = append([], "--other");
+        flag_or(args, "token", "default_tok")
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("default_tok");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("has_flag() detects boolean flag", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { has_flag } from "std/cli"
+      function test() -> Bool {
+        let args = append(append([], "chat"), "--verbose");
+        has_flag(args, "verbose")
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => number)()).toBe(1);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("command() returns first non-flag argument", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { command } from "std/cli"
+      function test() -> String {
+        let args = append(append(append([], "runtime-chat"), "http://host"), "--token");
+        match command(args) {
+          Some(c) -> c,
+          None    -> "none"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("runtime-chat");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("positional() gets nth non-flag argument", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { positional } from "std/cli"
+      function test() -> String {
+        let args = append(append(append(append([], "chat"), "http://host"), "--token"), "http://second");
+        match positional(args, 1) {
+          Some(v) -> v,
+          None    -> "none"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("http://host");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("flag_int_or() parses integer flag value", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-cli-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { flag_int_or } from "std/cli"
+      function test() -> Int64 {
+        let args = append(append([], "--poll-ms"), "500");
+        flag_int_or(args, "poll-ms", 1000)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(500n);
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+// =============================================================================
+// std/json module
+// =============================================================================
+
+describe("std/json module", () => {
+  it("get() extracts top-level scalar", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-json-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { get } from "std/json"
+      function test() -> String {
+        let body = "{\\"status\\":\\"ok\\",\\"code\\":\\"42\\"}";
+        match get(body, "status") {
+          Some(v) -> v,
+          None    -> "missing"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("ok");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("get_nested() extracts deep value by dot path", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-json-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { get_nested } from "std/json"
+      function test() -> String {
+        let body = "{\\"user\\":{\\"name\\":\\"Alice\\"}}";
+        match get_nested(body, "user.name") {
+          Some(v) -> v,
+          None    -> "missing"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe("Alice");
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("arr_len() counts elements in a JSON array", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-json-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { arr_len } from "std/json"
+      function test() -> Int64 {
+        let arr = "[\\"a\\",\\"b\\",\\"c\\"]";
+        arr_len(arr)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(3n);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("obj_keys() lists top-level keys", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-json-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { obj_keys } from "std/json"
+      import { size } from "std/list"
+      function test() -> Int64 {
+        let json = "{\\"a\\":\\"1\\",\\"b\\":\\"2\\",\\"c\\":\\"3\\"}";
+        size(obj_keys(json))
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(3n);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("quote() wraps string in JSON quotes with escaping", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-json-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { quote } from "std/json"
+      function test() -> String {
+        quote("hello")
 describe("http_request builtin", () => {
   it("performs a GET via http_request with empty headers and body", async () => {
     const source = `
@@ -5650,6 +5982,42 @@ describe("std/http module", () => {
     `);
     const result = compileFile(path.join(dir, "main.clarity"));
     expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const ptr = (instance.exports.test as () => number)();
+    expect(runtime.readString(ptr)).toBe('"hello"');
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+// =============================================================================
+// SSE builtins (compile-check + smoke test)
+// =============================================================================
+
+describe("SSE builtins", () => {
+  it("sse_connect compiles without errors", async () => {
+    const source = `
+      module Test
+      effect[Network] function test() -> String {
+        match sse_connect("http://127.0.0.1:19999/sse", "{}") {
+          Ok(_)  -> "connected",
+          Err(e) -> "failed"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("std/sse connect_auth compiles without errors", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-sse-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { connect_auth } from "std/sse"
+      effect[Network] function test() -> String {
+        match connect_auth("http://127.0.0.1:19999/events", "tok") {
+          Ok(_)  -> "ok",
+          Err(_) -> "err"
     expect(result.wasm).toBeDefined();
     fs.rmSync(dir, { recursive: true });
   });
@@ -5669,6 +6037,7 @@ describe("std/http module", () => {
     `);
     const result = compileFile(path.join(dir, "main.clarity"));
     expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
     const { instance, runtime } = await instantiate(result.wasm!);
     const urlPtr = runtime.writeString(`file://${path.join(tmpDir, "data.json")}`);
     const ptr = (instance.exports.fetch_status as (u: number) => number)(urlPtr);

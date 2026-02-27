@@ -44,6 +44,10 @@ export class CodeGenerator {
   private functionTableNames: string[] = [];
   private functionTableIndices: Map<string, number> = new Map();
 
+  // Lambda lifting — lambdas collected during codegen, emitted after all named functions
+  private lambdaCounter: number = 0;
+  private pendingLambdas: Array<{ name: string; expr: import("../ast/nodes.js").LambdaExpr }> = [];
+
   // Monomorphization tracking for generic functions
   private generatedMonomorphs: Set<string> = new Set();
 
@@ -63,6 +67,8 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.lambdaCounter = 0;
+    this.pendingLambdas = [];
     this.typeVarSubst = new Map();
 
     this.setupModule(module);
@@ -86,6 +92,8 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.lambdaCounter = 0;
+    this.pendingLambdas = [];
 
     this.setupModule(module);
 
@@ -105,6 +113,8 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.lambdaCounter = 0;
+    this.pendingLambdas = [];
 
     this.setupModuleMulti(allModules, entryModule);
 
@@ -128,6 +138,8 @@ export class CodeGenerator {
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
     this.generatedMonomorphs = new Set();
+    this.lambdaCounter = 0;
+    this.pendingLambdas = [];
 
     this.setupModuleMulti(allModules, entryModule);
 
@@ -434,6 +446,9 @@ export class CodeGenerator {
       case "RecordLiteral":
         for (const field of expr.fields) this.scanExprForStrings(field.value);
         break;
+      case "LambdaExpr":
+        this.scanExprForStrings(expr.body);
+        break;
     }
   }
 
@@ -562,6 +577,52 @@ export class CodeGenerator {
   // ============================================================
   // Function Generation
   // ============================================================
+
+  // Lambda lifting: emit the lambda body as a top-level WASM function,
+  // register it in the function table, and return its table index as an i32.const.
+  private liftLambda(lambda: import("../ast/nodes.js").LambdaExpr): binaryen.ExpressionRef {
+    const name = `__lambda_${this.lambdaCounter++}`;
+    lambda.liftedName = name;
+
+    // Save caller's local state
+    const savedFunction = this.currentFunction;
+    const savedLocals = this.locals;
+    const savedLocalIndex = this.localIndex;
+    const savedAdditionalLocals = this.additionalLocals;
+
+    // Set up fresh local frame for the lambda body
+    this.locals = new Map();
+    this.localIndex = 0;
+    this.additionalLocals = [];
+
+    const paramWasmTypes: binaryen.Type[] = [];
+    for (const param of lambda.params) {
+      const ct = this.checker.resolveTypeRef(param.typeAnnotation) ?? { kind: "Error" } as ClarityType;
+      const wasmType = clarityTypeToWasm(ct);
+      this.locals.set(param.name, { index: this.localIndex, wasmType, clarityType: ct });
+      paramWasmTypes.push(wasmType);
+      this.localIndex++;
+    }
+
+    const returnType = this.inferExprType(lambda.body);
+    const returnWasmType = clarityTypeToWasm(returnType);
+    const body = this.generateExpr(lambda.body, returnType);
+
+    this.mod.addFunction(name, binaryen.createType(paramWasmTypes), returnWasmType, this.additionalLocals, body);
+
+    // Register in function table so it can be used with call_indirect
+    const tableIndex = this.functionTableNames.length;
+    this.functionTableIndices.set(name, tableIndex);
+    this.functionTableNames.push(name);
+
+    // Restore caller's local state
+    this.currentFunction = savedFunction;
+    this.locals = savedLocals;
+    this.localIndex = savedLocalIndex;
+    this.additionalLocals = savedAdditionalLocals;
+
+    return this.mod.i32.const(tableIndex);
+  }
 
   private generateFunction(decl: FunctionDecl): void {
     this.currentFunction = decl;
@@ -1088,6 +1149,9 @@ export class CodeGenerator {
       case "MemberExpr":
         return this.generateMemberAccess(expr);
 
+      case "LambdaExpr":
+        return this.liftLambda(expr);
+
       default:
         throw new Error(`Unsupported expression kind in codegen: ${(expr as any).kind}`);
     }
@@ -1313,7 +1377,11 @@ export class CodeGenerator {
         const elemArg = this.generateExpr(expr.args[1].value);
         const listType = this.inferExprType(expr.args[0].value);
         if (listType.kind !== "List") return null;
-        const elemKind = listType.element.kind;
+        // If element type is Error (e.g. empty list literal []), infer from the element argument
+        const elemType = listType.element.kind === "Error"
+          ? this.inferExprType(expr.args[1].value)
+          : listType.element;
+        const elemKind = elemType.kind;
         if (elemKind === "Int64" || elemKind === "Float64") {
           return this.mod.call("list_append_i64", [listArg, elemArg], binaryen.i32);
         }
@@ -2389,6 +2457,10 @@ export class CodeGenerator {
       stream_start: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
       stream_next: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       stream_close: { kind: "String" } as ClarityType,
+      // SSE client
+      sse_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
+      sse_next_event: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      sse_close: UNIT,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

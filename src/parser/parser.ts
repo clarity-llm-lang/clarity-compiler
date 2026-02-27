@@ -10,7 +10,7 @@ import type {
   Expr, BinaryOp, UnaryOp, CallArg, MatchArm,
   Pattern, PatternField,
   BlockExpr, LetExpr, AssignmentExpr, MatchExpr, BinaryExpr, UnaryExpr,
-  CallExpr, MemberExpr, IdentifierExpr,
+  CallExpr, MemberExpr, IdentifierExpr, LambdaExpr,
   IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, ListLiteral,
   RecordLiteral, RecordFieldInit,
   ConstructorPattern, BindingPattern, WildcardPattern, LiteralPattern,
@@ -471,6 +471,10 @@ export class Parser {
         }
         return { kind: "IdentifierExpr", name: tok.value, span: tok.span } as IdentifierExpr;
       }
+      case TokenKind.Pipe:
+        // Lambda expression: |param: Type, ...| body
+        return this.parseLambda();
+
       default: {
         // Check for helpful hint before generic error
         const hint = clarityHint(tok);
@@ -484,6 +488,29 @@ export class Parser {
         return { kind: "IdentifierExpr", name: "<error>", span: tok.span } as IdentifierExpr;
       }
     }
+  }
+
+  // Parse a lambda expression: |param: Type, param2: Type| body_expr
+  // Zero-parameter lambdas: || body_expr
+  // No closures — lambdas may not reference variables from the enclosing scope.
+  private parseLambda(): LambdaExpr {
+    const start = this.peek();
+    this.expect(TokenKind.Pipe); // opening |
+    const params: import("../ast/nodes.js").Parameter[] = [];
+
+    while (this.peek().kind !== TokenKind.Pipe && !this.isAtEnd()) {
+      const paramStart = this.peek();
+      const name = this.expectIdent();
+      this.expect(TokenKind.Colon);
+      const typeAnnotation = this.parseTypeRef();
+      params.push({ kind: "Parameter", name, typeAnnotation, span: paramStart.span });
+      if (this.peek().kind === TokenKind.Comma) this.advance();
+    }
+
+    this.expect(TokenKind.Pipe); // closing |
+    const body = this.parseExpr();
+    const span = { ...start.span, end: body.span.end };
+    return { kind: "LambdaExpr", params, body, span } as LambdaExpr;
   }
 
   // Desugar an InterpolatedString token into a chain of ++ BinaryExpr nodes.

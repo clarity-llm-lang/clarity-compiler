@@ -1296,6 +1296,35 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "model",
   },
 
+  // --- SSE client (require Network effect) ---
+  {
+    name: "sse_connect",
+    params: [STRING, STRING],
+    paramNames: ["url", "headers_json"],
+    returnType: { kind: "Result", ok: INT64, err: STRING } as ClarityType,
+    effects: ["Network"],
+    doc: "Open a Server-Sent Events (SSE) stream. `headers_json` is a JSON object of extra request headers, e.g. {\"Authorization\":\"Bearer tok\"} or \"{}\" for none. Returns Ok(handle) on success or Err(message) on connection failure. Use sse_next_event(handle) to read events one at a time, and sse_close(handle) when done.",
+    category: "network",
+  },
+  {
+    name: "sse_next_event",
+    params: [INT64],
+    paramNames: ["handle"],
+    returnType: OPTION_STRING,
+    effects: ["Network"],
+    doc: "Read the next event from an SSE stream. Blocks until an event arrives. Returns Some(data) with the raw data payload of the event, or None when the stream ends or connection is closed. The data value is the raw text after 'data:' in the SSE frame (typically JSON). Call sse_close(handle) after None is returned.",
+    category: "network",
+  },
+  {
+    name: "sse_close",
+    params: [INT64],
+    paramNames: ["handle"],
+    returnType: UNIT,
+    effects: ["Network"],
+    doc: "Close an SSE stream handle and release its resources. Safe to call after the stream has ended.",
+    category: "network",
+  },
+
   // --- MCP operations (require MCP effect) ---
   {
     name: "mcp_connect",
