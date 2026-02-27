@@ -1,0 +1,169 @@
+// std/cli — CLI argument parsing helpers for Clarity
+//
+// Utilities for multi-command CLIs that parse --flag value pairs,
+// boolean flags, and positional arguments from get_args().
+//
+// Quick start:
+//   import { command, flag, flag_or, has_flag, positional } from "std/cli"
+//
+//   // For: my-tool runtime-chat http://localhost:3000 --token abc123
+//   let args = get_args();
+//   let cmd  = command(args);               // Some("runtime-chat")
+//   let url  = positional(args, 0);         // Some("http://localhost:3000")
+//   let tok  = flag(args, "token");         // Some("abc123")
+//   let verb = has_flag(args, "verbose");   // False
+//
+// Notes:
+//   • flag() and has_flag() look for exact --name matches.
+//   • positional(n) counts non-flag arguments in order; the subcommand
+//     returned by command() is positional(0).
+//   • flag values (the word immediately after --name) are skipped when
+//     counting positionals only if the next word doesn't itself start with --.
+
+module CLI
+
+import { starts_with } from "std/string"
+
+// ---------------------------------------------------------------------------
+// Flag access
+// ---------------------------------------------------------------------------
+
+// Find the value of --name in an args list.
+// Returns Some(value) when found, None when the flag is absent.
+// Example: flag(get_args(), "token") for ["--token", "abc"] → Some("abc")
+export function flag(args: List<String>, name: String) -> Option<String> {
+  flag_impl(args, "--" ++ name)
+}
+
+function flag_impl(args: List<String>, target: String) -> Option<String> {
+  match is_empty(args) {
+    True  -> None,
+    False -> {
+      let h    = head(args);
+      let rest = tail(args);
+      match h == target {
+        True  -> match is_empty(rest) {
+          True  -> None,
+          False -> Some(head(rest))
+        },
+        False -> flag_impl(rest, target)
+      }
+    }
+  }
+}
+
+// Get --name value or a default string when the flag is absent.
+export function flag_or(args: List<String>, name: String, default_val: String) -> String {
+  match flag(args, name) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}
+
+// Get --name value as Int64. Returns None when absent or not a valid integer.
+export function flag_int(args: List<String>, name: String) -> Option<Int64> {
+  match flag(args, name) {
+    Some(v) -> string_to_int(v),
+    None    -> None
+  }
+}
+
+// Get --name value as Int64, or a default when absent or not a valid integer.
+export function flag_int_or(args: List<String>, name: String, default_val: Int64) -> Int64 {
+  match flag_int(args, name) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}
+
+// Check whether the boolean flag --name is present (flag with no value).
+export function has_flag(args: List<String>, name: String) -> Bool {
+  has_flag_impl(args, "--" ++ name)
+}
+
+function has_flag_impl(args: List<String>, target: String) -> Bool {
+  match is_empty(args) {
+    True  -> False,
+    False -> match head(args) == target {
+      True  -> True,
+      False -> has_flag_impl(tail(args), target)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Positional / subcommand access
+// ---------------------------------------------------------------------------
+
+// Get the subcommand: the first argument that does not start with "--".
+// Returns None when all arguments are flags.
+// Example: command(["runtime-chat", "--token", "x"]) → Some("runtime-chat")
+export function command(args: List<String>) -> Option<String> {
+  command_impl(args)
+}
+
+function command_impl(args: List<String>) -> Option<String> {
+  match is_empty(args) {
+    True  -> None,
+    False -> {
+      let h = head(args);
+      match starts_with(h, "--") {
+        True  -> command_impl(tail(args)),
+        False -> Some(h)
+      }
+    }
+  }
+}
+
+// Get the nth positional argument (0-based), skipping flags.
+// The subcommand itself is positional 0.
+// A "--name value" pair: the name is skipped and the value is also skipped so
+// it is not counted as a positional (unless it starts with "--").
+// Example: positional(["chat", "http://host", "--token", "x"], 1) → Some("http://host")
+export function positional(args: List<String>, n: Int64) -> Option<String> {
+  positional_impl(args, n, 0)
+}
+
+function positional_impl(args: List<String>, target: Int64, current: Int64) -> Option<String> {
+  match is_empty(args) {
+    True  -> None,
+    False -> {
+      let h    = head(args);
+      let rest = tail(args);
+      match starts_with(h, "--") {
+        True  -> positional_impl(skip_flag_value(rest), target, current),
+        False -> match current == target {
+          True  -> Some(h),
+          False -> positional_impl(rest, target, current + 1)
+        }
+      }
+    }
+  }
+}
+
+// Skip the next element if it looks like a flag value (doesn't start with --).
+function skip_flag_value(args: List<String>) -> List<String> {
+  match is_empty(args) {
+    True  -> args,
+    False -> match starts_with(head(args), "--") {
+      True  -> args,
+      False -> tail(args)
+    }
+  }
+}
+
+// Convenience: get first positional (the subcommand) as a String, or "".
+export function command_or(args: List<String>, default_val: String) -> String {
+  match command(args) {
+    Some(c) -> c,
+    None    -> default_val
+  }
+}
+
+// Convenience: get positional n as a String, or default_val if absent.
+export function positional_or(args: List<String>, n: Int64, default_val: String) -> String {
+  match positional(args, n) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}

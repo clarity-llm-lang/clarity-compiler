@@ -2453,6 +2453,10 @@ export class CodeGenerator {
       stream_start: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
       stream_next: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       stream_close: { kind: "String" } as ClarityType,
+      // SSE client
+      sse_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
+      sse_next_event: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      sse_close: UNIT,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

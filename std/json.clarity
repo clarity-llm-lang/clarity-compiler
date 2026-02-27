@@ -1,0 +1,109 @@
+// std/json — Structured JSON helpers for Clarity
+//
+// Ergonomic wrappers around the json_get / json_get_nested / json_array_*
+// built-in primitives for working with nested JSON objects and arrays.
+//
+// Quick start:
+//   import { get, get_or, get_nested, arr_len, arr_get, obj_keys } from "std/json"
+//
+//   let body = "{\"status\":\"ok\",\"user\":{\"id\":42,\"name\":\"Alice\"}}"
+//   get(body, "status")          // Some("ok")
+//   get_or(body, "status", "?")  // "ok"
+//   get_nested(body, "user.name")// Some("Alice")
+//
+//   let arr = "[\"a\",\"b\",\"c\"]"
+//   arr_len(arr)                 // 3
+//   arr_get(arr, 0)              // Some("a")
+
+module JSON
+
+// ---------------------------------------------------------------------------
+// Object access
+// ---------------------------------------------------------------------------
+
+// Get a scalar value from a top-level JSON key.
+// Returns Some(value) when the key exists and holds a scalar, None otherwise.
+export function get(json: String, key: String) -> Option<String> {
+  json_get(json, key)
+}
+
+// Get a top-level scalar value, returning default_val when absent.
+export function get_or(json: String, key: String, default_val: String) -> String {
+  match json_get(json, key) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}
+
+// Get a value using a dot-separated path into nested objects/arrays.
+// Array elements are accessed by numeric index, e.g. "items.0.name".
+// Returns Some(value) as a plain scalar or JSON-encoded sub-object.
+export function get_nested(json: String, path: String) -> Option<String> {
+  json_get_nested(json, path)
+}
+
+// Get a nested value, returning default_val when the path is absent.
+export function get_nested_or(json: String, path: String, default_val: String) -> String {
+  match json_get_nested(json, path) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}
+
+// List all top-level keys of a JSON object.
+// Returns an empty list when json is not a valid object.
+export function obj_keys(json: String) -> List<String> {
+  match json_keys(json) {
+    Some(ks) -> ks,
+    None     -> []
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Array access
+// ---------------------------------------------------------------------------
+
+// Number of elements in a JSON array. Returns 0 for non-array or invalid JSON.
+export function arr_len(json: String) -> Int64 {
+  match json_array_length(json) {
+    Some(n) -> n,
+    None    -> 0
+  }
+}
+
+// Get the element at index i from a JSON array (0-based).
+// Returns Some(element_json) or None if out of bounds or not an array.
+export function arr_get(json: String, i: Int64) -> Option<String> {
+  json_array_get(json, i)
+}
+
+// Get the element at index i, returning default_val when absent.
+export function arr_get_or(json: String, i: Int64, default_val: String) -> String {
+  match json_array_get(json, i) {
+    Some(v) -> v,
+    None    -> default_val
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Building JSON
+// ---------------------------------------------------------------------------
+
+// Escape a string value for embedding inside a JSON string literal.
+// The result does NOT include surrounding quotes.
+// Example: escape("say \"hi\"") → say \"hi\"
+export function escape(s: String) -> String {
+  json_escape_string(s)
+}
+
+// Wrap a string as a JSON string literal (adds surrounding quotes and escapes).
+// Example: quote("hello") → "\"hello\""
+export function quote(s: String) -> String {
+  "\"" ++ json_escape_string(s) ++ "\""
+}
+
+// Build a simple two-field JSON object {"key1":"val1","key2":"val2"}.
+// Both values are treated as string literals (escaped and quoted).
+export function obj2(k1: String, v1: String, k2: String, v2: String) -> String {
+  "{\"" ++ k1 ++ "\":\"" ++ json_escape_string(v1) ++ "\",\"" ++ k2 ++ "\":\"" ++ json_escape_string(v2) ++ "\"}"
+}
