@@ -834,12 +834,28 @@ match map_get(m2, "score") {
 
 ### 11.10 JSON Operations
 
-JSON builtins currently support flat JSON objects with scalar values only (`String`, `Number`, `Bool`, `null`).
+Clarity provides two tiers of JSON support: flat-object helpers and structured nested access.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `json_parse(s)` | `String -> Option<Map<String, String>>` | Parse flat JSON object. Returns `Some(map)` on success, `None` on invalid JSON / non-object / nested values |
 | `json_stringify(m)` | `Map<String, String> -> String` | Serialize map to JSON object. `null`/`true`/`false`/number-looking values are emitted as literals; others as strings |
+| `json_get(json, key)` | `String, String -> Option<String>` | Extract top-level scalar value by key. Returns `None` for missing keys or object/array values |
+| `json_get_nested(json, path)` | `String, String -> Option<String>` | Traverse a dot-separated path into nested JSON. Array indices by number (e.g. `"items.0.id"`). Objects/arrays returned as JSON strings; scalars as plain strings |
+| `json_array_length(json)` | `String -> Option<Int64>` | Length of a JSON array. `None` if not a valid array |
+| `json_array_get(json, index)` | `String, Int64 -> Option<String>` | Element at 0-based index. Objects/arrays returned as JSON strings |
+| `json_keys(json)` | `String -> Option<List<String>>` | Top-level keys of a JSON object. `None` if not an object |
+
+### 11.11 Network Operations (require `Network` effect)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `http_get(url)` | `String -> Result<String, String>` | GET request. `Ok(body)` on 2xx, `Err(msg)` otherwise |
+| `http_post(url, body)` | `String, String -> Result<String, String>` | POST with plain-text body |
+| `http_request(method, url, headers_json, body)` | `String, String, String, String -> Result<String, String>` | Generic HTTP. `headers_json` is a JSON object of header name→value pairs (use `"{}"` for none). `body` is the request body (`""` for none). Returns `Ok(body)` on 2xx, `Err("HTTP N: ...")` on non-2xx |
+| `http_request_full(method, url, headers_json, body)` | `String, String, String, String -> Result<String, String>` | Like `http_request` but always returns `Ok({"status":N,"body":"..."})` even for non-2xx; only fails on network errors |
+
+The `std/http` module wraps these into ergonomic functions: `get`, `post`, `post_json`, `put_json`, `patch_json`, `delete`, `request`, `request_full`, `get_auth`, `post_json_auth`, `get_auth_full`, `post_json_auth_full`.
 
 ---
 

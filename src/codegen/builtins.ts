@@ -86,6 +86,8 @@ export function getBuiltins(): BuiltinDef[] {
 
     // --- Network operations ---
     // http_get/http_post/http_listen return Result<*, String> as heap-allocated union pointer (i32).
+    { name: "http_request", importModule: "env", importName: "http_request", params: binaryen.createType([i32, i32, i32, i32]), result: i32 },
+    { name: "http_request_full", importModule: "env", importName: "http_request_full", params: binaryen.createType([i32, i32, i32, i32]), result: i32 },
     { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
     { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
     { name: "http_listen", importModule: "env", importName: "http_listen", params: i64, result: i32 },
@@ -130,6 +132,10 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "json_parse", importModule: "env", importName: "json_parse", params: i32, result: i32 },
     { name: "json_stringify", importModule: "env", importName: "json_stringify", params: i32, result: i32 },
     { name: "json_get", importModule: "env", importName: "json_get", params: pair_i32, result: i32 },
+    { name: "json_get_nested", importModule: "env", importName: "json_get_nested", params: pair_i32, result: i32 },
+    { name: "json_array_length", importModule: "env", importName: "json_array_length", params: i32, result: i32 },
+    { name: "json_array_get", importModule: "env", importName: "json_array_get", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "json_keys", importModule: "env", importName: "json_keys", params: i32, result: i32 },
 
     // --- Map operations ---
     // Maps are opaque i32 handles. Keys: i32 (String ptr) or i64 (Int64). Values: i32 or i64.

@@ -2318,6 +2318,13 @@ export class CodeGenerator {
       } as ClarityType,
       json_stringify: { kind: "String" } as ClarityType,
       json_get: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      json_get_nested: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      json_array_length: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      json_array_get: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      json_keys: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      // Network
+      http_request: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
+      http_request_full: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       // Map ops — return i32 handle or bool/int; exact type inferred from Map type args
       map_new: { kind: "Map", key: INT64, value: INT64 } as ClarityType, // placeholder
       map_size: INT64, map_has: BOOL,

@@ -16,6 +16,7 @@ import { abs, clamp } from "std/math"      // standard library import
 import { length, repeat } from "std/string"
 import { size, first, push } from "std/list"
 import { prompt, is_ok } from "std/llm"    // LLM interop
+import { get, post_json, request } from "std/http" // HTTP client
 import { connect, call_tool } from "std/mcp" // MCP tool servers
 import { submit, poll, is_done } from "std/a2a" // A2A agents
 import { run, resume, clear } from "std/agent" // resumable agent loops
@@ -134,6 +135,15 @@ a + b                // last expression = return value
 | `map_keys(m)` | `Map<K,V> -> List<K>` | — |
 | `json_parse(s)` | `String -> Option<Map<String, String>>` | — |
 | `json_stringify(m)` | `Map<String, String> -> String` | — |
+| `json_get(json, key)` | `String, String -> Option<String>` | top-level key access |
+| `json_get_nested(json, path)` | `String, String -> Option<String>` | dot-path: `"user.name"`, `"items.0.id"` |
+| `json_array_length(json)` | `String -> Option<Int64>` | length of JSON array |
+| `json_array_get(json, index)` | `String, Int64 -> Option<String>` | element at index |
+| `json_keys(json)` | `String -> Option<List<String>>` | top-level object keys |
+| `http_get(url)` | `String -> Result<String, String>` | Network |
+| `http_post(url, body)` | `String, String -> Result<String, String>` | Network |
+| `http_request(method, url, headers_json, body)` | `String, String, String, String -> Result<String, String>` | Network; generic HTTP |
+| `http_request_full(method, url, headers_json, body)` | `String, String, String, String -> Result<String, String>` | Network; returns `{"status":N,"body":"..."}` |
 | `now()` | `-> Timestamp` | Time |
 | `get_secret(name)` | `String -> Option<String>` | Secret |
 
