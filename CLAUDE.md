@@ -116,6 +116,16 @@ function calc(x: Int64) -> Int64 {
 }
 ```
 
+### String interpolation
+```
+// Expressions inside ${} must evaluate to String
+"Hello ${name}!"
+"Count: ${int_to_string(n)}"
+"${a} and ${b}"
+"Price: \$${int_to_string(n)}"   // \$ → literal $
+"result: ${match flag { True -> "yes", False -> "no" }}"
+```
+
 ### Operators
 - Arithmetic: `+`, `-`, `*`, `/`, `%`
 - String concat: `++`
@@ -305,7 +315,8 @@ Make programs viable beyond demos.
 3. ✓ **Multi-line string literals** — Triple-quote `"""..."""` strings with optional leading newline stripping.
 4. ✓ **Bytes and Timestamp runtime support** — `Bytes` is a heap-allocated byte buffer with create/get/set/slice/concat/encode/decode. `Timestamp` is i64 (ms since epoch) with now/add/diff/to_string/from_int. `now()` requires `Time` effect.
 5. ✓ **Range patterns** — `match x { 1..10 -> ..., _ -> ... }`. Inclusive on both ends, Int64 only. Works with guards.
-6. **REPL / browser playground**.
+6. ✓ **String interpolation** — `"Hello ${name}!"` desugars to `++` chains in the parser. Expressions must evaluate to `String`. Use `\$` to escape a literal `$`. Works with nested braces (e.g. `match` inside `${}`).
+7. **REPL / browser playground**.
 
 ### Phase 6 — Native AI Interop Requirements (v0.7+)
 1. ✓ **New effects** — `Model`, `Secret`, `MCP`, `A2A` registered in the effect system.

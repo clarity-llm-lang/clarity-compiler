@@ -2126,6 +2126,93 @@ describe("Standard library (std/)", () => {
   });
 });
 
+describe("String interpolation", () => {
+  it("interpolates a simple variable", async () => {
+    const source = `
+      module Test
+      function greet(name: String) -> String { "Hello, \${name}!" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.greet as (ptr: number) => number;
+    expect(runtime.readString(fn(runtime.writeString("world")))).toBe("Hello, world!");
+  });
+
+  it("interpolates multiple expressions", async () => {
+    const source = `
+      module Test
+      function format(a: String, b: String) -> String { "\${a} and \${b}" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.format as (a: number, b: number) => number;
+    expect(runtime.readString(fn(runtime.writeString("foo"), runtime.writeString("bar")))).toBe("foo and bar");
+  });
+
+  it("interpolates function calls", async () => {
+    const source = `
+      module Test
+      function describe(n: Int64) -> String { "value is \${int_to_string(n)}" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.describe as (n: bigint) => number;
+    expect(runtime.readString(fn(42n))).toBe("value is 42");
+  });
+
+  it("interpolation with no prefix or suffix", async () => {
+    const source = `
+      module Test
+      function wrap(s: String) -> String { "\${s}" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.wrap as (p: number) => number;
+    expect(runtime.readString(fn(runtime.writeString("hello")))).toBe("hello");
+  });
+
+  it("interpolation with escaped dollar sign", async () => {
+    const source = `
+      module Test
+      function price(n: Int64) -> String { "Price: \\$\${int_to_string(n)}" }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.price as (n: bigint) => number;
+    expect(runtime.readString(fn(99n))).toBe("Price: $99");
+  });
+
+  it("interpolation with match expression inside", async () => {
+    const source = `
+      module Test
+      function label(flag: Bool) -> String {
+        "result: \${match flag { True -> "yes", False -> "no" }}"
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.label as (b: number) => number;
+    expect(runtime.readString(fn(1))).toBe("result: yes");
+    expect(runtime.readString(fn(0))).toBe("result: no");
+  });
+
+  it("type-checks: error when interpolated expr is not String", () => {
+    const source = `
+      module Test
+      function bad(n: Int64) -> String { "count: \${n}" }
+    `;
+    const result = compile(source, "test.clarity");
+    // n is Int64, not String; ++ operator requires String operands
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+});
+
 describe("String interning", () => {
   it("deduplicates identical runtime strings (int_to_string)", async () => {
     const source = `

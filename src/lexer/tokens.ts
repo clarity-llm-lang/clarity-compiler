@@ -3,6 +3,7 @@ export enum TokenKind {
   IntLiteral = "IntLiteral",
   FloatLiteral = "FloatLiteral",
   StringLiteral = "StringLiteral",
+  InterpolatedString = "InterpolatedString",
 
   // Identifiers
   Identifier = "Identifier",
@@ -71,5 +72,12 @@ export interface Token {
     start: { offset: number; line: number; column: number };
     end: { offset: number; line: number; column: number };
     source: string;
+  };
+  // Only present for InterpolatedString tokens.
+  // "Hello ${name}!" → parts: ["Hello ", "!"], exprSources: ["name"]
+  interpolation?: {
+    parts: string[];       // literal string segments (length = exprSources.length + 1)
+    exprSources: string[]; // raw source text of each ${...} expression
+    exprOffsets: number[]; // absolute source offset of each expression's start (for spans)
   };
 }
