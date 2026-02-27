@@ -163,6 +163,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Log a warning message to stderr.",
     category: "log",
   },
+  {
+    name: "print_stderr",
+    params: [STRING],
+    paramNames: ["value"],
+    returnType: UNIT,
+    effects: ["Log"],
+    doc: "Print a string to stderr followed by a newline. Unlike log_info/log_warn, no prefix is added. Use for error messages and diagnostics in CLI programs.",
+    category: "log",
+  },
 
   // --- String operations ---
   {
@@ -977,6 +986,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Return Some(List<String>) of the top-level keys of a JSON object, or None if the input is not a valid JSON object.",
     category: "json",
   },
+  {
+    name: "json_escape_string",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Escape a string for safe embedding inside a JSON string value. Escapes backslashes, double quotes, and control characters. The result does NOT include surrounding quotes — wrap in '\\\"' ++ json_escape_string(s) ++ '\\\"' to produce a JSON string literal. Example: json_escape_string(\"say \\\"hi\\\"\") returns say \\\\\\\"hi\\\\\\\".",
+    category: "json",
+  },
 
   // --- Map<K, V> operations ---
   {
@@ -1080,6 +1098,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   },
 
   // --- Timestamp builtins ---
+  {
+    name: "sleep",
+    params: [INT64],
+    paramNames: ["ms"],
+    returnType: UNIT,
+    effects: ["Time"],
+    doc: "Pause execution for the given number of milliseconds. Uses a synchronous busy-wait via SharedArrayBuffer + Atomics so it works inside WASM imports. Useful for polling loops and rate limiting in CLI programs.",
+    category: "time",
+  },
   {
     name: "now",
     params: [],

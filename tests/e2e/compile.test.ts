@@ -2793,6 +2793,135 @@ describe("JSON builtins", () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0].message).toContain("Network");
   });
+
+  it("json_escape_string escapes special characters", async () => {
+    const source = `
+      module Test
+      function escape_quotes() -> String {
+        json_escape_string("say \\"hi\\"")
+      }
+      function escape_backslash() -> String {
+        json_escape_string("a\\\\b")
+      }
+      function escape_plain() -> String {
+        json_escape_string("hello world")
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.escape_quotes as () => number)())).toBe('say \\"hi\\"');
+    expect(runtime.readString((instance.exports.escape_backslash as () => number)())).toBe('a\\\\b');
+    expect(runtime.readString((instance.exports.escape_plain as () => number)())).toBe("hello world");
+  });
+
+  it("print_stderr compiles and runs without error", async () => {
+    const source = `
+      module Test
+      effect[Log] function emit_error(msg: String) -> Unit {
+        print_stderr(msg)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.emit_error as (ptr: number) => void;
+    // Should not throw
+    expect(() => fn(runtime.writeString("error!"))).not.toThrow();
+  });
+
+  it("sleep compiles with Time effect", async () => {
+    const source = `
+      module Test
+      effect[Time] function pause() -> Unit {
+        sleep(1)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const pause = instance.exports.pause as () => void;
+    const t0 = Date.now();
+    pause();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects sleep without Time effect", () => {
+    const source = `
+      module Test
+      function pause() -> Unit {
+        sleep(100)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toContain("Time");
+  });
+});
+
+describe("std/string join and helpers", () => {
+  function setupStrTest(src: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-str-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    return dir;
+  }
+
+  it("join concatenates list with separator", async () => {
+    const dir = setupStrTest(`
+      module Main
+      import { join } from "std/string"
+      function test() -> String {
+        let parts = append(append(append([], "a"), "b"), "c");
+        join(parts, ", ")
+      }
+      function test_empty() -> String {
+        let parts: List<String> = [];
+        join(parts, ", ")
+      }
+      function test_single() -> String {
+        let parts = append([], "only");
+        join(parts, "-")
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe("a, b, c");
+    expect(runtime.readString((instance.exports.test_empty as () => number)())).toBe("");
+    expect(runtime.readString((instance.exports.test_single as () => number)())).toBe("only");
+  });
+
+  it("starts_with and ends_with work", async () => {
+    const dir = setupStrTest(`
+      module Main
+      import { starts_with, ends_with } from "std/string"
+      function test_sw() -> Bool { starts_with("hello world", "hello") }
+      function test_sw_no() -> Bool { starts_with("hello world", "world") }
+      function test_ew() -> Bool { ends_with("hello world", "world") }
+      function test_ew_no() -> Bool { ends_with("hello world", "hello") }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_sw as () => number)()).toBe(1);
+    expect((instance.exports.test_sw_no as () => number)()).toBe(0);
+    expect((instance.exports.test_ew as () => number)()).toBe(1);
+    expect((instance.exports.test_ew_no as () => number)()).toBe(0);
+  });
+
+  it("json_escape from std/string works", async () => {
+    const dir = setupStrTest(`
+      module Main
+      import { json_escape } from "std/string"
+      function test() -> String {
+        "\\"" ++ json_escape("user said: \\"hello\\"") ++ "\\""
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test as () => number)())).toBe('"user said: \\"hello\\""');
+  });
 });
 
 // Helper: run all effect[Test] functions exported from a compiled WASM module.

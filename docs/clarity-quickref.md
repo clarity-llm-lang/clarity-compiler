@@ -13,7 +13,7 @@ module ModuleName
 ```
 import { add, User } from "math"           // imports math.clarity from same directory
 import { abs, clamp } from "std/math"      // standard library import
-import { length, repeat } from "std/string"
+import { length, repeat, join, starts_with, json_escape } from "std/string"
 import { size, first, push } from "std/list"
 import { prompt, is_ok } from "std/llm"    // LLM interop
 import { get, post_json, request } from "std/http" // HTTP client
@@ -140,6 +140,9 @@ a + b                // last expression = return value
 | `json_array_length(json)` | `String -> Option<Int64>` | length of JSON array |
 | `json_array_get(json, index)` | `String, Int64 -> Option<String>` | element at index |
 | `json_keys(json)` | `String -> Option<List<String>>` | top-level object keys |
+| `json_escape_string(s)` | `String -> String` | escape for JSON embedding (no surrounding quotes) |
+| `print_stderr(s)` | `String -> Unit` | Log; write to stderr without prefix |
+| `sleep(ms)` | `Int64 -> Unit` | Time; synchronous delay, useful for polling loops |
 | `http_get(url)` | `String -> Result<String, String>` | Network |
 | `http_post(url, body)` | `String, String -> Result<String, String>` | Network |
 | `http_request(method, url, headers_json, body)` | `String, String, String, String -> Result<String, String>` | Network; generic HTTP |

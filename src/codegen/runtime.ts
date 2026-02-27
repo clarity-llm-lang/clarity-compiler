@@ -594,6 +594,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
         console.warn(`[WARN] ${readString(ptr)}`);
       },
 
+      print_stderr(ptr: number): void {
+        process.stderr.write(readString(ptr) + "\n");
+      },
+
       // --- String operations ---
       string_concat(aPtr: number, bPtr: number): number {
         const a = readString(aPtr);
@@ -1027,6 +1031,15 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
       },
 
+      // json_escape_string escapes a string for safe embedding inside a JSON string value.
+      // Does NOT add surrounding quotes. Result can be wrapped: '"' ++ json_escape_string(s) ++ '"'
+      json_escape_string(ptr: number): number {
+        const s = readString(ptr);
+        // JSON.stringify adds surrounding quotes; slice them off to get just the escaped interior.
+        const escaped = JSON.stringify(s).slice(1, -1);
+        return writeString(escaped);
+      },
+
       // --- Regex operations ---
       regex_match(patternPtr: number, textPtr: number): number {
         try {
@@ -1052,6 +1065,26 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       // --- Timestamp operations ---
       // Timestamp is i64 (milliseconds since Unix epoch)
+
+      // sleep performs a synchronous busy-wait using Atomics.wait on a SAB.
+      // Atomics.wait blocks the calling thread until timeout, which is what we want
+      // inside a WASM import (the WASM host thread IS a Worker when running in Node.js
+      // with SharedArrayBuffer available, or we fall back to busy-wait on the main thread).
+      sleep(ms: bigint): void {
+        const delay = Number(ms);
+        if (delay <= 0) return;
+        try {
+          // Preferred: Atomics.wait (works on Worker threads and in Node.js)
+          const sab = new SharedArrayBuffer(4);
+          const arr = new Int32Array(sab);
+          Atomics.wait(arr, 0, 0, delay);
+        } catch {
+          // Fallback: busy-wait (works on main thread where Atomics.wait is disallowed)
+          const end = Date.now() + delay;
+          while (Date.now() < end) { /* spin */ }
+        }
+      },
+
       now(): bigint {
         return BigInt(Date.now());
       },

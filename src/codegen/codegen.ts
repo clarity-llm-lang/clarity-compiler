@@ -2253,7 +2253,7 @@ export class CodeGenerator {
     const builtinReturnTypes: Record<string, ClarityType> = {
       // I/O
       print_string: UNIT, print_int: UNIT, print_float: UNIT,
-      log_info: UNIT, log_warn: UNIT,
+      log_info: UNIT, log_warn: UNIT, print_stderr: UNIT,
       // String ops
       string_concat: { kind: "String" }, string_eq: BOOL,
       string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
@@ -2322,6 +2322,9 @@ export class CodeGenerator {
       json_array_length: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       json_array_get: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       json_keys: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      json_escape_string: { kind: "String" } as ClarityType,
+      // Timestamp
+      sleep: UNIT,
       // Network
       http_request: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
       http_request_full: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
