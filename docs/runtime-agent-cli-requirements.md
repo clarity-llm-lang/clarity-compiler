@@ -98,9 +98,38 @@ During this migration, the following language/runtime gaps were identified:
 4. **RQ-LANG-CLI-004: Runtime integration harness**
    - Need official e2e fixtures for runtime-agent chat contracts to verify behavior against live runtime streams and terminal states.
 
+## TypeScript Removal Requirements (Complete)
+
+### RQ-LANG-CLI-005: Zero-TS runtime-chat path
+
+- `clarity-agent runtime-chat` must run without Node/TypeScript launcher involvement.
+- `--bridge ts` fallback must be removed.
+- Distribution must provide a direct Clarity-native executable entrypoint for runtime chat.
+
+Acceptance criteria:
+
+- Runtime-chat command behavior is fully covered by Clarity-native tests.
+- No TypeScript code path is invoked for runtime-chat in production builds.
+
+### RQ-LANG-CLI-006: Zero-TS full operator CLI surface
+
+- Remaining operator commands currently in TS (`watch`, `list`, `answer`, `cancel`, `serve`, `connect`, `runtime-agents`) must have native Clarity implementations or officially approved replacements.
+- Broker protocol compatibility (`.question` / `.answer` + HTTP API semantics) must remain intact.
+
+Acceptance criteria:
+
+- `LLM-cli` can be built and run with no mandatory TypeScript runtime dependency.
+- Existing CI behavior parity is maintained (build/lint/test equivalents for native CLI).
+- TS command router and runtime client modules are removed or reduced to non-runtime dev tooling only.
+
 ## Backlog
 
 - Backlog ID: `LANG-CLI-RT-CHAT-002`
 - Priority: `P1`
 - Item: Close RQ-LANG-CLI-001..004 and remove the TypeScript runtime-chat fallback bridge from `LLM-cli`.
 - Dependency: async stdin/SSE multiplex support + runtime integration fixtures.
+
+- Backlog ID: `LANG-CLI-TS-ZERO-001`
+- Priority: `P1`
+- Item: Deliver RQ-LANG-CLI-005 and RQ-LANG-CLI-006 so TypeScript can be removed completely from production CLI execution paths.
+- Dependency: native packaging/runtime-entrypoint support + broker/server capability parity in Clarity.
