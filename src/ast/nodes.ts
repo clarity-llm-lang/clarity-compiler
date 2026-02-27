@@ -131,7 +131,8 @@ export type Expr =
   | MatchExpr
   | LetExpr
   | AssignmentExpr
-  | BlockExpr;
+  | BlockExpr
+  | LambdaExpr;
 
 export interface IntLiteral extends BaseNode {
   kind: "IntLiteral";
@@ -246,6 +247,17 @@ export interface BlockExpr extends BaseNode {
   kind: "BlockExpr";
   statements: Expr[];
   result?: Expr;
+}
+
+// Lambda expression: |param: Type, ...| body
+// Non-capturing only — no free variable references to enclosing scope.
+// Lifted to a top-level WASM function during codegen.
+export interface LambdaExpr extends BaseNode {
+  kind: "LambdaExpr";
+  params: Parameter[];   // each must have a type annotation
+  body: Expr;
+  // Filled in by codegen when the lambda is lifted:
+  liftedName?: string;   // auto-generated function name, e.g. "__lambda_3"
 }
 
 // ============================================================

@@ -889,6 +889,24 @@ export class Checker {
         return resultType;
       }
 
+      case "LambdaExpr": {
+        // Resolve param types from their type annotations
+        const paramTypes: ClarityType[] = expr.params.map(p => this.resolveTypeRef(p.typeAnnotation) ?? ERROR_TYPE);
+        // Check the body in a new scope with params bound
+        this.env.enterScope();
+        for (let i = 0; i < expr.params.length; i++) {
+          this.env.define(expr.params[i].name, {
+            name: expr.params[i].name,
+            type: paramTypes[i],
+            mutable: false,
+            defined: expr.params[i].span,
+          });
+        }
+        const returnType = this.checkExpr(expr.body);
+        this.env.exitScope();
+        return { kind: "Function", params: paramTypes, returnType, effects: new Set() };
+      }
+
       case "ListLiteral": {
         if (expr.elements.length === 0) {
           return { kind: "List", element: ERROR_TYPE };

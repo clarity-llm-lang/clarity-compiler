@@ -2126,6 +2126,107 @@ describe("Standard library (std/)", () => {
   });
 });
 
+describe("Lambda expressions", () => {
+  it("zero-parameter lambda passed as HOF", async () => {
+    const source = `
+      module Test
+      function call_it(f: () -> Int64) -> Int64 { f() }
+      function test() -> Int64 { call_it(|| 42) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("single-param lambda with map", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 { apply(|x: Int64| x * 2, 21) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("two-param lambda", async () => {
+    const source = `
+      module Test
+      function apply2(f: (Int64, Int64) -> Int64, a: Int64, b: Int64) -> Int64 { f(a, b) }
+      function test() -> Int64 { apply2(|a: Int64, b: Int64| a + b, 10, 32) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("lambda with string param passed to map", async () => {
+    const source = `
+      module Test
+      function apply_str(f: (String) -> String, s: String) -> String { f(s) }
+      function test(s: String) -> String { apply_str(|x: String| x ++ "!", s) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.test as (p: number) => number;
+    expect(runtime.readString(fn(runtime.writeString("hello")))).toBe("hello!");
+  });
+
+  it("lambda with std/list map", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-lambda-test-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { map } from "std/list"
+      function test() -> Int64 {
+        let nums = append(append(append([], 1), 2), 3);
+        let doubled = map(nums, |x: Int64| x * 2);
+        head(doubled)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("lambda with std/list filter", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-lambda-filter-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { filter, size } from "std/list"
+      function test() -> Int64 {
+        let nums = append(append(append(append([], 1), 2), 3), 4);
+        let evens = filter(nums, |x: Int64| x % 2 == 0);
+        size(evens)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(2n);
+  });
+
+  it("multiple lambdas in same function get distinct indices", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 {
+        let a = apply(|x: Int64| x + 1, 10);
+        let b = apply(|x: Int64| x * 3, 4);
+        a + b
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(23n); // (10+1) + (4*3)
+  });
+});
+
 describe("String interpolation", () => {
   it("interpolates a simple variable", async () => {
     const source = `
