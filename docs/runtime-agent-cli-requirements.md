@@ -1,70 +1,100 @@
 # Runtime Agent CLI Requirements (Clarity)
 
-Status: Draft  
+Status: Active (language support available; reference implementation in progress)  
 Target project: `LLM-lang`  
-Related implementation: `LLM-cli` TypeScript bridge (`runtime-agents`, `runtime-chat`)
+Related production bridge: `LLM-cli` (`runtime-agents`, `runtime-chat`)
 
-## Problem Statement
+## Goal
 
-Operators need a terminal workflow that can:
+Provide a native Clarity CLI flow where one start command handles:
 
-1. Connect to a running `LLM-runtime` / `Clarity-runtime`.
-2. List available agents.
-3. Attach to one agent run (or create one).
-4. Exchange chat messages through runtime HITL APIs.
+1. Connect to runtime.
+2. Show numbered agent list.
+3. Select one number and connect.
+4. Start chatting with that agent run.
 
-The current implementation lives in TypeScript (`LLM-cli`) and should be treated as the reference behavior.
+A prototype exists at:
+
+- `examples/26-runtime-agent-chat-cli/main.clarity`
 
 ## Functional Requirements
 
-### RQ-CLI-001: Runtime discovery
+### RQ-CLI-001: Single-start operator flow
 
-- Provide a command to query `GET /api/agents/registry`.
-- Show at minimum:
+- Prompt for runtime URL when not provided.
+- Query `GET /api/agents/registry`.
+- Display numbered rows with at least:
   - `serviceId`
   - `agent.agentId`
   - `agent.name`
-  - `agent.triggers`
-  - lifecycle/health
+  - `agent.triggers` (when present)
+- Accept numeric selection and bind to the selected service.
 
-### RQ-CLI-002: Runtime chat session
+### RQ-CLI-002: Run bootstrap contract
 
-- Provide a command to:
-  - create a run (when run id is not provided), and
-  - chat with that run over HITL input.
-- Run creation must emit:
-  - `agent.run_created` (`trigger=api`)
-  - `agent.run_started`
-- HITL message send must call:
-  - `POST /api/agents/runs/:runId/hitl`
-- Event rendering must poll:
+When attaching to an existing run is not requested, bootstrap via:
+
+- `POST /api/agents/events` with `agent.run_created`
+- `POST /api/agents/events` with `agent.run_started`
+
+Required context in `agent.run_created.data`:
+
+- `trigger = "api"`
+- `route = "/cli/runtime-chat"`
+- `method = "CLI"`
+- `requestId = <runId>`
+- `caller = "clarity-agent-cli"`
+
+### RQ-CLI-003: Chat message transport
+
+- Send operator messages to:
+  - `POST /api/agents/runs/:runId/messages`
+- Request body must include:
+  - `message`
+  - `role = "user"`
+  - `service_id`
+  - `agent`
+
+### RQ-CLI-004: Event transport and rendering
+
+- Preferred live stream:
+  - `GET /api/agents/runs/:runId/events/stream` (SSE)
+- Compatibility stream fallback:
+  - `GET /api/events` (SSE, client filters by `data.runId`)
+- Poll fallback:
   - `GET /api/agents/runs/:runId/events`
-- Chat exits automatically when run status is terminal (`completed|failed|cancelled`).
+- Chat should auto-exit when terminal state is observed:
+  - `agent.run_completed`
+  - `agent.run_failed`
+  - `agent.run_cancelled`
+  - or terminal run status from runtime run summaries.
 
-### RQ-CLI-003: Operator controls
+### RQ-CLI-005: Auth
 
-- Support interactive commands:
-  - `/status`
-  - `/refresh`
-  - `/exit`
-- Support optional bearer token auth.
+- Optional Bearer token support via:
+  - `Authorization: Bearer <token>`
 
-## Language/Stdlib Gaps for Native Clarity Implementation
+## Language/Runtime Capability Status
 
-To implement this CLI directly in Clarity, the following capabilities are required or need hardening:
+The major language requirements are now available:
 
-1. Generic HTTP client primitives for arbitrary REST calls (method, headers, status code, body).
-2. Structured JSON parsing for nested objects/arrays (not only flat key-value maps).
-3. CLI command parsing ergonomics for multi-command tools.
-4. Stable interactive stdin loop patterns suitable for chat-style UX.
+- HTTP calls with status/body inspection: `http_request_full`
+- Structured JSON traversal helpers: `std/json`
+- CLI argument helpers: `std/cli`
+- SSE client primitives: `std/sse`
 
-## Non-Goals
+## Remaining Gaps for Production Parity
 
-- Replacing runtime-side validation or sanitization logic.
-- Defining new runtime API endpoints in this requirement.
+The native Clarity version still needs hardening to replace the TypeScript CLI in production:
+
+1. Robust URL encoding and endpoint composition utilities.
+2. Stream lifecycle handling equivalent to TS fallback logic (run-scoped SSE -> global SSE -> polling).
+3. Packaged distribution/entrypoint conventions for operator teams.
+4. End-to-end runtime integration tests against a live runtime fixture.
 
 ## Backlog
 
-- Backlog ID: `LANG-CLI-RT-CHAT-001`
+- Backlog ID: `LANG-CLI-RT-CHAT-002`
 - Priority: `P1`
-- Item: Rewrite `LLM-cli` runtime chat bridge from TypeScript to native Clarity after the required language/runtime capabilities above are available.
+- Item: Promote native Clarity runtime-chat CLI to production parity and replace the TypeScript bridge as primary implementation.
+- Dependency: runtime integration tests and SSE fallback hardening.
