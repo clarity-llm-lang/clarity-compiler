@@ -635,33 +635,10 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
 
   // --- Network operations (require Network effect) ---
   {
-    name: "http_request",
-    params: [STRING, STRING, STRING, STRING],
-    paramNames: ["method", "url", "headers_json", "body"],
-    returnType: {
-      kind: "Union",
-      name: "Result<String, String>",
-      variants: [
-        { name: "Ok", fields: new Map([["value", STRING]]) },
-        { name: "Err", fields: new Map([["error", STRING]]) },
-      ],
-    },
-    effects: ["Network"],
-    doc: "Perform an HTTP request with arbitrary method, headers, and body. `method` is e.g. \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\". `headers_json` is a JSON object string of header name→value pairs (use \"{}\" for none). `body` is the request body (use \"\" for none). Returns Ok(response_body) on 2xx or Err(\"HTTP <status>: <body>\") on non-2xx / network errors.",
-    category: "network",
-  },
-  {
     name: "http_request_full",
     params: [STRING, STRING, STRING, STRING],
     paramNames: ["method", "url", "headers_json", "body"],
-    returnType: {
-      kind: "Union",
-      name: "Result<String, String>",
-      variants: [
-        { name: "Ok", fields: new Map([["value", STRING]]) },
-        { name: "Err", fields: new Map([["error", STRING]]) },
-      ],
-    },
+    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
     effects: ["Network"],
     doc: "Like http_request but always returns Ok with a JSON object {\"status\": <int>, \"body\": <string>} for any HTTP response (even non-2xx). Returns Err only on network-level failures (DNS, timeout, etc.). Use json_get to extract fields.",
     category: "network",
@@ -931,24 +908,6 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     returnType: OPTION_STRING,
     effects: [],
     doc: "Extract a nested value from a JSON object using a dot-separated path (e.g. \"agent.agentId\"). Returns Some(value) if the path resolves to a scalar, or Some(json_string) for nested objects/arrays. Returns None if any segment is missing.",
-    category: "json",
-  },
-  {
-    name: "json_array_length",
-    params: [STRING],
-    paramNames: ["json"],
-    returnType: INT64,
-    effects: [],
-    doc: "Return the number of elements in a JSON array string. Returns -1 if the input is not a valid JSON array.",
-    category: "json",
-  },
-  {
-    name: "json_array_get",
-    params: [STRING, INT64],
-    paramNames: ["json", "index"],
-    returnType: OPTION_STRING,
-    effects: [],
-    doc: "Return the element at the given index from a JSON array string. Scalars are returned as their string representation; objects and arrays are returned as their JSON string. Returns None if the index is out of bounds or the input is not a JSON array.",
     category: "json",
   },
   {

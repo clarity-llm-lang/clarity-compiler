@@ -1,57 +1,14 @@
-module Http
-
-// Higher-level HTTP helpers built on top of the http_request builtin.
-// Requires Network effect for all functions.
-
-// Perform a GET request with an optional bearer token.
-// Pass "" for no auth.
-export effect[Network] function get(url: String) -> Result<String, String> {
-  http_get(url)
-}
-
-// Perform a GET request with a bearer token in the Authorization header.
-export effect[Network] function get_with_auth(url: String, token: String) -> Result<String, String> {
-  let headers = "{\"Authorization\": \"Bearer " ++ token ++ "\"}";
-  http_request("GET", url, headers, "")
-}
-
-// Perform a POST request with a JSON body and Content-Type: application/json.
-export effect[Network] function post_json(url: String, body: String) -> Result<String, String> {
-  http_request("POST", url, "{\"Content-Type\": \"application/json\"}", body)
-}
-
-// Perform a POST request with a JSON body and bearer token auth.
-export effect[Network] function post_json_with_auth(url: String, token: String, body: String) -> Result<String, String> {
-  let headers = "{\"Content-Type\": \"application/json\", \"Authorization\": \"Bearer " ++ token ++ "\"}";
-  http_request("POST", url, headers, body)
-}
-
-// Perform a GET request, parse the response as JSON, and extract a field.
-// Returns Ok(field_value) on success or Err(message) on HTTP or parse error.
-export effect[Network] function get_json_field(url: String, field: String) -> Result<String, String> {
-  match http_get(url) {
-    Err(msg) -> Err(msg),
-    Ok(body) -> match json_get(body, field) {
-      None -> Err("field not found: " ++ field),
-      Some(v) -> Ok(v)
-    }
-  }
 // std/http — Generic HTTP client for Clarity
 //
-// Provides ergonomic wrappers around the http_request / http_request_full
-// built-in primitives for building REST API clients and runtime agent CLIs.
+// Ergonomic wrappers around http_request / http_request_full for building
+// REST clients, runtime bridges, and CLI tools.
+//
 // All functions require the Network effect.
-//
-// Quick start:
-//   import { get, post, post_json, request } from "std/http"
-//
-// For full response (status + body), use the *_full variants:
-//   import { get_full, request_full } from "std/http"
 
 module Http
 
 // ---------------------------------------------------------------------------
-// Simple convenience wrappers
+// Basic request helpers
 // ---------------------------------------------------------------------------
 
 // Perform a GET request. Returns Ok(body) on 2xx, Err(message) otherwise.
@@ -59,94 +16,99 @@ export effect[Network] function get(url: String) -> Result<String, String> {
   http_request("GET", url, "{}", "")
 }
 
-// Perform a POST request with a plain-text body.
-// Returns Ok(body) on 2xx, Err(message) otherwise.
+// Perform a GET request with Bearer auth.
+export effect[Network] function get_with_auth(url: String, token: String) -> Result<String, String> {
+  let headers = "{\"Authorization\":\"Bearer " ++ json_escape_string(token) ++ "\"}";
+  http_request("GET", url, headers, "")
+}
+
+// Alias used by newer stdlib-style callers.
+export effect[Network] function get_auth(url: String, token: String) -> Result<String, String> {
+  get_with_auth(url, token)
+}
+
+// Perform a plain-text POST request.
 export effect[Network] function post(url: String, body: String) -> Result<String, String> {
   http_request("POST", url, "{\"Content-Type\":\"text/plain\"}", body)
 }
 
-// Perform a POST request with a JSON body.
-// Sets Content-Type: application/json automatically.
-// Returns Ok(body) on 2xx, Err(message) otherwise.
-export effect[Network] function post_json(url: String, json_body: String) -> Result<String, String> {
-  http_request("POST", url, "{\"Content-Type\":\"application/json\"}", json_body)
+// Perform a JSON POST request.
+export effect[Network] function post_json(url: String, body: String) -> Result<String, String> {
+  http_request("POST", url, "{\"Content-Type\":\"application/json\"}", body)
 }
 
-// Perform a PUT request with a JSON body.
-// Returns Ok(body) on 2xx, Err(message) otherwise.
-export effect[Network] function put_json(url: String, json_body: String) -> Result<String, String> {
-  http_request("PUT", url, "{\"Content-Type\":\"application/json\"}", json_body)
+// Perform a JSON POST request with Bearer auth.
+export effect[Network] function post_json_with_auth(url: String, token: String, body: String) -> Result<String, String> {
+  let headers = "{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer " ++ json_escape_string(token) ++ "\"}";
+  http_request("POST", url, headers, body)
 }
 
-// Perform a PATCH request with a JSON body.
-// Returns Ok(body) on 2xx, Err(message) otherwise.
-export effect[Network] function patch_json(url: String, json_body: String) -> Result<String, String> {
-  http_request("PATCH", url, "{\"Content-Type\":\"application/json\"}", json_body)
+// Alias used by newer stdlib-style callers.
+export effect[Network] function post_json_auth(url: String, token: String, body: String) -> Result<String, String> {
+  post_json_with_auth(url, token, body)
 }
 
-// Perform a DELETE request.
-// Returns Ok(body) on 2xx, Err(message) otherwise.
+// Perform PUT/PATCH/DELETE convenience requests.
+export effect[Network] function put_json(url: String, body: String) -> Result<String, String> {
+  http_request("PUT", url, "{\"Content-Type\":\"application/json\"}", body)
+}
+
+export effect[Network] function patch_json(url: String, body: String) -> Result<String, String> {
+  http_request("PATCH", url, "{\"Content-Type\":\"application/json\"}", body)
+}
+
 export effect[Network] function delete(url: String) -> Result<String, String> {
   http_request("DELETE", url, "{}", "")
 }
 
 // Perform an arbitrary HTTP request.
-// `method`       — HTTP verb: "GET", "POST", "PUT", "PATCH", "DELETE", etc.
-// `url`          — Full URL including scheme and path.
-// `headers_json` — JSON object of header name→value pairs, e.g. {"Authorization":"Bearer tok"}.
-//                  Use "{}" for no additional headers.
-// `body`         — Request body string. Use "" for requests with no body.
-// Returns Ok(response_body) on 2xx, Err("HTTP <status>: <body>") on non-2xx.
 export effect[Network] function request(method: String, url: String, headers_json: String, body: String) -> Result<String, String> {
   http_request(method, url, headers_json, body)
 }
 
 // ---------------------------------------------------------------------------
-// Full-response variants (returns status code alongside body)
+// Full-response helpers (status + body payload)
 // ---------------------------------------------------------------------------
-// These always return Ok({\"status\":N,\"body\":\"...\"}) for any HTTP response.
-// Only return Err on network-level failures (DNS, timeout, connection refused).
-// Use json_get to extract "status" and "body" fields.
 
-// GET with full response JSON.
+// GET with full response payload:
+// Ok("{\"status\":200,\"body\":\"...\"}") or Err(network_error)
 export effect[Network] function get_full(url: String) -> Result<String, String> {
   http_request_full("GET", url, "{}", "")
 }
 
-// POST (JSON body) with full response JSON.
-export effect[Network] function post_json_full(url: String, json_body: String) -> Result<String, String> {
-  http_request_full("POST", url, "{\"Content-Type\":\"application/json\"}", json_body)
+// GET with Bearer auth and full response payload.
+export effect[Network] function get_auth_full(url: String, token: String) -> Result<String, String> {
+  let headers = "{\"Authorization\":\"Bearer " ++ json_escape_string(token) ++ "\"}";
+  http_request_full("GET", url, headers, "")
 }
 
-// Arbitrary request with full response JSON.
+// POST JSON with full response payload.
+export effect[Network] function post_json_full(url: String, body: String) -> Result<String, String> {
+  http_request_full("POST", url, "{\"Content-Type\":\"application/json\"}", body)
+}
+
+// POST JSON + Bearer auth with full response payload.
+export effect[Network] function post_json_auth_full(url: String, token: String, body: String) -> Result<String, String> {
+  let headers = "{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer " ++ json_escape_string(token) ++ "\"}";
+  http_request_full("POST", url, headers, body)
+}
+
+// Arbitrary request returning full response payload.
 export effect[Network] function request_full(method: String, url: String, headers_json: String, body: String) -> Result<String, String> {
   http_request_full(method, url, headers_json, body)
 }
 
 // ---------------------------------------------------------------------------
-// Bearer-token helpers (common for runtime agent APIs)
+// JSON extraction helper
 // ---------------------------------------------------------------------------
 
-// GET with a Bearer token in the Authorization header.
-export effect[Network] function get_auth(url: String, token: String) -> Result<String, String> {
-  let headers = "{\"Authorization\":\"Bearer " ++ token ++ "\"}";
-  http_request("GET", url, headers, "")
-}
-
-// POST JSON with a Bearer token in the Authorization header.
-export effect[Network] function post_json_auth(url: String, token: String, json_body: String) -> Result<String, String> {
-  let headers = "{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer " ++ token ++ "\"}";
-  http_request("POST", url, headers, json_body)
-}
-
-// Full-response GET with a Bearer token.
-export effect[Network] function get_auth_full(url: String, token: String) -> Result<String, String> {
-  let headers = "{\"Authorization\":\"Bearer " ++ token ++ "\"}";
-  http_request_full("GET", url, headers, "")
-}
-
-// Full-response POST JSON with a Bearer token.
-export effect[Network] function post_json_auth_full(url: String, token: String, json_body: String) -> Result<String, String> {
-  let headers = "{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer " ++ token ++ "\"}";
-  http_request_full("POST", url, headers, json_body)
+// GET a URL and extract one top-level JSON field from the response body.
+export effect[Network] function get_json_field(url: String, field: String) -> Result<String, String> {
+  match get(url) {
+    Err(msg) -> Err(msg),
+    Ok(body) -> match json_get(body, field) {
+      Some(v) -> Ok(v),
+      None -> Err("field not found: " ++ field)
+    }
+  }
 }

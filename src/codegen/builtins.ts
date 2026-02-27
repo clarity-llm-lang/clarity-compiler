@@ -135,8 +135,6 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "json_stringify", importModule: "env", importName: "json_stringify", params: i32, result: i32 },
     { name: "json_get", importModule: "env", importName: "json_get", params: pair_i32, result: i32 },
     { name: "json_get_path", importModule: "env", importName: "json_get_path", params: pair_i32, result: i32 },
-    { name: "json_array_length", importModule: "env", importName: "json_array_length", params: i32, result: i64 },
-    { name: "json_array_get", importModule: "env", importName: "json_array_get", params: binaryen.createType([i32, i64]), result: i32 },
     { name: "json_get_nested", importModule: "env", importName: "json_get_nested", params: pair_i32, result: i32 },
     { name: "json_array_length", importModule: "env", importName: "json_array_length", params: i32, result: i32 },
     { name: "json_array_get", importModule: "env", importName: "json_array_get", params: binaryen.createType([i32, i64]), result: i32 },
