@@ -1,3 +1,41 @@
+module Http
+
+// Higher-level HTTP helpers built on top of the http_request builtin.
+// Requires Network effect for all functions.
+
+// Perform a GET request with an optional bearer token.
+// Pass "" for no auth.
+export effect[Network] function get(url: String) -> Result<String, String> {
+  http_get(url)
+}
+
+// Perform a GET request with a bearer token in the Authorization header.
+export effect[Network] function get_with_auth(url: String, token: String) -> Result<String, String> {
+  let headers = "{\"Authorization\": \"Bearer " ++ token ++ "\"}";
+  http_request("GET", url, headers, "")
+}
+
+// Perform a POST request with a JSON body and Content-Type: application/json.
+export effect[Network] function post_json(url: String, body: String) -> Result<String, String> {
+  http_request("POST", url, "{\"Content-Type\": \"application/json\"}", body)
+}
+
+// Perform a POST request with a JSON body and bearer token auth.
+export effect[Network] function post_json_with_auth(url: String, token: String, body: String) -> Result<String, String> {
+  let headers = "{\"Content-Type\": \"application/json\", \"Authorization\": \"Bearer " ++ token ++ "\"}";
+  http_request("POST", url, headers, body)
+}
+
+// Perform a GET request, parse the response as JSON, and extract a field.
+// Returns Ok(field_value) on success or Err(message) on HTTP or parse error.
+export effect[Network] function get_json_field(url: String, field: String) -> Result<String, String> {
+  match http_get(url) {
+    Err(msg) -> Err(msg),
+    Ok(body) -> match json_get(body, field) {
+      None -> Err("field not found: " ++ field),
+      Some(v) -> Ok(v)
+    }
+  }
 // std/http — Generic HTTP client for Clarity
 //
 // Provides ergonomic wrappers around the http_request / http_request_full

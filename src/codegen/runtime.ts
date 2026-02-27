@@ -1044,8 +1044,8 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(`{${parts.join(",")}}`);
       },
 
-      // json_get extracts a single top-level value from a JSON object by key.
-      // Returns Some(stringified_value) if key exists and value is a scalar, None otherwise.
+      // json_get extracts a top-level value from a JSON object by key.
+      // Returns Some(value) for scalars, Some(json_string) for objects/arrays, None if missing.
       json_get(jsonPtr: number, keyPtr: number): number {
         try {
           const parsed = JSON.parse(readString(jsonPtr));
@@ -1054,7 +1054,54 @@ export function createRuntime(config: RuntimeConfig = {}) {
           if (!Object.prototype.hasOwnProperty.call(parsed, key)) return allocOptionI32(null);
           const val = (parsed as Record<string, unknown>)[key];
           if (val === null || val === undefined) return allocOptionI32(null);
-          const s = typeof val === "string" ? val : String(val);
+          const s = typeof val === "string" ? val : (typeof val === "object" ? JSON.stringify(val) : String(val));
+          return allocOptionI32(writeString(s));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      // json_get_path extracts a nested value using a dot-separated path.
+      // e.g. json_get_path(json, "agent.agentId") navigates into nested objects.
+      json_get_path(jsonPtr: number, pathPtr: number): number {
+        try {
+          let current: unknown = JSON.parse(readString(jsonPtr));
+          const segments = readString(pathPtr).split(".");
+          for (const seg of segments) {
+            if (current === null || typeof current !== "object" || Array.isArray(current)) return allocOptionI32(null);
+            const obj = current as Record<string, unknown>;
+            if (!Object.prototype.hasOwnProperty.call(obj, seg)) return allocOptionI32(null);
+            current = obj[seg];
+          }
+          if (current === null || current === undefined) return allocOptionI32(null);
+          const s = typeof current === "string" ? current : (typeof current === "object" ? JSON.stringify(current) : String(current));
+          return allocOptionI32(writeString(s));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      // json_array_length returns the number of elements in a JSON array, or -1 if not an array.
+      json_array_length(jsonPtr: number): bigint {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (!Array.isArray(parsed)) return BigInt(-1);
+          return BigInt(parsed.length);
+        } catch {
+          return BigInt(-1);
+        }
+      },
+
+      // json_array_get returns the element at the given index as a string (Some) or None if out of bounds.
+      json_array_get(jsonPtr: number, index: bigint): number {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (!Array.isArray(parsed)) return allocOptionI32(null);
+          const i = Number(index);
+          if (i < 0 || i >= parsed.length) return allocOptionI32(null);
+          const val = parsed[i] as unknown;
+          if (val === null || val === undefined) return allocOptionI32(null);
+          const s = typeof val === "string" ? val : (typeof val === "object" ? JSON.stringify(val) : String(val));
           return allocOptionI32(writeString(s));
         } catch {
           return allocOptionI32(null);
@@ -1740,6 +1787,39 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       http_listen(_port: bigint): number {
         return allocResultString(false, writeString("http_listen not implemented yet"));
+      },
+
+      http_request(methodPtr: number, urlPtr: number, headersPtr: number, bodyPtr: number): number {
+        const method = readString(methodPtr).toUpperCase();
+        const url = readString(urlPtr);
+        const headersJson = readString(headersPtr);
+        const body = readString(bodyPtr);
+        const headers: Record<string, string> = {};
+        if (headersJson && headersJson !== "{}") {
+          try {
+            const parsed = JSON.parse(headersJson) as Record<string, unknown>;
+            for (const [k, v] of Object.entries(parsed)) {
+              if (typeof v === "string") headers[k] = v;
+            }
+          } catch {
+            return allocResultString(false, writeString("Invalid headers JSON"));
+          }
+        }
+        try {
+          const resp = syncHttpRequest({
+            url,
+            method,
+            headers,
+            body: body || undefined,
+            timeoutMs: 10000,
+            followRedirects: true,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          return allocResultString(true, writeString(resp.body));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
       },
 
       json_parse_object(ptr: number): number {
