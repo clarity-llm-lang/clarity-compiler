@@ -66,3 +66,34 @@ export function to_int(s: String) -> Option<Int64> {
 export function to_float(s: String) -> Option<Float64> {
   string_to_float(s)
 }
+
+// Join a list of strings with a separator.
+// Example: join(["a", "b", "c"], ", ") returns "a, b, c"
+export function join(parts: List<String>, sep: String) -> String {
+  match is_empty(parts) {
+    True -> "",
+    False -> join_helper(tail(parts), sep, head(parts))
+  }
+}
+
+function join_helper(parts: List<String>, sep: String, acc: String) -> String {
+  match is_empty(parts) {
+    True -> acc,
+    False -> join_helper(tail(parts), sep, acc ++ sep ++ head(parts))
+  }
+}
+
+// Check if a string starts with a prefix.
+export function starts_with(s: String, prefix: String) -> Bool {
+  string_starts_with(s, prefix)
+}
+
+// Check if a string ends with a suffix.
+export function ends_with(s: String, suffix: String) -> Bool {
+  string_ends_with(s, suffix)
+}
+
+// Escape a string for safe embedding in a JSON string value (no surrounding quotes).
+export function json_escape(s: String) -> String {
+  json_escape_string(s)
+}

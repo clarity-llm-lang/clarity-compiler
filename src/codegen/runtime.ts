@@ -594,6 +594,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
         console.warn(`[WARN] ${readString(ptr)}`);
       },
 
+      print_stderr(ptr: number): void {
+        process.stderr.write(readString(ptr) + "\n");
+      },
+
       // --- String operations ---
       string_concat(aPtr: number, bPtr: number): number {
         const a = readString(aPtr);
@@ -959,6 +963,83 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
       },
 
+      // json_get_nested traverses a dot-separated path into a nested JSON structure.
+      // Array elements accessed by numeric index (e.g. "items.0.name").
+      // Returns Some(value) where objects/arrays are JSON-stringified, scalars are plain strings.
+      json_get_nested(jsonPtr: number, pathPtr: number): number {
+        try {
+          let node: unknown = JSON.parse(readString(jsonPtr));
+          const parts = readString(pathPtr).split(".");
+          for (const part of parts) {
+            if (node === null || node === undefined) return allocOptionI32(null);
+            if (Array.isArray(node)) {
+              const idx = parseInt(part, 10);
+              if (isNaN(idx) || idx < 0 || idx >= node.length) return allocOptionI32(null);
+              node = (node as unknown[])[idx];
+            } else if (typeof node === "object") {
+              if (!Object.prototype.hasOwnProperty.call(node, part)) return allocOptionI32(null);
+              node = (node as Record<string, unknown>)[part];
+            } else {
+              return allocOptionI32(null);
+            }
+          }
+          if (node === null || node === undefined) return allocOptionI32(null);
+          const s = typeof node === "string" ? node : JSON.stringify(node);
+          return allocOptionI32(writeString(s));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      // json_array_length returns Some(n) for a JSON array string, None otherwise.
+      json_array_length(jsonPtr: number): number {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (!Array.isArray(parsed)) return allocOptionI64(null);
+          return allocOptionI64(BigInt(parsed.length));
+        } catch {
+          return allocOptionI64(null);
+        }
+      },
+
+      // json_array_get returns Some(element) at the given 0-based index, None if OOB or not array.
+      json_array_get(jsonPtr: number, index: bigint): number {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (!Array.isArray(parsed)) return allocOptionI32(null);
+          const idx = Number(index);
+          if (idx < 0 || idx >= parsed.length) return allocOptionI32(null);
+          const val = (parsed as unknown[])[idx];
+          const s = typeof val === "string" ? val : JSON.stringify(val);
+          return allocOptionI32(writeString(s));
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      // json_keys returns Some(List<String>) of top-level keys of a JSON object, None otherwise.
+      json_keys(jsonPtr: number): number {
+        try {
+          const parsed = JSON.parse(readString(jsonPtr));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return allocOptionI32(null);
+          const keys = Object.keys(parsed as Record<string, unknown>);
+          const ptrs = keys.map((k) => writeString(k));
+          const listPtr = allocListI32(ptrs);
+          return allocOptionI32(listPtr);
+        } catch {
+          return allocOptionI32(null);
+        }
+      },
+
+      // json_escape_string escapes a string for safe embedding inside a JSON string value.
+      // Does NOT add surrounding quotes. Result can be wrapped: '"' ++ json_escape_string(s) ++ '"'
+      json_escape_string(ptr: number): number {
+        const s = readString(ptr);
+        // JSON.stringify adds surrounding quotes; slice them off to get just the escaped interior.
+        const escaped = JSON.stringify(s).slice(1, -1);
+        return writeString(escaped);
+      },
+
       // --- Regex operations ---
       regex_match(patternPtr: number, textPtr: number): number {
         try {
@@ -984,6 +1065,26 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       // --- Timestamp operations ---
       // Timestamp is i64 (milliseconds since Unix epoch)
+
+      // sleep performs a synchronous busy-wait using Atomics.wait on a SAB.
+      // Atomics.wait blocks the calling thread until timeout, which is what we want
+      // inside a WASM import (the WASM host thread IS a Worker when running in Node.js
+      // with SharedArrayBuffer available, or we fall back to busy-wait on the main thread).
+      sleep(ms: bigint): void {
+        const delay = Number(ms);
+        if (delay <= 0) return;
+        try {
+          // Preferred: Atomics.wait (works on Worker threads and in Node.js)
+          const sab = new SharedArrayBuffer(4);
+          const arr = new Int32Array(sab);
+          Atomics.wait(arr, 0, 0, delay);
+        } catch {
+          // Fallback: busy-wait (works on main thread where Atomics.wait is disallowed)
+          const end = Date.now() + delay;
+          while (Date.now() < end) { /* spin */ }
+        }
+      },
+
       now(): bigint {
         return BigInt(Date.now());
       },
@@ -1445,6 +1546,68 @@ export function createRuntime(config: RuntimeConfig = {}) {
       },
 
       // --- Network operations ---
+      http_request(methodPtr: number, urlPtr: number, headersJsonPtr: number, bodyPtr: number): number {
+        const method = readString(methodPtr).toUpperCase();
+        const url = readString(urlPtr);
+        const headersJson = readString(headersJsonPtr);
+        const body = readString(bodyPtr);
+        try {
+          let headers: Record<string, string> = {};
+          if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
+            const parsed = JSON.parse(headersJson);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+                headers[k] = String(v);
+              }
+            }
+          }
+          const resp = syncHttpRequest({
+            url,
+            method,
+            headers,
+            body: body.length > 0 ? body : undefined,
+            timeoutMs: 10000,
+            followRedirects: true,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
+          return allocResultString(true, writeString(resp.body));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
+      http_request_full(methodPtr: number, urlPtr: number, headersJsonPtr: number, bodyPtr: number): number {
+        const method = readString(methodPtr).toUpperCase();
+        const url = readString(urlPtr);
+        const headersJson = readString(headersJsonPtr);
+        const body = readString(bodyPtr);
+        try {
+          let headers: Record<string, string> = {};
+          if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
+            const parsed = JSON.parse(headersJson);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+                headers[k] = String(v);
+              }
+            }
+          }
+          const resp = syncHttpRequest({
+            url,
+            method,
+            headers,
+            body: body.length > 0 ? body : undefined,
+            timeoutMs: 10000,
+            followRedirects: true,
+          });
+          const resultJson = JSON.stringify({ status: resp.status, body: resp.body });
+          return allocResultString(true, writeString(resultJson));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultString(false, writeString(msg));
+        }
+      },
+
       http_get(urlPtr: number): number {
         const url = readString(urlPtr);
         try {
