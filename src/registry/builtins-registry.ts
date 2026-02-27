@@ -163,6 +163,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Log a warning message to stderr.",
     category: "log",
   },
+  {
+    name: "print_stderr",
+    params: [STRING],
+    paramNames: ["value"],
+    returnType: UNIT,
+    effects: ["Log"],
+    doc: "Print a string to stderr followed by a newline. Unlike log_info/log_warn, no prefix is added. Use for error messages and diagnostics in CLI programs.",
+    category: "log",
+  },
 
   // --- String operations ---
   {
@@ -626,6 +635,38 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
 
   // --- Network operations (require Network effect) ---
   {
+    name: "http_request",
+    params: [STRING, STRING, STRING, STRING],
+    paramNames: ["method", "url", "headers_json", "body"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Perform an HTTP request with arbitrary method, headers, and body. `method` is e.g. \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\". `headers_json` is a JSON object string of header name→value pairs (use \"{}\" for none). `body` is the request body (use \"\" for none). Returns Ok(response_body) on 2xx or Err(\"HTTP <status>: <body>\") on non-2xx / network errors.",
+    category: "network",
+  },
+  {
+    name: "http_request_full",
+    params: [STRING, STRING, STRING, STRING],
+    paramNames: ["method", "url", "headers_json", "body"],
+    returnType: {
+      kind: "Union",
+      name: "Result<String, String>",
+      variants: [
+        { name: "Ok", fields: new Map([["value", STRING]]) },
+        { name: "Err", fields: new Map([["error", STRING]]) },
+      ],
+    },
+    effects: ["Network"],
+    doc: "Like http_request but always returns Ok with a JSON object {\"status\": <int>, \"body\": <string>} for any HTTP response (even non-2xx). Returns Err only on network-level failures (DNS, timeout, etc.). Use json_get to extract fields.",
+    category: "network",
+  },
+  {
     name: "http_get",
     params: [STRING],
     paramNames: ["url"],
@@ -910,6 +951,65 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Return the element at the given index from a JSON array string. Scalars are returned as their string representation; objects and arrays are returned as their JSON string. Returns None if the index is out of bounds or the input is not a JSON array.",
     category: "json",
   },
+  {
+    name: "json_get_nested",
+    params: [STRING, STRING],
+    paramNames: ["json", "path"],
+    returnType: OPTION_STRING,
+    effects: [],
+    doc: "Extract a value from a nested JSON structure using a dot-separated path (e.g. \"user.name\" or \"items.0.id\"). Array elements are accessed by numeric index. Returns Some(value) as a JSON-encoded string for objects/arrays, or as a plain scalar for strings/numbers/booleans. Returns None if the path does not exist.",
+    category: "json",
+  },
+  {
+    name: "json_array_length",
+    params: [STRING],
+    paramNames: ["json"],
+    returnType: {
+      kind: "Union",
+      name: "Option<Int64>",
+      variants: [
+        { name: "Some", fields: new Map([["value", INT64]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Return Some(n) with the number of elements in a JSON array string, or None if the input is not a valid JSON array.",
+    category: "json",
+  },
+  {
+    name: "json_array_get",
+    params: [STRING, INT64],
+    paramNames: ["json", "index"],
+    returnType: OPTION_STRING,
+    effects: [],
+    doc: "Return Some(element_json) for the element at `index` in a JSON array string (0-based). Returns None if out of bounds or not a valid array. Objects and arrays are returned as JSON strings; scalars as plain strings.",
+    category: "json",
+  },
+  {
+    name: "json_keys",
+    params: [STRING],
+    paramNames: ["json"],
+    returnType: {
+      kind: "Union",
+      name: "Option<List<String>>",
+      variants: [
+        { name: "Some", fields: new Map([["value", { kind: "List", element: STRING }]]) },
+        { name: "None", fields: new Map() },
+      ],
+    },
+    effects: [],
+    doc: "Return Some(List<String>) of the top-level keys of a JSON object, or None if the input is not a valid JSON object.",
+    category: "json",
+  },
+  {
+    name: "json_escape_string",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Escape a string for safe embedding inside a JSON string value. Escapes backslashes, double quotes, and control characters. The result does NOT include surrounding quotes — wrap in '\\\"' ++ json_escape_string(s) ++ '\\\"' to produce a JSON string literal. Example: json_escape_string(\"say \\\"hi\\\"\") returns say \\\\\\\"hi\\\\\\\".",
+    category: "json",
+  },
 
   // --- Map<K, V> operations ---
   {
@@ -1013,6 +1113,15 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
   },
 
   // --- Timestamp builtins ---
+  {
+    name: "sleep",
+    params: [INT64],
+    paramNames: ["ms"],
+    returnType: UNIT,
+    effects: ["Time"],
+    doc: "Pause execution for the given number of milliseconds. Uses a synchronous busy-wait via SharedArrayBuffer + Atomics so it works inside WASM imports. Useful for polling loops and rate limiting in CLI programs.",
+    category: "time",
+  },
   {
     name: "now",
     params: [],

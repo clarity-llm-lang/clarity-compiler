@@ -27,6 +27,7 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "print_float", importModule: "env", importName: "print_float", params: f64, result: none },
     { name: "log_info", importModule: "env", importName: "log_info", params: i32, result: none },
     { name: "log_warn", importModule: "env", importName: "log_warn", params: i32, result: none },
+    { name: "print_stderr", importModule: "env", importName: "print_stderr", params: i32, result: none },
 
     // --- String operations ---
     { name: "string_concat", importModule: "env", importName: "string_concat", params: pair_i32, result: i32 },
@@ -85,7 +86,9 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "random_float", importModule: "env", importName: "random_float", params: binaryen.none, result: f64 },
 
     // --- Network operations ---
-    // http_get/http_post/http_listen/http_request return Result<*, String> as heap-allocated union pointer (i32).
+    // http_get/http_post/http_listen return Result<*, String> as heap-allocated union pointer (i32).
+    { name: "http_request", importModule: "env", importName: "http_request", params: binaryen.createType([i32, i32, i32, i32]), result: i32 },
+    { name: "http_request_full", importModule: "env", importName: "http_request_full", params: binaryen.createType([i32, i32, i32, i32]), result: i32 },
     { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
     { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
     { name: "http_listen", importModule: "env", importName: "http_listen", params: i64, result: i32 },
@@ -134,6 +137,11 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "json_get_path", importModule: "env", importName: "json_get_path", params: pair_i32, result: i32 },
     { name: "json_array_length", importModule: "env", importName: "json_array_length", params: i32, result: i64 },
     { name: "json_array_get", importModule: "env", importName: "json_array_get", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "json_get_nested", importModule: "env", importName: "json_get_nested", params: pair_i32, result: i32 },
+    { name: "json_array_length", importModule: "env", importName: "json_array_length", params: i32, result: i32 },
+    { name: "json_array_get", importModule: "env", importName: "json_array_get", params: binaryen.createType([i32, i64]), result: i32 },
+    { name: "json_keys", importModule: "env", importName: "json_keys", params: i32, result: i32 },
+    { name: "json_escape_string", importModule: "env", importName: "json_escape_string", params: i32, result: i32 },
 
     // --- Map operations ---
     // Maps are opaque i32 handles. Keys: i32 (String ptr) or i64 (Int64). Values: i32 or i64.
@@ -249,6 +257,7 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "policy_is_effect_allowed", importModule: "env", importName: "policy_is_effect_allowed", params: i32, result: i32 },
 
     // --- Timestamp operations ---
+    { name: "sleep", importModule: "env", importName: "sleep", params: i64, result: none },
     { name: "now", importModule: "env", importName: "now", params: binaryen.none, result: i64 },
     { name: "timestamp_to_string", importModule: "env", importName: "timestamp_to_string", params: i64, result: i32 },
     { name: "timestamp_to_int", importModule: "env", importName: "timestamp_to_int", params: i64, result: i64 },
