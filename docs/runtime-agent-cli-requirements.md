@@ -1,6 +1,6 @@
 # Runtime Agent CLI Requirements (Clarity)
 
-Status: Active (language support available; reference implementation in progress)  
+Status: Active (prototype complete, production migration in progress)  
 Target project: `LLM-lang`  
 Related production bridge: `LLM-cli` (`runtime-agents`, `runtime-chat`)
 
@@ -85,16 +85,22 @@ The major language requirements are now available:
 
 ## Remaining Gaps for Production Parity
 
-The native Clarity version still needs hardening to replace the TypeScript CLI in production:
+The native Clarity version is now wired into `LLM-cli` as the default runtime-chat engine.
+During this migration, the following language/runtime gaps were identified:
 
-1. Robust URL encoding and endpoint composition utilities.
-2. Stream lifecycle handling equivalent to TS fallback logic (run-scoped SSE -> global SSE -> polling).
-3. Packaged distribution/entrypoint conventions for operator teams.
-4. End-to-end runtime integration tests against a live runtime fixture.
+1. **RQ-LANG-CLI-001: Input/Stream multiplexing primitive**
+   - Need a standard way to concurrently process interactive stdin and SSE events in one loop.
+   - Current limitation forces polling-first UX in native Clarity chat clients.
+2. **RQ-LANG-CLI-002: URL/path encoding helper**
+   - Need built-in URL segment/query encoding helpers for safe endpoint construction (for run IDs and future query params).
+3. **RQ-LANG-CLI-003: CLI packaging ergonomics**
+   - Need first-class support for shipping Clarity apps as standalone CLI binaries or package-friendly launch artifacts.
+4. **RQ-LANG-CLI-004: Runtime integration harness**
+   - Need official e2e fixtures for runtime-agent chat contracts to verify behavior against live runtime streams and terminal states.
 
 ## Backlog
 
 - Backlog ID: `LANG-CLI-RT-CHAT-002`
 - Priority: `P1`
-- Item: Promote native Clarity runtime-chat CLI to production parity and replace the TypeScript bridge as primary implementation.
-- Dependency: runtime integration tests and SSE fallback hardening.
+- Item: Close RQ-LANG-CLI-001..004 and remove the TypeScript runtime-chat fallback bridge from `LLM-cli`.
+- Dependency: async stdin/SSE multiplex support + runtime integration fixtures.
