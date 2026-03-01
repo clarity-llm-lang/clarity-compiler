@@ -59,7 +59,6 @@ export interface EffectDefinition {
 // -----------------------------------------------------------------------------
 
 export const EFFECT_DEFINITIONS: EffectDefinition[] = [
-  { name: "DB", description: "Database read/write operations" },
   { name: "Network", description: "Network and HTTP operations" },
   { name: "Time", description: "Access to current time and timestamps" },
   { name: "Random", description: "Random number generation" },
@@ -662,15 +661,6 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "network",
   },
   {
-    name: "http_listen",
-    params: [INT64],
-    paramNames: ["port"],
-    returnType: { kind: "Result", ok: STRING, err: STRING } as ClarityType,
-    effects: ["Network"],
-    doc: "Start an HTTP server on the given port. Current runtime returns Err(not implemented).",
-    category: "network",
-  },
-  {
     name: "http_request",
     params: [STRING, STRING, STRING, STRING],
     paramNames: ["method", "url", "headers_json", "body"],
@@ -707,39 +697,6 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     category: "json",
   },
 
-  // --- DB operations (scaffold) ---
-  {
-    name: "db_execute",
-    params: [STRING, LIST_STRING],
-    paramNames: ["sql", "params"],
-    returnType: {
-      kind: "Union",
-      name: "Result<Int64, String>",
-      variants: [
-        { name: "Ok", fields: new Map([["value", INT64]]) },
-        { name: "Err", fields: new Map([["error", STRING]]) },
-      ],
-    },
-    effects: ["DB"],
-    doc: "Execute a non-query SQL statement. Current runtime returns Err(not implemented).",
-    category: "db",
-  },
-  {
-    name: "db_query",
-    params: [STRING, LIST_STRING],
-    paramNames: ["sql", "params"],
-    returnType: {
-      kind: "Union",
-      name: "Result<List<Map<String, String>>, String>",
-      variants: [
-        { name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: STRING, value: STRING } }]]) },
-        { name: "Err", fields: new Map([["error", STRING]]) },
-      ],
-    },
-    effects: ["DB"],
-    doc: "Execute a query SQL statement. Current runtime returns Err(not implemented).",
-    category: "db",
-  },
 
   // --- Test assertions (require Test effect) ---
   {

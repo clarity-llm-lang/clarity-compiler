@@ -990,10 +990,14 @@ describe("end-to-end compilation", () => {
     expect(out).toContain('"alice"');
   });
 
-  it("http_listen requires Network effect", () => {
+  // Note: http_listen and db_execute/db_query were removed from the registry
+  // because they were never implemented (always returned Err("not implemented")).
+  // The tests below verify they are no longer callable from Clarity.
+
+  it("http_listen is not a known builtin (removed)", () => {
     const source = `
       module Test
-      function bad() -> String {
+      effect[Network] function bad() -> String {
         match http_listen(8080) {
           Ok(v) -> v,
           Err(e) -> e
@@ -1002,22 +1006,19 @@ describe("end-to-end compilation", () => {
     `;
     const result = compile(source, "test.clarity");
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0].message).toContain("Network");
+    expect(result.errors[0].message).toContain("http_listen");
   });
 
-  it("db_execute requires DB effect", () => {
+  it("db_execute is not a known builtin (removed)", () => {
     const source = `
       module Test
       function bad() -> Int64 {
-        match db_execute("DELETE FROM users", []) {
-          Ok(n) -> n,
-          Err(e) -> 0
-        }
+        db_execute("DELETE FROM users", [])
       }
     `;
     const result = compile(source, "test.clarity");
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0].message).toContain("DB");
+    expect(result.errors[0].message).toContain("db_execute");
   });
 
   it("http_get works with Network effect", async () => {
