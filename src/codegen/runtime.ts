@@ -318,6 +318,62 @@ req.on('error', function(e) { putError(e.message); });
 req.end();
 `;
 
+// Stdin reader worker: reads one line at a time from fd 0 (stdin) and
+// signals the main thread via SharedArrayBuffer using the same STATUS handshake.
+//
+// SAB layout:
+//   [0-3]      ctrl int32:  0=idle (waiting for consumer), 1=line_ready, 2=eof, 3=error
+//   [4-7]      line_length int32
+//   [8-65543]  line bytes (up to 65536)
+//
+// Protocol:
+//   Worker reads a line → writes bytes → sets status=1 → notifies → waits until status=0
+//   Consumer sees status=1 → reads bytes → sets status=0 → notifies worker
+const STDIN_SAB_LINE_OFFSET = 8;
+const STDIN_SAB_MAX_LINE = 65536;
+const STDIN_SAB_SIZE = STDIN_SAB_LINE_OFFSET + STDIN_SAB_MAX_LINE;
+
+const _STDIN_READER_WORKER_CODE = `
+const { workerData } = require('worker_threads');
+const fs = require('fs');
+const { sab } = workerData;
+const ctrl = new Int32Array(sab, 0, 1);
+const meta = new DataView(sab);
+const LINE_OFFSET = 8, MAX_LINE = 65536;
+const STATUS_IDLE = 0, STATUS_LINE = 1, STATUS_EOF = 2, STATUS_ERROR = 3;
+
+function readNext() {
+  const buf = Buffer.alloc(MAX_LINE);
+  let bytesRead;
+  try {
+    bytesRead = fs.readSync(0, buf, 0, buf.length, null);
+  } catch(e) {
+    meta.setInt32(4, 0, true);
+    Atomics.store(ctrl, 0, STATUS_ERROR);
+    Atomics.notify(ctrl, 0, 1);
+    return;
+  }
+  if (bytesRead === 0) {
+    Atomics.store(ctrl, 0, STATUS_EOF);
+    Atomics.notify(ctrl, 0, 1);
+    return;
+  }
+  // Strip trailing \\r\\n or \\n
+  let end = bytesRead;
+  if (end > 0 && buf[end - 1] === 10) end--; // LF
+  if (end > 0 && buf[end - 1] === 13) end--; // CR
+  meta.setInt32(4, end, true);
+  new Uint8Array(sab, LINE_OFFSET, end).set(buf.subarray(0, end));
+  Atomics.store(ctrl, 0, STATUS_LINE);
+  Atomics.notify(ctrl, 0, 1);
+  // Wait until consumer resets status back to IDLE before reading the next line.
+  Atomics.wait(ctrl, 0, STATUS_LINE);
+  readNext();
+}
+
+readNext();
+`;
+
 function syncHttpRequest(opts: {
   url: string;
   method?: string;
@@ -580,6 +636,24 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Leftover buffer for real-stdin read_line() calls.
   // readSync may return multiple lines at once; we buffer the remainder.
   let stdinBuffer = "";
+
+  // Persistent stdin reader worker for stdin_try_read().
+  // Initialized lazily on the first stdin_try_read() call.
+  // Do NOT mix with read_line() in the same program.
+  let stdinReaderSab: SharedArrayBuffer | null = null;
+  let stdinReaderCtrl: Int32Array | null = null;
+  let stdinReaderWorker: import("node:worker_threads").Worker | null = null;
+
+  function ensureStdinReader(): void {
+    if (stdinReaderSab) return;
+    stdinReaderSab = new SharedArrayBuffer(STDIN_SAB_SIZE);
+    stdinReaderCtrl = new Int32Array(stdinReaderSab, 0, 1);
+    stdinReaderWorker = new Worker(_STDIN_READER_WORKER_CODE, {
+      eval: true,
+      workerData: { sab: stdinReaderSab },
+    });
+    stdinReaderWorker.on("error", () => { /* worker errors are signalled via SAB */ });
+  }
 
   // Stream session table: handle → { sab, ctrl, worker, lastError? }
   interface StreamSession { sab: SharedArrayBuffer; ctrl: Int32Array; worker: import("node:worker_threads").Worker; lastError?: string; }
@@ -2713,6 +2787,107 @@ export function createRuntime(config: RuntimeConfig = {}) {
         if (!session) return;
         session.worker.terminate();
         sseSessions.delete(handle);
+      },
+
+      // -----------------------------------------------------------------------
+      // sse_next_event_timeout — like sse_next_event but with configurable timeout
+      // -----------------------------------------------------------------------
+
+      sse_next_event_timeout(handleN: bigint, timeoutN: bigint): number {
+        const handle = Number(handleN);
+        const timeoutMs = Number(timeoutN);
+        const session = sseSessions.get(handle);
+        if (!session) return allocOptionI32(null);
+        const { ctrl, sab } = session;
+        // Wait only up to timeoutMs.  If status is already non-zero (token or
+        // done/error arrived before we started waiting), Atomics.wait returns
+        // "not-equal" immediately, which is exactly what we want.
+        const waitResult = Atomics.wait(ctrl, 0, 0 /* STATUS_IDLE */, timeoutMs);
+        if (waitResult === "timed-out") {
+          return allocOptionI32(null); // None — no event yet, stream still open
+        }
+        const status = Atomics.load(ctrl, 0);
+        if (status === 2 /* DONE */ || status === 3 /* ERROR */) {
+          if (status === 3) {
+            const meta = new DataView(sab);
+            const errLen = meta.getInt32(8, true);
+            const errBytes = new Uint8Array(sab, STREAM_ERROR_OFFSET, errLen);
+            session.lastError = Buffer.from(errBytes).toString("utf-8");
+          }
+          return allocOptionI32(null);
+        }
+        // STATUS_TOKEN: read event, reset to IDLE, wake worker.
+        const meta = new DataView(sab);
+        const tokenLen = meta.getInt32(4, true);
+        const tokenBytes = new Uint8Array(sab, STREAM_TOKEN_OFFSET, tokenLen);
+        const event = Buffer.from(tokenBytes).toString("utf-8");
+        Atomics.store(ctrl, 0, 0 /* STATUS_IDLE */);
+        Atomics.notify(ctrl, 0, 1);
+        return allocOptionI32(writeString(event));
+      },
+
+      // -----------------------------------------------------------------------
+      // stdin_try_read — non-blocking stdin line read with timeout
+      // -----------------------------------------------------------------------
+
+      stdin_try_read(timeoutN: bigint): number {
+        const timeoutMs = Number(timeoutN);
+
+        // In test / script mode, config.stdin provides a pre-loaded string.
+        // Drain it the same way read_line() does (no worker needed).
+        if (config.stdin !== undefined) {
+          if (config.stdin === "") return allocOptionI32(null); // EOF
+          const newline = config.stdin.indexOf("\n");
+          if (newline === -1) {
+            const line = config.stdin;
+            config.stdin = "";
+            return allocOptionI32(writeString(line));
+          }
+          const line = config.stdin.substring(0, newline);
+          config.stdin = config.stdin.substring(newline + 1);
+          return allocOptionI32(writeString(line));
+        }
+
+        ensureStdinReader();
+        const ctrl = stdinReaderCtrl!;
+        const sab = stdinReaderSab!;
+        // If a line is already waiting, consume it immediately.
+        // Otherwise wait up to timeoutMs for one to arrive.
+        let current = Atomics.load(ctrl, 0);
+        if (current === 0 /* IDLE */) {
+          Atomics.wait(ctrl, 0, 0 /* IDLE */, timeoutMs);
+          current = Atomics.load(ctrl, 0);
+        }
+        if (current === 1 /* LINE_READY */) {
+          const meta = new DataView(sab);
+          const lineLen = meta.getInt32(4, true);
+          const lineBytes = new Uint8Array(sab, STDIN_SAB_LINE_OFFSET, lineLen);
+          const line = Buffer.from(lineBytes).toString("utf-8");
+          // Signal worker to read next line.
+          Atomics.store(ctrl, 0, 0 /* IDLE */);
+          Atomics.notify(ctrl, 0, 1);
+          return allocOptionI32(writeString(line));
+        }
+        // STATUS_EOF (2), STATUS_ERROR (3), or timeout (still 0) → None
+        return allocOptionI32(null);
+      },
+
+      // -----------------------------------------------------------------------
+      // URL encoding helpers (pure)
+      // -----------------------------------------------------------------------
+
+      url_encode(sPtr: number): number {
+        const s = readString(sPtr);
+        return writeString(encodeURIComponent(s));
+      },
+
+      url_decode(sPtr: number): number {
+        const s = readString(sPtr);
+        try {
+          return writeString(decodeURIComponent(s));
+        } catch {
+          return writeString(s); // return input unchanged if decoding fails
+        }
       },
     },
   };

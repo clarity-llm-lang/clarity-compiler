@@ -51,3 +51,11 @@ export effect[Network] function next_event(handle: Int64) -> Option<String> {
 export effect[Network] function close(handle: Int64) -> Unit {
   sse_close(handle)
 }
+
+// Read the next event from an SSE stream, blocking for at most timeout_ms ms.
+// Returns Some(data) when an event arrives, or None on timeout / stream end.
+// Use this instead of next_event() when you need to interleave stdin reads
+// or other work (see std/mux for a higher-level poll helper).
+export effect[Network] function next_event_timeout(handle: Int64, timeout_ms: Int64) -> Option<String> {
+  sse_next_event_timeout(handle, timeout_ms)
+}

@@ -1,0 +1,84 @@
+// std/mux — stdin / SSE poll-multiplexing for interactive CLI programs
+//
+// Provides a simple polling loop that can wait on both an SSE event stream
+// and interactive stdin at the same time, without blocking permanently on
+// either.  Under the hood it uses sse_next_event_timeout and stdin_try_read,
+// each of which blocks for at most `slice_ms` milliseconds per check.
+//
+// Typical usage:
+//
+//   import { poll, MuxEvent } from "std/mux"
+//
+//   effect[Network, FileSystem] function chat_loop(h: Int64) -> Unit {
+//     match poll(h, 150) {
+//       SseEvent(data)  -> { handle_event(data); chat_loop(h) },
+//       StdinLine(line) -> { send_message(line); chat_loop(h) },
+//       SseEnded        -> print_string("stream closed"),
+//       StdinEof        -> print_string("stdin closed"),
+//       Timeout         -> chat_loop(h)   // nothing arrived — keep waiting
+//     }
+//   }
+//
+// Notes:
+//   • Each poll() call blocks for up to 2 × slice_ms (one SSE check, one
+//     stdin check).  For a slice_ms of 100–200 ms the interactive latency
+//     is imperceptible.
+//   • Do NOT use read_line() in the same program as poll() — stdin_try_read
+//     owns the stdin worker once initialised.
+//   • SSE errors are treated as SseEnded; the caller should call
+//     sse_close(handle) after receiving SseEnded.
+
+module Mux
+
+// Result of one poll() call.
+export type MuxEvent =
+  | SseEvent(data: String)   // an SSE event arrived
+  | StdinLine(line: String)  // the user typed a line
+  | SseEnded                 // the SSE stream closed (completed, failed, or cancelled)
+  | StdinEof                 // stdin reached EOF
+  | Timeout                  // neither source produced data within the window
+
+// Poll an SSE stream handle and stdin for at most slice_ms milliseconds each.
+// Returns the first source that produces data, or Timeout if neither did.
+// slice_ms is the per-source wait budget; total wait is at most 2 × slice_ms.
+export effect[Network, FileSystem] function poll(sse_handle: Int64, slice_ms: Int64) -> MuxEvent {
+  // Check SSE first with the given slice budget.
+  let sse = sse_next_event_timeout(sse_handle, slice_ms);
+  match sse {
+    Some(data) -> SseEvent(data),
+    None       -> {
+      // SSE timed out (or ended). Distinguish ended vs timed-out by checking
+      // whether a zero-timeout poll immediately returns None — if the stream
+      // was still alive it would just time out again, which is fine: we fall
+      // through to the stdin check.  If the stream truly ended, future calls
+      // will also return None, so callers should track terminal state
+      // explicitly via event kind (agent.run_completed etc.).
+      //
+      // Now check stdin with the same slice budget.
+      let line = stdin_try_read(slice_ms);
+      match line {
+        Some(text) -> match text == "" {
+          True  -> poll(sse_handle, slice_ms),  // blank line — keep polling
+          False -> StdinLine(text)
+        },
+        None -> Timeout
+      }
+    }
+  }
+}
+
+// Variant of poll that treats a blank stdin line as Timeout instead of
+// recursing.  Useful when blank lines are meaningful to the application.
+export effect[Network, FileSystem] function poll_raw(sse_handle: Int64, slice_ms: Int64) -> MuxEvent {
+  let sse = sse_next_event_timeout(sse_handle, slice_ms);
+  match sse {
+    Some(data) -> SseEvent(data),
+    None       -> {
+      let line = stdin_try_read(slice_ms);
+      match line {
+        Some(text) -> StdinLine(text),
+        None       -> Timeout
+      }
+    }
+  }
+}

@@ -1283,6 +1283,46 @@ export const CLARITY_BUILTINS: ClarityBuiltin[] = [
     doc: "Close an SSE stream handle and release its resources. Safe to call after the stream has ended.",
     category: "network",
   },
+  {
+    name: "sse_next_event_timeout",
+    params: [INT64, INT64],
+    paramNames: ["handle", "timeout_ms"],
+    returnType: OPTION_STRING,
+    effects: ["Network"],
+    doc: "Read the next event from an SSE stream, blocking for at most timeout_ms milliseconds. Returns Some(data) when an event arrives within the timeout, None on timeout, and None when the stream ends or errors. Unlike sse_next_event (300 s hard timeout), this lets you poll with short timeouts and interleave other work such as stdin reads. Example: sse_next_event_timeout(h, 200).",
+    category: "network",
+  },
+
+  // --- stdin non-blocking read (require FileSystem effect) ---
+  {
+    name: "stdin_try_read",
+    params: [INT64],
+    paramNames: ["timeout_ms"],
+    returnType: OPTION_STRING,
+    effects: ["FileSystem"],
+    doc: "Attempt to read a line from stdin, blocking for at most timeout_ms milliseconds. Returns Some(line) when a line arrives within the timeout (trailing newline stripped), or None on timeout or EOF. Uses a background worker thread so it can be interleaved with sse_next_event_timeout in a poll loop. Do not mix with read_line() in the same program.",
+    category: "io",
+  },
+
+  // --- URL encoding helpers (pure, no effects) ---
+  {
+    name: "url_encode",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Percent-encode a string for safe use as a URL path segment or query parameter value. Uses encodeURIComponent semantics — encodes all characters except A–Z a–z 0–9 - _ . ! ~ * ' ( ). Example: url_encode(\"hello world\") → \"hello%20world\", url_encode(\"a/b\") → \"a%2Fb\".",
+    category: "network",
+  },
+  {
+    name: "url_decode",
+    params: [STRING],
+    paramNames: ["s"],
+    returnType: STRING,
+    effects: [],
+    doc: "Decode a percent-encoded URL component. Reverses url_encode. Returns the input unchanged if decoding fails (malformed sequences). Example: url_decode(\"hello%20world\") → \"hello world\".",
+    category: "network",
+  },
 
   // --- MCP operations (require MCP effect) ---
   {

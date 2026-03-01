@@ -2458,6 +2458,12 @@ export class CodeGenerator {
       sse_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
       sse_next_event: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
       sse_close: UNIT,
+      sse_next_event_timeout: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      // stdin non-blocking
+      stdin_try_read: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
+      // URL encoding (pure)
+      url_encode: { kind: "String" } as ClarityType,
+      url_decode: { kind: "String" } as ClarityType,
     };
     if (name in builtinReturnTypes) return builtinReturnTypes[name];
     return INT64;

@@ -203,6 +203,14 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "sse_next_event", importModule: "env", importName: "sse_next_event", params: i64, result: i32 },
     // sse_close(handle: i64) → void
     { name: "sse_close", importModule: "env", importName: "sse_close", params: i64, result: none },
+    // sse_next_event_timeout(handle: i64, timeout_ms: i64) → Option<String> as i32 pointer
+    { name: "sse_next_event_timeout", importModule: "env", importName: "sse_next_event_timeout", params: binaryen.createType([i64, i64]), result: i32 },
+    // stdin_try_read(timeout_ms: i64) → Option<String> as i32 pointer
+    { name: "stdin_try_read", importModule: "env", importName: "stdin_try_read", params: i64, result: i32 },
+    // url_encode(s) → String as i32 pointer
+    { name: "url_encode", importModule: "env", importName: "url_encode", params: i32, result: i32 },
+    // url_decode(s) → String as i32 pointer
+    { name: "url_decode", importModule: "env", importName: "url_decode", params: i32, result: i32 },
 
     // --- MCP operations ---
     // mcp_connect(url) → Result<Int64, String> as i32 pointer
