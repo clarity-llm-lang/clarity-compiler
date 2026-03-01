@@ -554,7 +554,9 @@ export function createRuntime(config: RuntimeConfig = {}) {
     }
 
     // Bump-allocate a fresh block.
-    heapPtr = (heapPtr + 3) & ~3; // 4-byte alignment
+    // Use 8-byte alignment so that Int64/Float64/Timestamp fields within records
+    // and union payloads land on naturally-aligned addresses.
+    heapPtr = (heapPtr + 7) & ~7; // 8-byte alignment
     const ptr = heapPtr;
     const needed = ptr + cls;
     if (needed > memory.buffer.byteLength) {
@@ -665,39 +667,44 @@ export function createRuntime(config: RuntimeConfig = {}) {
   const sseSessions = new Map<number, StreamSession>();
   let nextSseHandle = 1;
 
-  // Allocate an Option<i32> union: [tag:i32][value:i32] = 8 bytes
-  function allocOptionI32(value: number | null): number {
-    const ptr = alloc(8);
-    const view = new DataView(memory.buffer);
-    if (value === null) {
-      view.setInt32(ptr, 1, true); // None
-    } else {
-      view.setInt32(ptr, 0, true); // Some
-      view.setInt32(ptr + 4, value, true);
-    }
-    return ptr;
-  }
+  // Union layout (after alignment fix):
+  //   [tag:i32 at 0][padding:i32 at 4][payload starting at 8]
+  // The 8-byte header ensures the first payload field — even an Int64 or Float64 —
+  // lands on an 8-byte-aligned offset (since the allocator guarantees 8-byte alignment).
 
-  // Allocate an Option<i64> union: [tag:i32][value:i64] = 12 bytes
-  function allocOptionI64(value: bigint | null): number {
+  // Allocate an Option<i32> union: 8-byte header + 4-byte i32 payload = 12 bytes
+  function allocOptionI32(value: number | null): number {
     const ptr = alloc(12);
     const view = new DataView(memory.buffer);
     if (value === null) {
       view.setInt32(ptr, 1, true); // None
     } else {
       view.setInt32(ptr, 0, true); // Some
-      view.setBigInt64(ptr + 4, value, true);
+      view.setInt32(ptr + 8, value, true);
     }
     return ptr;
   }
 
-  // Allocate a Result<*, i32> union: [tag:i32][value_ptr:i32] = 8 bytes.
+  // Allocate an Option<i64> union: 8-byte header + 8-byte i64 payload = 16 bytes
+  function allocOptionI64(value: bigint | null): number {
+    const ptr = alloc(16);
+    const view = new DataView(memory.buffer);
+    if (value === null) {
+      view.setInt32(ptr, 1, true); // None
+    } else {
+      view.setInt32(ptr, 0, true); // Some
+      view.setBigInt64(ptr + 8, value, true);
+    }
+    return ptr;
+  }
+
+  // Allocate a Result<*, i32> union: 8-byte header + 4-byte i32 payload = 12 bytes.
   // tag 0 = Ok(value), tag 1 = Err(error_message)
   function allocResultI32(ok: boolean, valuePtr: number): number {
-    const ptr = alloc(8);
+    const ptr = alloc(12);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, ok ? 0 : 1, true);
-    view.setInt32(ptr + 4, valuePtr, true);
+    view.setInt32(ptr + 8, valuePtr, true);
     return ptr;
   }
 
@@ -706,15 +713,15 @@ export function createRuntime(config: RuntimeConfig = {}) {
     return allocResultI32(ok, valuePtr);
   }
 
-  // Allocate a Result<Int64, String> union: [tag:i32][payload:i64/i32] = 12 bytes.
+  // Allocate a Result<Int64, String> union: 8-byte header + 8-byte i64 payload = 16 bytes.
   function allocResultI64(ok: boolean, value: bigint, errPtr = 0): number {
-    const ptr = alloc(12);
+    const ptr = alloc(16);
     const view = new DataView(memory.buffer);
     view.setInt32(ptr, ok ? 0 : 1, true);
     if (ok) {
-      view.setBigInt64(ptr + 4, value, true);
+      view.setBigInt64(ptr + 8, value, true);
     } else {
-      view.setInt32(ptr + 4, errPtr, true);
+      view.setInt32(ptr + 8, errPtr, true);
     }
     return ptr;
   }
@@ -871,17 +878,17 @@ export function createRuntime(config: RuntimeConfig = {}) {
       },
 
       // string_to_int returns Option<Int64> as heap-allocated union pointer.
-      // Layout: [tag:i32][value:i64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
+      // Layout: [tag:i32 at 0][padding:4 at 4][value:i64 at 8] = 16 bytes. Tag 0 = Some, Tag 1 = None.
       string_to_int(ptr: number): number {
         const s = readString(ptr).trim();
-        const unionPtr = alloc(12);
+        const unionPtr = alloc(16);
         const view = new DataView(memory.buffer);
         // Reject partial parses (parseInt("3.14") = 3): require the entire string
         // to be a valid integer representation before converting.
         if (/^-?\d+$/.test(s)) {
           try {
             view.setInt32(unionPtr, 0, true); // Some
-            view.setBigInt64(unionPtr + 4, BigInt(s), true);
+            view.setBigInt64(unionPtr + 8, BigInt(s), true);
           } catch {
             view.setInt32(unionPtr, 1, true); // None (overflow, etc.)
           }
@@ -892,10 +899,10 @@ export function createRuntime(config: RuntimeConfig = {}) {
       },
 
       // string_to_float returns Option<Float64> as heap-allocated union pointer.
-      // Layout: [tag:i32][value:f64] = 12 bytes. Tag 0 = Some, Tag 1 = None.
+      // Layout: [tag:i32 at 0][padding:4 at 4][value:f64 at 8] = 16 bytes. Tag 0 = Some, Tag 1 = None.
       string_to_float(ptr: number): number {
         const s = readString(ptr).trim();
-        const unionPtr = alloc(12);
+        const unionPtr = alloc(16);
         const view = new DataView(memory.buffer);
         // Use Number() instead of parseFloat(): Number("3.14abc") = NaN (correct),
         // parseFloat("3.14abc") = 3.14 (incorrect partial parse). Guard empty string
@@ -905,7 +912,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
           view.setInt32(unionPtr, 1, true); // None
         } else {
           view.setInt32(unionPtr, 0, true); // Some
-          view.setFloat64(unionPtr + 4, n, true);
+          view.setFloat64(unionPtr + 8, n, true);
         }
         return unionPtr;
       },
@@ -2598,11 +2605,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
           let dot = 0, nA = 0, nB = 0;
           for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
           const sim = Math.sqrt(nA) * Math.sqrt(nB) === 0 ? 0 : dot / (Math.sqrt(nA) * Math.sqrt(nB));
-          // Result<Float64, String>: [tag:i32][f64] = 12 bytes
-          const ptr = alloc(12);
+          // Result<Float64, String>: [tag:i32 at 0][padding:4 at 4][f64 at 8] = 16 bytes
+          const ptr = alloc(16);
           const v2 = new DataView(memory.buffer);
           v2.setInt32(ptr, 0, true); // Ok
-          v2.setFloat64(ptr + 4, sim, true);
+          v2.setFloat64(ptr + 8, sim, true);
           return ptr;
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);

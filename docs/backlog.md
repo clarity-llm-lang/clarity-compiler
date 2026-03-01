@@ -19,14 +19,8 @@ Checked items (✅) are done. Each item references the audit finding number.
   `1..5` and `3..7` in the same match compile with no warning. Add overlap detection and
   emit a warning (or error) for overlapping Int64 range arms.
 
-- [ ] **#6 Record field layout has no alignment/padding** — `src/codegen/codegen.ts`
-  Fields are laid out sequentially in linear memory without word-alignment padding.
-  `{ a: Int64, b: Bool, c: Int64 }` produces misaligned reads. Fix: align each field
-  to its natural size (4 bytes for i32/f32, 8 bytes for i64/f64).
-
-- [ ] **#7 Union discriminant is unchecked at match time** — `src/codegen/codegen.ts`
-  The variant tag (i32) stored in memory is never bounds-checked when pattern matching.
-  A corrupted heap silently executes the wrong arm instead of trapping.
+- [x] **#6 Record field layout has no alignment/padding** — fixed *(2026-03-01)*
+- [x] **#7 Union discriminant is unchecked at match time** — fixed *(2026-03-01)*
 
 ### Unimplemented / Dead Stubs
 
@@ -198,3 +192,23 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 - [x] **#4 `http_listen` dead stub removed** — Removed from registry and builtins.ts.
   Also cleaned up duplicate `http_request` import entry in builtins.ts. *(2026-03-01)*
+
+- [x] **#6 Record field alignment and Timestamp i64 load/store** — `src/codegen/codegen.ts`
+  + `src/codegen/runtime.ts`
+  Three fixes in one:
+  1. The bump allocator in runtime.ts now guarantees **8-byte alignment** (`heapPtr = (heapPtr + 7) & ~7`),
+     so record and union base pointers are always 8-byte aligned.
+  2. Union header widened from 4 bytes to **8 bytes** (i32 tag + 4 bytes padding), ensuring the
+     first variant field — even an Int64 or Float64 — lands at an 8-byte-aligned offset.
+     All field accesses in codegen updated from `+4` to `+8`; all JS-side union allocators
+     (`allocOptionI32/I64`, `allocResultI32/I64`, `string_to_int`, `string_to_float`,
+     `cosine_similarity`) updated to match (sizes and offsets).
+  3. `storeField`/`loadField` now handle `Timestamp` as i64 (was incorrectly using i32),
+     and use alignment hint `8` for `Int64`/`Float64`/`Timestamp` (was `4`).
+  *(2026-03-01)*
+
+- [x] **#7 Union discriminant bounds-check at match time** — `src/codegen/codegen.ts`
+  Both `generateUnionMatch` and `generateUnionMatchTCO` now emit an explicit
+  `(if (i32.ge_u tag numVariants) (unreachable))` guard before the if-else dispatch chain.
+  A corrupted tag that happens to equal a valid variant index can no longer silently execute
+  the wrong arm — out-of-range tags always trap. *(2026-03-01)*

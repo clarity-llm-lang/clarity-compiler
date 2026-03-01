@@ -520,25 +520,30 @@ export class CodeGenerator {
     return (offset + 3) & ~3; // pad to 4-byte boundary
   }
 
-  // Total size of a union (tag + max variant payload)
+  // Total size of a union (8-byte header + max variant payload).
+  // The header is 8 bytes (i32 tag + 4 bytes padding) so that the first field of
+  // any variant — even an Int64 or Float64 — lands on an 8-byte-aligned offset.
   private unionSize(variants: ClarityVariant[]): number {
     let maxPayload = 0;
     for (const v of variants) {
       const payloadSize = this.recordSize(v.fields);
       if (payloadSize > maxPayload) maxPayload = payloadSize;
     }
-    return 4 + maxPayload; // 4 bytes for tag
+    return 8 + maxPayload; // 8-byte aligned header (tag i32 + 4 bytes padding)
   }
 
   // Generate a store instruction for a specific ClarityType
   private storeField(basePtr: binaryen.ExpressionRef, offset: number, value: binaryen.ExpressionRef, type: ClarityType): binaryen.ExpressionRef {
     switch (type.kind) {
       case "Int64":
-        return this.mod.i64.store(offset, 4, basePtr, value);
+      case "Timestamp":
+        // 8-byte aligned: allocator guarantees 8-byte alignment, and recordLayout/unionSize
+        // ensure i64/f64 fields land at 8-byte-aligned offsets.
+        return this.mod.i64.store(offset, 8, basePtr, value);
       case "Float64":
-        return this.mod.f64.store(offset, 4, basePtr, value);
+        return this.mod.f64.store(offset, 8, basePtr, value);
       default:
-        // i32 (Bool, String, pointers)
+        // i32 (Bool, String, pointers) — 4-byte aligned
         return this.mod.i32.store(offset, 4, basePtr, value);
     }
   }
@@ -547,9 +552,10 @@ export class CodeGenerator {
   private loadField(basePtr: binaryen.ExpressionRef, offset: number, type: ClarityType): binaryen.ExpressionRef {
     switch (type.kind) {
       case "Int64":
-        return this.mod.i64.load(offset, 4, basePtr);
+      case "Timestamp":
+        return this.mod.i64.load(offset, 8, basePtr);
       case "Float64":
-        return this.mod.f64.load(offset, 4, basePtr);
+        return this.mod.f64.load(offset, 8, basePtr);
       default:
         return this.mod.i32.load(offset, 4, basePtr);
     }
@@ -971,7 +977,7 @@ export class CodeGenerator {
           const pat = arm.pattern.fields[fi];
           if (pat.pattern.kind === "BindingPattern") {
             const fieldType = fieldEntries[fi][1];
-            const fieldOffset = layout[fi].offset + 4;
+            const fieldOffset = layout[fi].offset + 8; // +8 for 8-byte aligned union header
             const local = this.locals.get(pat.pattern.name)!;
             bodyStmts.push(
               this.mod.local.set(local.index, this.loadField(getPtr(), fieldOffset, fieldType)),
@@ -990,8 +996,15 @@ export class CodeGenerator {
       }
     }
 
+    // Bounds-check the discriminant against the number of known variants.
+    const numVariantsTCO = unionType.variants.length;
+    const boundsCheckTCO = this.mod.if(
+      this.mod.i32.ge_u(getTag(), this.mod.i32.const(numVariantsTCO)),
+      this.mod.unreachable(),
+    );
+
     const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
-    return this.mod.block(null, [setPtr, setTag, result], matchResultType);
+    return this.mod.block(null, [setPtr, setTag, boundsCheckTCO, result], matchResultType);
   }
 
   private generateGenericMatchTCO(
@@ -1580,7 +1593,7 @@ export class CodeGenerator {
       // instantiations (e.g. Result<Int64,String> and Result<String,String>) and
       // findConstructorType() happens to return the wrong one.
       const fieldType = this.inferExprType(args[i].value);
-      const fieldOffset = layout[i].offset + 4; // +4 for tag
+      const fieldOffset = layout[i].offset + 8; // +8 for 8-byte aligned union header
       const value = this.generateExpr(args[i].value);
       stmts.push(this.storeField(getPtr(), fieldOffset, value, fieldType));
     }
@@ -2012,7 +2025,7 @@ export class CodeGenerator {
           const pat = ctorPattern.fields[fi];
           if (pat.pattern.kind === "BindingPattern") {
             const fieldType = fieldEntries[fi][1];
-            const fieldOffset = layout[fi].offset + 4; // +4 for tag
+            const fieldOffset = layout[fi].offset + 8; // +8 for 8-byte aligned union header
             const local = this.locals.get(pat.pattern.name)!;
             bodyStmts.push(
               this.mod.local.set(local.index, this.loadField(getPtr(), fieldOffset, fieldType)),
@@ -2051,9 +2064,18 @@ export class CodeGenerator {
       }
     }
 
+    // Bounds-check the discriminant against the number of known variants.
+    // If the tag is out of range (corrupted heap), trap immediately rather than
+    // silently falling through to a wildcard arm or executing garbage.
+    const numVariants = unionType.variants.length;
+    const boundsCheck = this.mod.if(
+      this.mod.i32.ge_u(getTag(), this.mod.i32.const(numVariants)),
+      this.mod.unreachable(),
+    );
+
     // Determine the result type of the match expression
     const matchResultType = expectedType ? clarityTypeToWasm(expectedType) : undefined;
-    return this.mod.block(null, [setPtr, setTag, result], matchResultType);
+    return this.mod.block(null, [setPtr, setTag, boundsCheck, result], matchResultType);
   }
 
   private generateGenericMatch(
