@@ -228,8 +228,8 @@ describe("Checker", () => {
     it("accepts matching effects", () => {
       const { errors } = check(`
         module Test
-        effect[DB] function save(x: Int64) -> Int64 { x }
-        effect[DB] function wrapper() -> Int64 { save(42) }
+        effect[Network] function fetch(x: Int64) -> Int64 { x }
+        effect[Network] function wrapper() -> Int64 { fetch(42) }
       `);
       expect(errors).toHaveLength(0);
     });
@@ -679,6 +679,153 @@ describe("Checker", () => {
       `);
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0].message).toContain("start (10) must be less than end (1)");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Int64 exhaustiveness checking (#2, #3)
+  // ---------------------------------------------------------------------------
+
+  describe("Int64 match exhaustiveness", () => {
+    it("accepts Int64 match with wildcard arm", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            1 -> "one",
+            2 -> "two",
+            _ -> "other"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("accepts Int64 match with binding arm", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            1 -> "one",
+            x -> "other"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects Int64 match with only literal arms and no wildcard", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            1 -> "one",
+            2 -> "two"
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.message.includes("Non-exhaustive") && e.message.includes("Int64"))).toBe(true);
+    });
+
+    it("accepts Int64 range match with wildcard arm", () => {
+      const { errors } = check(`
+        module Test
+        function grade(score: Int64) -> String {
+          match score {
+            90..100 -> "A",
+            80..89  -> "B",
+            _       -> "F"
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects Int64 range match with no wildcard arm", () => {
+      const { errors } = check(`
+        module Test
+        function grade(score: Int64) -> String {
+          match score {
+            90..100 -> "A",
+            80..89  -> "B"
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.message.includes("Non-exhaustive") && e.message.includes("Int64"))).toBe(true);
+    });
+
+    it("warns on overlapping range patterns", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            1..10 -> "a",
+            5..15 -> "b",
+            _     -> "c"
+          }
+        }
+      `);
+      // Should produce an overlap warning (severity: warning, not error)
+      expect(errors.some(e => e.message.includes("Overlapping range"))).toBe(true);
+    });
+
+    it("does not warn on non-overlapping adjacent ranges", () => {
+      const { errors } = check(`
+        module Test
+        function classify(n: Int64) -> String {
+          match n {
+            1..5  -> "low",
+            6..10 -> "mid",
+            _     -> "other"
+          }
+        }
+      `);
+      expect(errors.filter(e => e.message.includes("Overlapping")).length).toBe(0);
+    });
+  });
+
+  describe("open type exhaustiveness (String, Float64)", () => {
+    it("rejects String match with only literal arms and no wildcard", () => {
+      const { errors } = check(`
+        module Test
+        function classify(s: String) -> Int64 {
+          match s {
+            "hello" -> 1,
+            "world" -> 2
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.message.includes("Non-exhaustive") && e.message.includes("String"))).toBe(true);
+    });
+
+    it("accepts String match with wildcard arm", () => {
+      const { errors } = check(`
+        module Test
+        function classify(s: String) -> Int64 {
+          match s {
+            "hello" -> 1,
+            _       -> 0
+          }
+        }
+      `);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("rejects Float64 match with only literal arms and no wildcard", () => {
+      const { errors } = check(`
+        module Test
+        function classify(x: Float64) -> Int64 {
+          match x {
+            1.0 -> 1,
+            2.0 -> 2
+          }
+        }
+      `);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.message.includes("Non-exhaustive") && e.message.includes("Float64"))).toBe(true);
     });
   });
 });

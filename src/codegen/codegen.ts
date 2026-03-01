@@ -7,6 +7,14 @@ import { INT64, FLOAT64, BOOL, UNIT, BYTES, TIMESTAMP, STRING, typeToString, con
 import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
+import { CLARITY_BUILTINS } from "../registry/builtins-registry.js";
+
+// Lazily-built lookup from builtin name → Clarity return type.
+// Derived from the single source of truth (builtins-registry.ts) so that
+// adding a new builtin to the registry automatically propagates here.
+const _builtinReturnTypeMap: Map<string, ClarityType> = new Map(
+  CLARITY_BUILTINS.map(b => [b.name, b.returnType]),
+);
 
 interface LocalVar {
   index: number;
@@ -2317,155 +2325,12 @@ export class CodeGenerator {
       return ctor.union;
     }
 
-    // Built-in function return types
-    const builtinReturnTypes: Record<string, ClarityType> = {
-      // I/O
-      print_string: UNIT, print_int: UNIT, print_float: UNIT,
-      log_info: UNIT, log_warn: UNIT, print_stderr: UNIT,
-      // String ops
-      string_concat: { kind: "String" }, string_eq: BOOL,
-      string_length: INT64, substring: { kind: "String" }, char_at: { kind: "String" },
-      contains: BOOL, string_starts_with: BOOL, string_ends_with: BOOL, index_of: INT64, trim: { kind: "String" },
-      char_code: INT64, char_from_code: { kind: "String" } as ClarityType,
-      split: { kind: "List", element: { kind: "String" } } as ClarityType,
-      string_replace: { kind: "String" } as ClarityType,
-      string_repeat: { kind: "String" } as ClarityType,
-      // Type conversions
-      int_to_float: FLOAT64, float_to_int: INT64,
-      int_to_string: { kind: "String" }, float_to_string: { kind: "String" },
-      string_to_int: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      string_to_float: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      // Math
-      abs_int: INT64, min_int: INT64, max_int: INT64,
-      int_clamp: INT64, float_clamp: FLOAT64,
-      sqrt: FLOAT64, pow: FLOAT64, floor: FLOAT64, ceil: FLOAT64,
-      // List ops
-      list_length: INT64,
-      // Random
-      random_int: INT64, random_float: FLOAT64,
-      // Network
-      http_get: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      http_post: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      http_listen: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      http_request: { kind: "Union", name: "Result<String, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      // JSON
-      json_parse_object: { kind: "Union", name: "Result<Map<String, String>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      json_stringify_object: { kind: "String" } as ClarityType,
-      // DB
-      db_execute: { kind: "Union", name: "Result<Int64, String>", variants: [{ name: "Ok", fields: new Map([["value", INT64]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      db_query: { kind: "Union", name: "Result<List<Map<String, String>>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "List", element: { kind: "Map", key: { kind: "String" } as ClarityType, value: { kind: "String" } as ClarityType } as ClarityType } as ClarityType]]) }, { name: "Err", fields: new Map([["error", { kind: "String" } as ClarityType]]) }] } as ClarityType,
-      // I/O primitives
-      read_line: { kind: "String" }, read_all_stdin: { kind: "String" },
-      read_file: { kind: "String" }, write_file: UNIT,
-      get_args: { kind: "List", element: { kind: "String" } } as ClarityType,
-      exit: UNIT,
-      // Test assertions
-      assert_eq: UNIT, assert_eq_float: UNIT, assert_eq_string: UNIT,
-      assert_true: UNIT, assert_false: UNIT,
-      // Bytes
-      bytes_new: BYTES, bytes_length: INT64, bytes_get: INT64,
-      bytes_set: BYTES, bytes_slice: BYTES, bytes_concat: BYTES,
-      bytes_from_string: BYTES, bytes_to_string: { kind: "String" } as ClarityType,
-      // Regex
-      regex_match: BOOL,
-      regex_captures: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      // Timestamp
-      now: TIMESTAMP, timestamp_to_string: { kind: "String" } as ClarityType,
-      timestamp_to_int: INT64, timestamp_from_int: TIMESTAMP,
-      timestamp_parse_iso: { kind: "Union", name: "Option<Timestamp>", variants: [{ name: "Some", fields: new Map([["value", TIMESTAMP]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      timestamp_add: TIMESTAMP, timestamp_diff: INT64,
-      // Crypto
-      sha256: { kind: "String" } as ClarityType,
-      // JSON
-      json_parse: {
-        kind: "Union",
-        name: "Option<Map<String, String>>",
-        variants: [
-          { name: "Some", fields: new Map([["value", { kind: "Map", key: { kind: "String" }, value: { kind: "String" } } as ClarityType]]) },
-          { name: "None", fields: new Map() },
-        ],
-      } as ClarityType,
-      json_stringify: { kind: "String" } as ClarityType,
-      json_get: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_get_path: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_get_nested: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_array_length: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_array_get: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_keys: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: { kind: "String" } as ClarityType } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      json_escape_string: { kind: "String" } as ClarityType,
-      // Timestamp
-      sleep: UNIT,
-      // Network
-      http_request_full: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      // Map ops — return i32 handle or bool/int; exact type inferred from Map type args
-      map_new: { kind: "Map", key: INT64, value: INT64 } as ClarityType, // placeholder
-      map_size: INT64, map_has: BOOL,
-      map_get: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      map_set: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
-      map_remove: { kind: "Map", key: INT64, value: INT64 } as ClarityType,
-      map_keys: { kind: "List", element: INT64 } as ClarityType,
-      map_values: { kind: "List", element: INT64 } as ClarityType,
-      // Memory management
-      arena_save: INT64,
-      arena_restore: UNIT,
-      arena_restore_keeping_str: { kind: "String" } as ClarityType,
-      memory_stats: { kind: "String" } as ClarityType,
-      // Secret
-      get_secret: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      // Model
-      call_model: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      call_model_system: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      list_models: { kind: "List", element: { kind: "String" } } as ClarityType,
-      // MCP
-      mcp_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
-      mcp_list_tools: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      mcp_call_tool: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      mcp_disconnect: UNIT,
-      // A2A
-      a2a_discover: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      a2a_submit: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      a2a_poll: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      a2a_cancel: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      // Policy
-      policy_is_url_allowed: BOOL,
-      policy_is_effect_allowed: BOOL,
-      // Trace
-      trace_start: INT64,
-      trace_end: UNIT,
-      trace_log: UNIT,
-      // Persist
-      checkpoint_save: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      checkpoint_load: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      checkpoint_delete: UNIT,
-      checkpoint_save_raw: BOOL,
-      // HumanInLoop
-      hitl_ask: { kind: "String" } as ClarityType,
-      // Embed
-      embed_text: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      cosine_similarity: FLOAT64,
-      chunk_text: { kind: "String" } as ClarityType,
-      embed_and_retrieve: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      // Eval
-      eval_exact: BOOL,
-      eval_contains: BOOL,
-      eval_llm_judge: { kind: "Result", ok: { kind: "String" } as ClarityType, err: { kind: "String" } as ClarityType } as ClarityType,
-      eval_semantic: { kind: "Result", ok: FLOAT64, err: { kind: "String" } as ClarityType } as ClarityType,
-      // Streaming
-      stream_start: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
-      stream_next: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      stream_close: { kind: "String" } as ClarityType,
-      // SSE client
-      sse_connect: { kind: "Result", ok: INT64, err: { kind: "String" } as ClarityType } as ClarityType,
-      sse_next_event: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      sse_close: UNIT,
-      sse_next_event_timeout: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      // stdin non-blocking
-      stdin_try_read: { kind: "Union", name: "Option<String>", variants: [{ name: "Some", fields: new Map([["value", { kind: "String" } as ClarityType]]) }, { name: "None", fields: new Map() }] } as ClarityType,
-      // URL encoding (pure)
-      url_encode: { kind: "String" } as ClarityType,
-      url_decode: { kind: "String" } as ClarityType,
-    };
-    if (name in builtinReturnTypes) return builtinReturnTypes[name];
+    // Look up return type from the single source of truth (builtins-registry).
+    // This map is built once at module load time from CLARITY_BUILTINS so that
+    // adding a new builtin to the registry automatically makes it known here —
+    // no manual sync needed.
+    const regType = _builtinReturnTypeMap.get(name);
+    if (regType !== undefined) return regType;
     return INT64;
   }
 

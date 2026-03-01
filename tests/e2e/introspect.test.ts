@@ -32,14 +32,13 @@ describe("builtins registry", () => {
     expect(names).toContain("float_clamp");
     expect(names).toContain("json_parse_object");
     expect(names).toContain("json_stringify_object");
-    expect(names).toContain("db_execute");
-    expect(names).toContain("db_query");
-    expect(names).toContain("http_listen");
+    // Note: db_execute, db_query, and http_listen have been removed from the
+    // registry (they were never implemented and returned Err("not implemented")).
   });
 
   it("contains all expected effects", () => {
     const effectNames = EFFECT_DEFINITIONS.map((e) => e.name);
-    expect(effectNames).toContain("DB");
+    // Note: DB effect removed since all DB builtins were unimplemented stubs.
     expect(effectNames).toContain("Network");
     expect(effectNames).toContain("Time");
     expect(effectNames).toContain("Random");
@@ -55,13 +54,13 @@ describe("builtins registry", () => {
     expect(effectNames).toContain("Embed");
     expect(effectNames).toContain("Eval");
     expect(effectNames).toContain("HumanInLoop");
-    expect(effectNames).toHaveLength(16);
+    expect(effectNames).toHaveLength(15);
   });
 
   it("getKnownEffectNames returns a Set of all effect names", () => {
     const names = getKnownEffectNames();
     expect(names).toBeInstanceOf(Set);
-    expect(names.size).toBe(16);
+    expect(names.size).toBe(15);
     expect(names.has("FileSystem")).toBe(true);
   });
 

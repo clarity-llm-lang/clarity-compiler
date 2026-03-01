@@ -17,7 +17,10 @@ export interface CompileOptions {
 export interface CompileResult {
   tokens?: Token[];
   ast?: ModuleDecl;
+  /** Fatal diagnostics only (severity: "error"). Non-empty means compilation failed. */
   errors: Diagnostic[];
+  /** Non-fatal diagnostics (severity: "warning" | "info"). Compilation may still succeed. */
+  warnings: Diagnostic[];
   wasm?: Uint8Array;
   wat?: string;
 }
@@ -36,7 +39,7 @@ export function compile(
   const tokens = lexer.tokenize();
 
   if (options.emitTokens) {
-    return { tokens, errors: [] };
+    return { tokens, errors: [], warnings: [] };
   }
 
   // 2. Parse
@@ -44,11 +47,11 @@ export function compile(
   const { module: ast, errors: parseErrors } = parser.parse();
 
   if (parseErrors.length > 0) {
-    return { tokens, ast, errors: parseErrors };
+    return { tokens, ast, errors: parseErrors, warnings: [] };
   }
 
   if (options.emitAst) {
-    return { tokens, ast, errors: [] };
+    return { tokens, ast, errors: [], warnings: [] };
   }
 
   // Check if this module has imports — if so, we need file-based resolution
@@ -56,7 +59,7 @@ export function compile(
   if (hasImports) {
     // Can't resolve imports from a raw source string without a real file path
     return {
-      tokens, ast,
+      tokens, ast, warnings: [],
       errors: [{
         severity: "error",
         message: "Module has imports but was compiled from a source string. Use compileFile() for multi-file compilation.",
@@ -67,14 +70,16 @@ export function compile(
 
   // 3. Type Check (single module, no imports)
   const checker = new Checker();
-  const checkErrors = checker.check(ast);
+  const allDiags = checker.check(ast);
+  const checkErrors = allDiags.filter(d => d.severity === "error");
+  const checkWarnings = allDiags.filter(d => d.severity !== "error");
 
   if (checkErrors.length > 0) {
-    return { tokens, ast, errors: checkErrors };
+    return { tokens, ast, errors: checkErrors, warnings: checkWarnings };
   }
 
   if (options.checkOnly) {
-    return { tokens, ast, errors: [] };
+    return { tokens, ast, errors: [], warnings: checkWarnings };
   }
 
   // 4. Code Generation
@@ -83,16 +88,17 @@ export function compile(
 
     if (options.emitWat) {
       const wat = codegen.generateText(ast, checker);
-      return { tokens, ast, errors: [], wat };
+      return { tokens, ast, errors: [], warnings: checkWarnings, wat };
     }
 
     const wasm = codegen.generate(ast, checker);
-    return { tokens, ast, errors: [], wasm };
+    return { tokens, ast, errors: [], warnings: checkWarnings, wasm };
   } catch (e) {
     const msg = e instanceof Error ? e.message : JSON.stringify(e) ?? String(e);
     return {
       tokens,
       ast,
+      warnings: checkWarnings,
       errors: [{
         severity: "error",
         message: `Code generation failed: ${msg}`,
@@ -113,24 +119,25 @@ export function compileFile(
   // 1. Resolve all modules (parse imported files recursively)
   const { modules, errors: resolveErrors } = resolveModules(filePath);
   if (resolveErrors.length > 0) {
-    return { errors: resolveErrors };
+    return { errors: resolveErrors, warnings: [] };
   }
 
   if (modules.length === 0) {
-    return { errors: [{ severity: "error", message: "No modules found", span: { start: { offset: 0, line: 1, column: 1 }, end: { offset: 0, line: 1, column: 1 }, source: filePath } }] };
+    return { errors: [{ severity: "error", message: "No modules found", span: { start: { offset: 0, line: 1, column: 1 }, end: { offset: 0, line: 1, column: 1 }, source: filePath } }], warnings: [] };
   }
 
   // The entry module is last in topological order
   const entryModule = modules[modules.length - 1];
 
   if (options.emitAst) {
-    return { ast: entryModule.ast, errors: [] };
+    return { ast: entryModule.ast, errors: [], warnings: [] };
   }
 
   // 2. Type check all modules in dependency order
   // Each module's exports become available to subsequent modules
   const checker = new Checker();
   const moduleExports = new Map<string, Map<string, { type: import("./checker/types.js").ClarityType; span: import("./errors/diagnostic.js").Span }>>();
+  const allWarnings: Diagnostic[] = [];
 
   for (const mod of modules) {
     // Collect imported symbols for this module
@@ -144,6 +151,7 @@ export function compileFile(
         const exports = moduleExports.get(importPath);
         if (!exports) {
           return {
+            warnings: allWarnings,
             errors: [{
               severity: "error",
               message: `Module '${decl.from}' not found or has errors`,
@@ -156,6 +164,7 @@ export function compileFile(
           const exported = exports.get(name);
           if (!exported) {
             return {
+              warnings: allWarnings,
               errors: [{
                 severity: "error",
                 message: `'${name}' is not exported from '${decl.from}'`,
@@ -174,9 +183,13 @@ export function compileFile(
     }
 
     // Check this module with imported symbols available
-    const checkErrors = checker.checkModule(mod.ast, importedSymbols, importedTypes);
-    if (checkErrors.length > 0) {
-      return { ast: mod.ast, errors: checkErrors };
+    const allDiags = checker.checkModule(mod.ast, importedSymbols, importedTypes);
+    const modErrors = allDiags.filter(d => d.severity === "error");
+    const modWarnings = allDiags.filter(d => d.severity !== "error");
+    allWarnings.push(...modWarnings);
+
+    if (modErrors.length > 0) {
+      return { ast: mod.ast, errors: modErrors, warnings: allWarnings };
     }
 
     // Collect this module's exports for downstream modules
@@ -207,7 +220,7 @@ export function compileFile(
   }
 
   if (options.checkOnly) {
-    return { ast: entryModule.ast, errors: [] };
+    return { ast: entryModule.ast, errors: [], warnings: allWarnings };
   }
 
   // 3. Code generation: merge all module declarations into a single WASM binary
@@ -217,15 +230,16 @@ export function compileFile(
 
     if (options.emitWat) {
       const wat = codegen.generateTextMulti(allModules, entryModule.ast, checker);
-      return { ast: entryModule.ast, errors: [], wat };
+      return { ast: entryModule.ast, errors: [], warnings: allWarnings, wat };
     }
 
     const wasm = codegen.generateMulti(allModules, entryModule.ast, checker);
-    return { ast: entryModule.ast, errors: [], wasm };
+    return { ast: entryModule.ast, errors: [], warnings: allWarnings, wasm };
   } catch (e) {
     const msg = e instanceof Error ? e.message : JSON.stringify(e) ?? String(e);
     return {
       ast: entryModule.ast,
+      warnings: allWarnings,
       errors: [{
         severity: "error",
         message: `Code generation failed: ${msg}`,
