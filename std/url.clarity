@@ -1,0 +1,66 @@
+// std/url — URL encoding and query-string helpers for Clarity
+//
+// Pure helpers for building safe HTTP URLs.  No effects required.
+//
+// Quick start:
+//   import { encode, decode, query_pair, query_string } from "std/url"
+//
+//   // Safe path segment: turns "hello world" into "hello%20world"
+//   let safe_id = encode(run_id);
+//   let url     = base ++ "/api/agents/runs/" ++ safe_id ++ "/messages";
+//
+//   // Query string: key=value pairs joined with &
+//   let qs  = query_string([query_pair("limit", "50"), query_pair("since", cursor)]);
+//   let url = base ++ "/api/events?" ++ qs;
+
+module URL
+
+// ---------------------------------------------------------------------------
+// Core encoding / decoding
+// ---------------------------------------------------------------------------
+
+// Percent-encode a string for safe use as a URL path segment or query value.
+// Encodes all characters except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+// Example: encode("hello world") → "hello%20world"
+// Example: encode("a/b")        → "a%2Fb"
+export function encode(s: String) -> String {
+  url_encode(s)
+}
+
+// Decode a percent-encoded URL component.
+// Returns the input unchanged if the string contains malformed sequences.
+// Example: decode("hello%20world") → "hello world"
+export function decode(s: String) -> String {
+  url_decode(s)
+}
+
+// ---------------------------------------------------------------------------
+// Query-string helpers
+// ---------------------------------------------------------------------------
+
+// Build a single "key=value" pair with both sides percent-encoded.
+// Example: query_pair("api key", "hello world") → "api%20key=hello%20world"
+export function query_pair(key: String, value: String) -> String {
+  url_encode(key) ++ "=" ++ url_encode(value)
+}
+
+// Join a list of pre-encoded "key=value" pairs into a complete query string.
+// Pass the output of query_pair() as elements.
+// Example: query_string(["limit=50", "since=abc%3D"]) → "limit=50&since=abc%3D"
+export function query_string(pairs: List<String>) -> String {
+  query_string_impl(pairs, "")
+}
+
+function query_string_impl(pairs: List<String>, acc: String) -> String {
+  match is_empty(pairs) {
+    True  -> acc,
+    False -> {
+      let pair = head(pairs);
+      let rest = tail(pairs);
+      match acc == "" {
+        True  -> query_string_impl(rest, pair),
+        False -> query_string_impl(rest, acc ++ "&" ++ pair)
+      }
+    }
+  }
+}

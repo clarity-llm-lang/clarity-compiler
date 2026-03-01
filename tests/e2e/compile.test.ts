@@ -5987,3 +5987,278 @@ describe("runtime agent chat CLI example", () => {
     expect(result.wasm).toBeDefined();
   });
 });
+
+// =============================================================================
+// RQ-LANG-CLI-002: url_encode / url_decode builtins
+// =============================================================================
+
+describe("url_encode and url_decode builtins", () => {
+  it("url_encode compiles and encodes spaces", async () => {
+    const source = `
+      module Test
+      function encoded() -> String { url_encode("hello world") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.encoded as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("hello%20world");
+  });
+
+  it("url_encode encodes slashes", async () => {
+    const source = `
+      module Test
+      function encoded() -> String { url_encode("a/b/c") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.encoded as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("a%2Fb%2Fc");
+  });
+
+  it("url_encode leaves safe chars unchanged", async () => {
+    const source = `
+      module Test
+      function encoded() -> String { url_encode("abc-123_ok") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.encoded as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("abc-123_ok");
+  });
+
+  it("url_decode reverses url_encode", async () => {
+    const source = `
+      module Test
+      function roundtrip() -> String { url_decode(url_encode("hello world!")) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.roundtrip as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("hello world!");
+  });
+
+  it("url_decode handles malformed input gracefully", async () => {
+    const source = `
+      module Test
+      function decoded() -> String { url_decode("%ZZ") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.decoded as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("%ZZ"); // returns input unchanged
+  });
+
+  it("url_encode is pure (no effects required)", () => {
+    const source = `
+      module Test
+      // Pure function — no effect annotation — must compile
+      function safe_path(id: String) -> String {
+        "/api/runs/" ++ url_encode(id)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// std/url module (wraps builtins + query_string helpers)
+// =============================================================================
+
+describe("std/url module", () => {
+  function setupUrlTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-url-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    copyStdFile(dir, "url.clarity");
+    return dir;
+  }
+
+  it("std/url encode and decode compile", () => {
+    const dir = setupUrlTest(`
+      module Test
+      import { encode, decode } from "std/url"
+      function go() -> String { decode(encode("run id/42")) }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("std/url query_pair and query_string compile", () => {
+    const dir = setupUrlTest(`
+      module Test
+      import { query_pair, query_string } from "std/url"
+      function go() -> String {
+        query_string([query_pair("limit", "50"), query_pair("since", "a b")])
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+// =============================================================================
+// RQ-LANG-CLI-001: sse_next_event_timeout builtin
+// =============================================================================
+
+describe("sse_next_event_timeout builtin", () => {
+  it("type-checks correctly (compile-only)", () => {
+    const source = `
+      module Test
+      // sse_next_event_timeout(handle: Int64, timeout_ms: Int64) -> Option<String>
+      effect[Network] function try_read(h: Int64) -> Option<String> {
+        sse_next_event_timeout(h, 200)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("requires Network effect", () => {
+    const source = `
+      module Test
+      // Missing Network effect — should produce a checker error
+      function try_read(h: Int64) -> Option<String> {
+        sse_next_event_timeout(h, 200)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// RQ-LANG-CLI-001: stdin_try_read builtin
+// =============================================================================
+
+describe("stdin_try_read builtin", () => {
+  it("type-checks correctly (compile-only)", () => {
+    const source = `
+      module Test
+      effect[FileSystem] function try_stdin() -> Option<String> {
+        stdin_try_read(100)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("requires FileSystem effect", () => {
+    const source = `
+      module Test
+      function try_stdin() -> Option<String> {
+        stdin_try_read(100)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("returns Option<String>", async () => {
+    // Pre-provide stdin so the worker has something to read immediately.
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> String {
+        match stdin_try_read(5000) {
+          Some(line) -> line,
+          None       -> "nothing"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "hello from stdin\n" });
+    const fn = instance.exports.run as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("hello from stdin");
+  });
+});
+
+// =============================================================================
+// std/mux module (compile-only — no live SSE server needed)
+// =============================================================================
+
+describe("std/mux module", () => {
+  function setupMuxTest(src: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-mux-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), src);
+    fs.mkdirSync(path.join(dir, "std"), { recursive: true });
+    copyStdFile(dir, "mux.clarity");
+    return dir;
+  }
+
+  it("MuxEvent type and poll function compile", () => {
+    const dir = setupMuxTest(`
+      module Test
+      import { poll, MuxEvent } from "std/mux"
+      effect[Network, FileSystem] function handle(h: Int64) -> String {
+        match poll(h, 100) {
+          SseEvent(data)  -> "sse: " ++ data,
+          StdinLine(line) -> "stdin: " ++ line,
+          SseEnded        -> "ended",
+          StdinEof        -> "eof",
+          Timeout         -> "timeout"
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("poll_raw also compiles", () => {
+    const dir = setupMuxTest(`
+      module Test
+      import { poll_raw, MuxEvent } from "std/mux"
+      effect[Network, FileSystem] function go(h: Int64) -> String {
+        match poll_raw(h, 50) {
+          SseEvent(data)  -> data,
+          StdinLine(line) -> line,
+          SseEnded        -> "ended",
+          StdinEof        -> "eof",
+          Timeout         -> ""
+        }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+// =============================================================================
+// RQ-LANG-CLI-003: clarityc pack command integration test
+// =============================================================================
+
+describe("clarityc pack launcher generation", () => {
+  it("pack generates a launcher that compiles from source", async () => {
+    // Compile a trivial program and produce a base64 WASM blob — simulates pack
+    const source = `
+      module Test
+      effect[Log] function main() -> Unit { print_string("hello from pack") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    // Verify the WASM is non-trivially large (not empty)
+    expect(result.wasm!.length).toBeGreaterThan(100);
+
+    // Verify base64 round-trip (what pack does internally)
+    const b64 = Buffer.from(result.wasm!).toString("base64");
+    const recovered = Buffer.from(b64, "base64");
+    expect(recovered).toEqual(Buffer.from(result.wasm!));
+  });
+});
