@@ -9,29 +9,15 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 ### Type System / Correctness
 
-- [ ] **#2 Int64 match exhaustiveness not checked** — `src/checker/exhaustiveness.ts`
-  The exhaustiveness checker only validates Bool and Union types. An Int64 match without
-  a wildcard `_` arm silently compiles but crashes at runtime on an unmatched value.
-  Range patterns (`1..10`) have the same gap. Fix: require `_` (or full literal coverage)
-  for Int64 matches; emit a compile error otherwise.
-
-- [ ] **#3 Overlapping range patterns not detected** — `src/checker/exhaustiveness.ts`
-  `1..5` and `3..7` in the same match compile with no warning. Add overlap detection and
-  emit a warning (or error) for overlapping Int64 range arms.
-
+- [x] **#2 Int64 match exhaustiveness not checked** — fixed *(2026-03-01)*
+- [x] **#3 Overlapping range patterns not detected** — fixed *(2026-03-01)*
 - [x] **#6 Record field layout has no alignment/padding** — fixed *(2026-03-01)*
 - [x] **#7 Union discriminant is unchecked at match time** — fixed *(2026-03-01)*
 
 ### Unimplemented / Dead Stubs
 
-- [ ] **#1 `db_query` and `db_execute` are dead stubs** — `src/codegen/runtime.ts`, `src/registry/builtins-registry.ts`
-  Declared in the registry with WASM stubs but always return `Err("not implemented yet")`.
-  Decision needed: implement a real SQLite binding, or remove them from the registry and
-  document the gap. Either is better than silent misleading stubs.
-
-- [ ] **#4 `http_listen` is a stub** — `src/codegen/runtime.ts`
-  Always returns `Err("http_listen not implemented yet")`. Clarity cannot be used as an
-  HTTP server despite the docs suggesting it. Same decision as #1.
+- [x] **#1 `db_query` and `db_execute` dead stubs** — removed *(2026-03-01)*
+- [x] **#4 `http_listen` dead stub** — removed *(2026-03-01)*
 
 ---
 
@@ -39,15 +25,20 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 ### Type System / Codegen
 
-- [ ] **#5 Complex generic instantiations are untested**
-  `List<Result<String, String>>`, `Result<Option<String>, String>`, `Map<String, List<Int64>>`
-  have no e2e tests. Monomorphization may silently produce wrong code for deeply nested generics.
-  Add tests; fix any bugs found.
+- [x] **#5 Complex generic instantiations are untested** — fixed *(2026-03-03)*
+  Added e2e tests for `List<Result<String,String>>`, `Result<Option<String>,String>`,
+  `Option<List<Int64>>`. Also fixed codegen bug where `Result<T,E>` nested as a type argument
+  (e.g. inside `List<...>`) was never registered in `allTypeDecls`, causing invalid WASM.
+  Fix: `registerNestedResultTypes()` recursively walks types before codegen.
 
-- [ ] **#8 Mutual recursion not tail-call optimised** — `src/codegen/codegen.ts`
-  TCO only applies to self-recursion. Mutually recursive functions (`f → g → f`) will
-  stack-overflow on deep inputs. Emit a compile-time warning when a non-self recursive
-  call is in tail position.
+- [x] **#8 Mutual recursion not tail-call optimised** — fixed *(2026-03-03)*
+  The checker now detects mutual tail-call pairs (A tail-calls B AND B tail-calls A) and
+  emits a `warning`-severity diagnostic. Self-recursive tail calls and normal helper calls
+  are not warned. Warning deduplication ensures each pair is reported exactly once.
+  Also fixed: `Option<TypeVar>` in generic function bodies was not converted to Union form,
+  causing "Cannot use constructor pattern on non-union type Option<V>" errors in generic
+  stdlib code (`std/map`). Fixed in `makeOptionType` (skip cache for TypeVar keys) and in
+  the generic call resolution path (removed `!containsTypeVar` guard).
 
 - [ ] **#9 Higher-order of higher-order functions untested**
   `apply(apply, double)` style calls are untested. Add coverage and fix any codegen issues.
@@ -58,9 +49,11 @@ Checked items (✅) are done. Each item references the audit finding number.
 - [x] **#11 List stdlib gaps** — fixed *(2026-03-03)*
 - [x] **#12 Math stdlib gaps** — fixed *(2026-03-03)*
 
-- [ ] **#13 Map operations** — no stdlib file
-  Maps can only be built and looked up. Missing: `map_merge`, `map_filter`, `map_transform`,
-  `map_keys`, `map_values`, `map_entries`
+- [x] **#13 Map operations** — fixed *(2026-03-03)*
+  Added `std/map.clarity` with `map_merge`, `map_filter`, `map_transform`, `map_entries`
+  as pure Clarity HOF implementations built on the existing `map_keys`, `map_get`, `map_set`,
+  `map_new` builtins. Also exports `MapEntry<K, V>` generic record type for `map_entries`.
+  5 new e2e tests in "Standard library: std/map" describe block.
 
 - [ ] **#14 JSON stdlib gaps** — `std/json.clarity`
   Missing: formatting/pretty-print, nested path access helpers (`json_get_path`),
@@ -233,3 +226,28 @@ Checked items (✅) are done. Each item references the audit finding number.
   resolve to the correct WASM name. Exported functions keep their plain Clarity name. Covered by
   e2e test "multi-module symbol collision: two modules with same private function name".
   *(2026-03-03)*
+
+- [x] **#5 Complex nested generics codegen bug + tests** — `src/codegen/codegen.ts`
+  `Result<T,E>` nested as a type argument (e.g. `List<Result<String,String>>`) was never
+  registered in `allTypeDecls`, causing "Generated invalid WASM module". Fixed with
+  `registerNestedResultTypes()` that recursively walks ClarityType. Added e2e tests for
+  `List<Result<String,String>>`, `Result<Option<String>,String>`, `Option<List<Int64>>`.
+  *(2026-03-03)*
+
+- [x] **#8 Mutual tail-recursion warning** — `src/checker/checker.ts`
+  After body checking, the checker builds a tail-call graph (per-function set of local
+  functions called in tail position). Pairs where A tail-calls B and B tail-calls A are
+  reported as `warning`-severity diagnostics. Self-recursive and non-mutual patterns are
+  ignored; each pair warned exactly once. 4 e2e tests added. *(2026-03-03)*
+
+- [x] **#13 Map stdlib** — `std/map.clarity`
+  New module exporting `map_merge`, `map_filter`, `map_transform`, `map_entries` (plus
+  `MapEntry<K, V>` generic record type). Implemented as pure Clarity HOF functions using
+  existing `map_keys`, `map_get`, `map_set`, `map_new` builtins. Also fixed checker bug:
+  `Option<TypeVar>` was not converted to Union form for generic function bodies, causing
+  false "Cannot use constructor pattern on non-union type Option<V>" errors. *(2026-03-03)*
+
+- [x] **#18 Cross-module effect transitivity tests** — `tests/e2e/compile.test.ts`
+  Added 6 integration tests verifying that the effect checker correctly rejects importing
+  and calling `Network`/`Log`/`FileSystem` functions from pure callers, and accepts them
+  when the caller declares the matching effect. *(2026-03-03)*

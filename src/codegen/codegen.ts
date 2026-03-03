@@ -221,6 +221,9 @@ export class CodeGenerator {
           if (resolved && resolved.kind === "Union" && !this.allTypeDecls.has(resolved.name)) {
             this.allTypeDecls.set(resolved.name, resolved);
           }
+          // Recursively register any Result<T,E> types nested inside this type
+          // (e.g. the Result inside List<Result<String,String>>).
+          if (resolved) this.registerNestedResultTypes(resolved);
         }
       }
     }
@@ -336,6 +339,8 @@ export class CodeGenerator {
           if (resolved && resolved.kind === "Union" && !this.allTypeDecls.has(resolved.name)) {
             this.allTypeDecls.set(resolved.name, resolved);
           }
+          // Recursively register any Result<T,E> types nested inside this type
+          if (resolved) this.registerNestedResultTypes(resolved);
         }
       }
     }
@@ -438,6 +443,68 @@ export class CodeGenerator {
     }
     return type;
   }
+
+  /**
+   * Recursively walk a ClarityType and ensure every Result<T,E> found at any
+   * nesting depth is converted to its Union representation via resultToUnion()
+   * and registered in allTypeDecls.  This is needed because the checker only
+   * calls resultToUnion() at match-expression scrutiny sites, so Result types
+   * that appear only in function signatures (e.g. List<Result<String,String>>)
+   * never reach allTypeDecls and Ok/Err constructors cannot be found.
+   */
+  private registerNestedResultTypes(type: ClarityType): void {
+    if (!type) return;
+    switch (type.kind) {
+      case "Result": {
+        const union = this.checker.resultToUnion(type);
+        if (!this.allTypeDecls.has(union.name)) {
+          this.allTypeDecls.set(union.name, union);
+        }
+        // Also recurse into the ok/err arms in case they contain nested generics
+        this.registerNestedResultTypes(type.ok);
+        this.registerNestedResultTypes(type.err);
+        break;
+      }
+      case "List":
+        this.registerNestedResultTypes(type.element);
+        break;
+      case "Option":
+        // Option is stored as a Union in allTypeDecls already; recurse into inner
+        if (type.variants) {
+          for (const v of type.variants) {
+            for (const ft of v.fields.values()) {
+              this.registerNestedResultTypes(ft);
+            }
+          }
+        }
+        break;
+      case "Union":
+        for (const v of type.variants) {
+          for (const ft of v.fields.values()) {
+            this.registerNestedResultTypes(ft);
+          }
+        }
+        break;
+      case "Record":
+        for (const ft of type.fields.values()) {
+          this.registerNestedResultTypes(ft);
+        }
+        break;
+      case "Function":
+        for (const pt of type.params) {
+          this.registerNestedResultTypes(pt);
+        }
+        this.registerNestedResultTypes(type.returnType);
+        break;
+      case "Map":
+        this.registerNestedResultTypes(type.key);
+        this.registerNestedResultTypes(type.value);
+        break;
+      default:
+        break;
+    }
+  }
+
 
   // ============================================================
   // String Literal Pre-Scanning

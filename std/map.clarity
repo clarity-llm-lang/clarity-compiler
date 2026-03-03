@@ -1,0 +1,103 @@
+module Map
+
+// Standard map library for Clarity.
+//
+// Provides higher-order operations on Map<K, V> built on top of the
+// primitive builtins (map_new, map_get, map_set, map_keys, map_values, ...).
+//
+// Import example:
+//   import { map_merge, map_filter, map_transform, map_entries, MapEntry } from "std/map"
+
+// A key-value pair, as returned by map_entries.
+export type MapEntry<K, V> = { key: K, value: V }
+
+// --- Merge ---
+
+// Merge two maps. When a key exists in both, the value from b wins.
+// map_merge({a: 1, b: 2}, {b: 3, c: 4})  ->  {a: 1, b: 3, c: 4}
+function merge_helper<K, V>(a: Map<K, V>, b: Map<K, V>, keys: List<K>) -> Map<K, V> {
+  match is_empty(keys) {
+    True -> a,
+    False -> {
+      let k = head(keys);
+      let new_a = match map_get(b, k) {
+        None -> a,
+        Some(v) -> map_set(a, k, v)
+      };
+      merge_helper(new_a, b, tail(keys))
+    }
+  }
+}
+
+export function map_merge<K, V>(a: Map<K, V>, b: Map<K, V>) -> Map<K, V> {
+  merge_helper(a, b, map_keys(b))
+}
+
+// --- Filter ---
+
+// Keep only entries for which pred(value) returns True.
+// map_filter({a: 1, b: -2, c: 3}, is_positive)  ->  {a: 1, c: 3}
+function filter_helper<K, V>(m: Map<K, V>, keys: List<K>, acc: Map<K, V>, pred: (V) -> Bool) -> Map<K, V> {
+  match is_empty(keys) {
+    True -> acc,
+    False -> {
+      let k = head(keys);
+      let new_acc = match map_get(m, k) {
+        None -> acc,
+        Some(v) -> match pred(v) {
+          True -> map_set(acc, k, v),
+          False -> acc
+        }
+      };
+      filter_helper(m, tail(keys), new_acc, pred)
+    }
+  }
+}
+
+export function map_filter<K, V>(m: Map<K, V>, pred: (V) -> Bool) -> Map<K, V> {
+  filter_helper(m, map_keys(m), map_new(), pred)
+}
+
+// --- Transform ---
+
+// Apply f to every value, returning a new map with the same keys.
+// map_transform({a: 1, b: 2}, double)  ->  {a: 2, b: 4}
+function transform_helper<K, V>(m: Map<K, V>, keys: List<K>, acc: Map<K, V>, f: (V) -> V) -> Map<K, V> {
+  match is_empty(keys) {
+    True -> acc,
+    False -> {
+      let k = head(keys);
+      let new_acc = match map_get(m, k) {
+        None -> acc,
+        Some(v) -> map_set(acc, k, f(v))
+      };
+      transform_helper(m, tail(keys), new_acc, f)
+    }
+  }
+}
+
+export function map_transform<K, V>(m: Map<K, V>, f: (V) -> V) -> Map<K, V> {
+  transform_helper(m, map_keys(m), map_new(), f)
+}
+
+// --- Entries ---
+
+// Return all key-value pairs as a list of MapEntry records (insertion order).
+// map_entries({x: 10, y: 20})  ->  [{key: "x", value: 10}, {key: "y", value: 20}]
+function entries_helper<K, V>(m: Map<K, V>, keys: List<K>, acc: List<MapEntry<K, V>>) -> List<MapEntry<K, V>> {
+  match is_empty(keys) {
+    True -> acc,
+    False -> {
+      let k = head(keys);
+      let new_acc = match map_get(m, k) {
+        None -> acc,
+        Some(v) -> append(acc, { key: k, value: v })
+      };
+      entries_helper(m, tail(keys), new_acc)
+    }
+  }
+}
+
+export function map_entries<K, V>(m: Map<K, V>) -> List<MapEntry<K, V>> {
+  entries_helper(m, map_keys(m), [])
+}
