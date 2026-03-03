@@ -54,15 +54,9 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 ### Missing Stdlib
 
-- [ ] **#10 String stdlib gaps** — `std/string.clarity`
-  Missing: `to_uppercase`, `to_lowercase`, `trim_start`, `trim_end`, `pad_left`, `pad_right`,
-  `split_lines`, `chars`
-
-- [ ] **#11 List stdlib gaps** — `std/list.clarity`
-  Missing: `sort`, `sort_by`, `group_by`, `uniq`, `partition`, `intersperse`
-
-- [ ] **#12 Math stdlib gaps** — `std/math.clarity`
-  Missing: `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `atan2`, `gcd`, `lcm`
+- [x] **#10 String stdlib gaps** — fixed *(2026-03-03)*
+- [x] **#11 List stdlib gaps** — fixed *(2026-03-03)*
+- [x] **#12 Math stdlib gaps** — fixed *(2026-03-03)*
 
 - [ ] **#13 Map operations** — no stdlib file
   Maps can only be built and looked up. Missing: `map_merge`, `map_filter`, `map_transform`,
@@ -212,3 +206,30 @@ Checked items (✅) are done. Each item references the audit finding number.
   `(if (i32.ge_u tag numVariants) (unreachable))` guard before the if-else dispatch chain.
   A corrupted tag that happens to equal a valid variant index can no longer silently execute
   the wrong arm — out-of-range tags always trap. *(2026-03-01)*
+
+- [x] **#10 String stdlib gaps** — Added 8 new string builtins (`to_uppercase`, `to_lowercase`,
+  `trim_start`, `trim_end`, `pad_left`, `pad_right`, `split_lines`, `chars`) in registry, runtime,
+  and builtins stubs. Added `to_upper`, `to_lower`, `ltrim`, `rtrim` aliases to `std/string.clarity`.
+  5 new e2e tests. *(2026-03-03)*
+
+- [x] **#11 List stdlib gaps** — Added `sort`, `sort_by`, `uniq`, `intersperse`, `reject`,
+  `group_by` as pure Clarity implementations in `std/list.clarity`. No new builtins needed.
+  Note: `sort_by` takes a key function; builtins cannot be passed as first-class function
+  references (use a named wrapper function). *(2026-03-03)*
+
+- [x] **#12 Math stdlib gaps** — Added 8 new math builtins (`log`, `log2`, `log10`, `exp`,
+  `sin`, `cos`, `tan`, `atan2`) in registry, runtime, and builtins stubs. Added `ln`, `log_2`,
+  `log_10`, `e_pow` wrappers plus Clarity-level `gcd` / `lcm` in `std/math.clarity`. *(2026-03-03)*
+
+- [x] **RQ-LANG-CLI-FS-001/FS-002: FS directory and state primitives** — Added `list_dir`,
+  `file_exists`, `remove_file`, `make_dir` as `FileSystem` builtins in registry, runtime, and
+  builtins stubs. Enables `list`, `cancel`, and `watch` (via polling) in native Clarity CLI.
+  *(2026-03-03)*
+
+- [x] **RQ-LANG-CLI-PKG-001: Multi-module symbol collision** — `src/codegen/codegen.ts`
+  Private (non-exported) functions are now assigned collision-free WASM names by prefixing with
+  their module name (`ModuleName$funcName`). `setupModuleMulti` builds per-module name resolution
+  tables (`currentModuleWasmNames`) and generates functions module-by-module so call sites always
+  resolve to the correct WASM name. Exported functions keep their plain Clarity name. Covered by
+  e2e test "multi-module symbol collision: two modules with same private function name".
+  *(2026-03-03)*

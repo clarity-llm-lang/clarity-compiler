@@ -860,6 +860,52 @@ export function createRuntime(config: RuntimeConfig = {}) {
         return writeString(String.fromCodePoint(Number(code)));
       },
 
+      to_uppercase(ptr: number): number {
+        return writeString(readString(ptr).toUpperCase());
+      },
+
+      to_lowercase(ptr: number): number {
+        return writeString(readString(ptr).toLowerCase());
+      },
+
+      trim_start(ptr: number): number {
+        return writeString(readString(ptr).trimStart());
+      },
+
+      trim_end(ptr: number): number {
+        return writeString(readString(ptr).trimEnd());
+      },
+
+      pad_left(sPtr: number, width: bigint, charPtr: number): number {
+        const s = readString(sPtr);
+        const w = Number(width);
+        const ch = readString(charPtr) || " ";
+        if (s.length >= w) return writeString(s);
+        return writeString(s.padStart(w, ch));
+      },
+
+      pad_right(sPtr: number, width: bigint, charPtr: number): number {
+        const s = readString(sPtr);
+        const w = Number(width);
+        const ch = readString(charPtr) || " ";
+        if (s.length >= w) return writeString(s);
+        return writeString(s.padEnd(w, ch));
+      },
+
+      split_lines(ptr: number): number {
+        const s = readString(ptr);
+        const lines = s.split(/\r\n|\r|\n/);
+        const ptrs = lines.map(l => writeString(l));
+        return allocListI32(ptrs);
+      },
+
+      chars(ptr: number): number {
+        const s = readString(ptr);
+        // Iterate by Unicode code point (handles surrogate pairs correctly)
+        const charPtrs = [...s].map(c => writeString(c));
+        return allocListI32(charPtrs);
+      },
+
       // --- Type conversions ---
       int_to_float(value: bigint): number {
         return Number(value);
@@ -957,6 +1003,15 @@ export function createRuntime(config: RuntimeConfig = {}) {
       ceil(value: number): number {
         return Math.ceil(value);
       },
+
+      log(x: number): number { return Math.log(x); },
+      log2(x: number): number { return Math.log2(x); },
+      log10(x: number): number { return Math.log10(x); },
+      exp(x: number): number { return Math.exp(x); },
+      sin(x: number): number { return Math.sin(x); },
+      cos(x: number): number { return Math.cos(x); },
+      tan(x: number): number { return Math.tan(x); },
+      atan2(y: number, x: number): number { return Math.atan2(y, x); },
 
       f64_rem(a: number, b: number): number {
         return a % b;
@@ -1994,6 +2049,41 @@ export function createRuntime(config: RuntimeConfig = {}) {
 
       exit(code: bigint): void {
         process.exit(Number(code));
+      },
+
+      list_dir(pathPtr: number): number {
+        const path = readString(pathPtr);
+        try {
+          const entries = nodeFs.readdirSync(path) as string[];
+          return allocListI32(entries.map((e: string) => writeString(e)));
+        } catch {
+          return allocListI32([]);
+        }
+      },
+
+      file_exists(pathPtr: number): number {
+        const path = readString(pathPtr);
+        try {
+          nodeFs.statSync(path);
+          return 1;
+        } catch {
+          return 0;
+        }
+      },
+
+      remove_file(pathPtr: number): void {
+        const path = readString(pathPtr);
+        try {
+          nodeFs.unlinkSync(path);
+        } catch (e: unknown) {
+          const err = e as NodeJS.ErrnoException;
+          if (err.code !== "ENOENT") throw e;
+        }
+      },
+
+      make_dir(pathPtr: number): void {
+        const path = readString(pathPtr);
+        nodeFs.mkdirSync(path, { recursive: true });
       },
 
       list_reverse(ptr: number, elemSize: number): number {

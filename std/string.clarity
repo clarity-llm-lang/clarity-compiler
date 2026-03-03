@@ -97,3 +97,26 @@ export function ends_with(s: String, suffix: String) -> Bool {
 export function json_escape(s: String) -> String {
   json_escape_string(s)
 }
+
+// Convert all characters to uppercase.
+export function to_upper(s: String) -> String {
+  to_uppercase(s)
+}
+
+// Convert all characters to lowercase.
+export function to_lower(s: String) -> String {
+  to_lowercase(s)
+}
+
+// Remove leading whitespace.
+export function ltrim(s: String) -> String {
+  trim_start(s)
+}
+
+// Remove trailing whitespace.
+export function rtrim(s: String) -> String {
+  trim_end(s)
+}
+
+// pad_left, pad_right, split_lines, chars are available directly as builtins.
+// No wrapper needed since their names are already user-friendly.

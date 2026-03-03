@@ -49,8 +49,16 @@ export class CodeGenerator {
   private allTypeDecls: Map<string, ClarityType> = new Map();
 
   // Function table for indirect calls (higher-order functions)
+  // Keys are WASM function names (module-prefixed for private functions).
   private functionTableNames: string[] = [];
   private functionTableIndices: Map<string, number> = new Map();
+
+  // Multi-module name resolution:
+  // Maps Clarity name → WASM name for the module currently being generated.
+  // Private functions are prefixed with their module name to avoid collisions.
+  private currentModuleWasmNames: Map<string, string> = new Map();
+  // Maps each FunctionDecl → its unique WASM name (set once during setupModuleMulti).
+  private functionDeclWasmNames: Map<FunctionDecl, string> = new Map();
 
   // Lambda lifting — lambdas collected during codegen, emitted after all named functions
   private lambdaCounter: number = 0;
@@ -120,6 +128,8 @@ export class CodeGenerator {
     this.allTypeDecls = new Map();
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
+    this.currentModuleWasmNames = new Map();
+    this.functionDeclWasmNames = new Map();
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
@@ -145,6 +155,8 @@ export class CodeGenerator {
     this.allTypeDecls = new Map();
     this.functionTableNames = [];
     this.functionTableIndices = new Map();
+    this.currentModuleWasmNames = new Map();
+    this.functionDeclWasmNames = new Map();
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
@@ -352,11 +364,28 @@ export class CodeGenerator {
     }));
     this.mod.setMemory(1, 256, "memory", segments);
 
-    // Build function table (all non-generic functions from all modules)
-    for (const decl of allDecls) {
-      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
-        this.functionTableIndices.set(decl.name, this.functionTableNames.length);
-        this.functionTableNames.push(decl.name);
+    // Assign collision-free WASM names: private functions get a module-name prefix.
+    // Exported functions keep their plain Clarity name (they form the public API).
+    for (const mod of allModules) {
+      for (const decl of mod.declarations) {
+        if (decl.kind === "FunctionDecl") {
+          const wasmName = decl.exported ? decl.name : `${mod.name}$${decl.name}`;
+          this.functionDeclWasmNames.set(decl, wasmName);
+        }
+      }
+    }
+
+    // Build function table using collision-free WASM names.
+    // The table is indexed by WASM name so that per-module resolution works correctly.
+    for (const mod of allModules) {
+      for (const decl of mod.declarations) {
+        if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
+          const wasmName = this.functionDeclWasmNames.get(decl)!;
+          if (!this.functionTableIndices.has(wasmName)) {
+            this.functionTableIndices.set(wasmName, this.functionTableNames.length);
+            this.functionTableNames.push(wasmName);
+          }
+        }
       }
     }
 
@@ -368,10 +397,22 @@ export class CodeGenerator {
       }
     }
 
-    // Generate all non-generic functions from all modules
-    for (const decl of allDecls) {
-      if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
-        this.generateFunctionMulti(decl, entryFunctionNames);
+    // Generate functions per-module so that each module's call sites resolve
+    // to the correct WASM names (module-prefixed for private functions).
+    for (const mod of allModules) {
+      // Build per-module name resolution table (Clarity name → WASM name).
+      this.currentModuleWasmNames = new Map();
+      for (const decl of mod.declarations) {
+        if (decl.kind === "FunctionDecl") {
+          const wasmName = this.functionDeclWasmNames.get(decl)!;
+          this.currentModuleWasmNames.set(decl.name, wasmName);
+        }
+      }
+      // Generate non-generic functions for this module.
+      for (const decl of mod.declarations) {
+        if (decl.kind === "FunctionDecl" && decl.typeParams.length === 0) {
+          this.generateFunctionMulti(decl, entryFunctionNames);
+        }
       }
     }
 
@@ -729,11 +770,12 @@ export class CodeGenerator {
       body = this.generateExpr(decl.body, returnClarityType);
     }
 
-    this.mod.addFunction(decl.name, paramsType, returnWasmType, this.additionalLocals, body);
+    const wasmName = this.functionDeclWasmNames.get(decl) ?? decl.name;
+    this.mod.addFunction(wasmName, paramsType, returnWasmType, this.additionalLocals, body);
 
-    // Only WASM-export functions from the entry module
+    // Only WASM-export functions from the entry module, using Clarity name as export name
     if (entryFunctionNames.has(decl.name)) {
-      this.mod.addFunctionExport(decl.name, decl.name);
+      this.mod.addFunctionExport(wasmName, decl.name);
     }
   }
 
@@ -1091,7 +1133,9 @@ export class CodeGenerator {
           return this.generateConstructorCall(expr.name, ctorInfo, []);
         }
         // Check if this is a function reference (for higher-order functions)
-        const tableIndex = this.functionTableIndices.get(expr.name);
+        // Resolve the Clarity name to its WASM name first (handles module prefixing).
+        const resolvedFuncName = this.currentModuleWasmNames.get(expr.name) ?? expr.name;
+        const tableIndex = this.functionTableIndices.get(resolvedFuncName);
         if (tableIndex !== undefined) {
           return this.mod.i32.const(tableIndex);
         }
@@ -1215,9 +1259,10 @@ export class CodeGenerator {
       return this.generateMonomorphizedCall(expr, targetDecl);
     }
 
-    // Regular function call
+    // Regular function call — resolve Clarity name to WASM name (handles module prefixing)
     const args = expr.args.map((a) => this.generateExpr(a.value));
-    return this.mod.call(name, args, this.inferWasmReturnType(name));
+    const wasmCallName = this.currentModuleWasmNames.get(name) ?? name;
+    return this.mod.call(wasmCallName, args, this.inferWasmReturnType(name));
   }
 
   // Resolve a type reference with type parameter names treated as TypeVars.
@@ -1278,12 +1323,14 @@ export class CodeGenerator {
       unifyTypes(paramType, argType, bindings);
     }
 
-    // Build monomorphized function name: funcName$T1$T2
+    // Build monomorphized function name: [ModuleName$]funcName$T1$T2
+    // Use the WASM base name to avoid collisions when multiple modules have the same generic function name.
+    const wasmBaseName = this.currentModuleWasmNames.get(genericDecl.name) ?? genericDecl.name;
     const typeKey = genericDecl.typeParams.map(tp => {
       const bound = bindings.get(tp);
       return bound ? typeToString(bound) : "unknown";
     }).join("$");
-    const monoName = `${genericDecl.name}$${typeKey}`;
+    const monoName = `${wasmBaseName}$${typeKey}`;
 
     // Generate the monomorphized function if not already done
     if (!this.generatedMonomorphs.has(monoName)) {

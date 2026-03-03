@@ -286,3 +286,129 @@ export function replicate<T>(value: T, n: Int64) -> List<T> {
     False -> concat([value], replicate(value, n - 1))
   }
 }
+
+// --- Sorting ---
+
+// Sort a list of Int64 in ascending order (insertion sort).
+// sort([3,1,4,1,5])  ->  [1,1,3,4,5]
+export function sort(xs: List<Int64>) -> List<Int64> {
+  match is_empty(xs) {
+    True -> [],
+    False -> insert_sorted(head(xs), sort(tail(xs)))
+  }
+}
+
+function insert_sorted(x: Int64, sorted: List<Int64>) -> List<Int64> {
+  match is_empty(sorted) {
+    True -> [x],
+    False -> match x <= head(sorted) {
+      True -> concat([x], sorted),
+      False -> concat([head(sorted)], insert_sorted(x, tail(sorted)))
+    }
+  }
+}
+
+// Sort a generic list by an integer key function (ascending insertion sort).
+// sort_by(["banana", "apple", "fig"], string_length)  ->  ["fig", "apple", "banana"]
+export function sort_by<T>(xs: List<T>, key: (T) -> Int64) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> insert_sorted_by(head(xs), sort_by(tail(xs), key), key)
+  }
+}
+
+function insert_sorted_by<T>(x: T, sorted: List<T>, key: (T) -> Int64) -> List<T> {
+  match is_empty(sorted) {
+    True -> [x],
+    False -> match key(x) <= key(head(sorted)) {
+      True -> concat([x], sorted),
+      False -> concat([head(sorted)], insert_sorted_by(x, tail(sorted), key))
+    }
+  }
+}
+
+// --- Deduplication ---
+
+// Remove consecutive duplicate elements according to an equality predicate.
+// uniq([1,1,2,2,3], int_eq)  ->  [1,2,3]
+// Does NOT sort — only removes adjacent duplicates. Sort first for full dedup.
+export function uniq<T>(xs: List<T>, eq: (T, T) -> Bool) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> {
+      let h = head(xs);
+      let t = tail(xs);
+      match is_empty(t) {
+        True -> [h],
+        False -> match eq(h, head(t)) {
+          True -> uniq(t, eq),
+          False -> concat([h], uniq(t, eq))
+        }
+      }
+    }
+  }
+}
+
+// --- Splitting ---
+
+// Insert sep between every pair of adjacent elements.
+// intersperse([1,2,3], 0)  ->  [1,0,2,0,3]
+export function intersperse<T>(xs: List<T>, sep: T) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match is_empty(tail(xs)) {
+      True -> xs,
+      False -> concat([head(xs), sep], intersperse(tail(xs), sep))
+    }
+  }
+}
+
+// Keep only elements for which pred returns False (complement of filter).
+// reject([1,2,3,4], is_even)  ->  [1,3]
+export function reject<T>(xs: List<T>, pred: (T) -> Bool) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> {
+      let h = head(xs);
+      let rest = reject(tail(xs), pred);
+      match pred(h) {
+        False -> concat([h], rest),
+        True -> rest
+      }
+    }
+  }
+}
+
+// Group consecutive elements with equal keys into sublists.
+// group_by([1,1,2,3,3], int_eq)  ->  [[1,1],[2],[3,3]]
+export function group_by<T>(xs: List<T>, eq: (T, T) -> Bool) -> List<List<T>> {
+  match is_empty(xs) {
+    True -> [],
+    False -> {
+      let h = head(xs);
+      let same = group_take_while(xs, h, eq);
+      let rest_list = group_drop_while(xs, h, eq);
+      concat([same], group_by(rest_list, eq))
+    }
+  }
+}
+
+function group_take_while<T>(xs: List<T>, x: T, eq: (T, T) -> Bool) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match eq(x, head(xs)) {
+      True -> concat([head(xs)], group_take_while(tail(xs), x, eq)),
+      False -> []
+    }
+  }
+}
+
+function group_drop_while<T>(xs: List<T>, x: T, eq: (T, T) -> Bool) -> List<T> {
+  match is_empty(xs) {
+    True -> [],
+    False -> match eq(x, head(xs)) {
+      True -> group_drop_while(tail(xs), x, eq),
+      False -> xs
+    }
+  }
+}
