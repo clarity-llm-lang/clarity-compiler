@@ -60,3 +60,46 @@ export function is_even(n: Int64) -> Bool {
 export function is_odd(n: Int64) -> Bool {
   n % 2 != 0
 }
+
+// Natural logarithm (base e).
+export function ln(x: Float64) -> Float64 {
+  log(x)
+}
+
+// Base-2 logarithm.
+export function log_2(x: Float64) -> Float64 {
+  log2(x)
+}
+
+// Base-10 logarithm.
+export function log_10(x: Float64) -> Float64 {
+  log10(x)
+}
+
+// e raised to the power x.
+export function e_pow(x: Float64) -> Float64 {
+  exp(x)
+}
+
+// sin, cos, tan, atan2 are available directly as builtins (no wrapper needed).
+
+// Greatest common divisor of two non-negative integers (Euclidean algorithm).
+export function gcd(a: Int64, b: Int64) -> Int64 {
+  gcd_helper(abs_int(a), abs_int(b))
+}
+
+function gcd_helper(a: Int64, b: Int64) -> Int64 {
+  match b == 0 {
+    True -> a,
+    False -> gcd_helper(b, a % b)
+  }
+}
+
+// Least common multiple of two integers.
+export function lcm(a: Int64, b: Int64) -> Int64 {
+  let g = gcd(a, b);
+  match g == 0 {
+    True -> 0,
+    False -> abs_int(a / g * b)
+  }
+}

@@ -398,6 +398,34 @@ describe("end-to-end compilation", () => {
     expect(test_ceil(3.2)).toBe(4.0);
   });
 
+  it("log, exp, sin, cos, tan, atan2 work", async () => {
+    const source = `
+      module Test
+      function test_log(x: Float64) -> Float64 { log(x) }
+      function test_exp(x: Float64) -> Float64 { exp(x) }
+      function test_sin(x: Float64) -> Float64 { sin(x) }
+      function test_cos(x: Float64) -> Float64 { cos(x) }
+      function test_atan2(y: Float64, x: Float64) -> Float64 { atan2(y, x) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    const test_log = instance.exports.test_log as (x: number) => number;
+    const test_exp = instance.exports.test_exp as (x: number) => number;
+    const test_sin = instance.exports.test_sin as (x: number) => number;
+    const test_cos = instance.exports.test_cos as (x: number) => number;
+    const test_atan2 = instance.exports.test_atan2 as (y: number, x: number) => number;
+
+    expect(test_log(Math.E)).toBeCloseTo(1.0, 10);
+    expect(test_exp(1.0)).toBeCloseTo(Math.E, 10);
+    expect(test_sin(Math.PI / 2)).toBeCloseTo(1.0, 10);
+    expect(test_cos(0.0)).toBeCloseTo(1.0, 10);
+    expect(test_atan2(1.0, 1.0)).toBeCloseTo(Math.PI / 4, 10);
+  });
+
+
   it("compiles substring and char_at", async () => {
     const source = `
       module Test
@@ -1112,6 +1140,58 @@ describe("end-to-end compilation", () => {
     expect(written["out.txt"]).toBe("hello from clarity");
   });
 
+  it("list_dir, file_exists, remove_file, make_dir work on real filesystem", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function test_list_dir(path: String) -> Int64 {
+        let entries = list_dir(path);
+        length(entries)
+      }
+      effect[FileSystem] function test_file_exists(path: String) -> Bool {
+        file_exists(path)
+      }
+      effect[FileSystem] function test_remove_file(path: String) -> Unit {
+        remove_file(path)
+      }
+      effect[FileSystem] function test_make_dir(path: String) -> Unit {
+        make_dir(path)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test_list_dir = instance.exports.test_list_dir as (p: number) => bigint;
+    const test_file_exists = instance.exports.test_file_exists as (p: number) => number;
+    const test_remove_file = instance.exports.test_remove_file as (p: number) => void;
+    const test_make_dir = instance.exports.test_make_dir as (p: number) => void;
+
+    // list_dir on a real temp directory
+    const tmpDir = os.tmpdir();
+    const count = test_list_dir(runtime.writeString(tmpDir));
+    expect(count).toBeGreaterThan(0n);
+
+    // make_dir creates a nested directory
+    const newDir = path.join(tmpDir, `clarity-test-mkd-${Date.now()}`);
+    test_make_dir(runtime.writeString(newDir));
+    expect(fs.existsSync(newDir)).toBe(true);
+
+    // file_exists: true for dir, false for nonexistent
+    expect(test_file_exists(runtime.writeString(newDir))).toBe(1);
+    expect(test_file_exists(runtime.writeString(newDir + "/does-not-exist"))).toBe(0);
+
+    // remove_file on a temp file
+    const tmpFile = path.join(newDir, "hello.txt");
+    fs.writeFileSync(tmpFile, "hi");
+    expect(test_file_exists(runtime.writeString(tmpFile))).toBe(1);
+    test_remove_file(runtime.writeString(tmpFile));
+    expect(test_file_exists(runtime.writeString(tmpFile))).toBe(0);
+
+    // Cleanup
+    fs.rmdirSync(newDir);
+  });
+
   it("compiles and runs mutable variable reassignment", async () => {
     const source = `
       module Test
@@ -1603,6 +1683,90 @@ describe("end-to-end compilation", () => {
     const { instance } = await instantiate(result.wasm!);
     const test = instance.exports.test as () => bigint;
     expect(test()).toBe(3n); // ["a", "b", "c"] has 3 elements
+  });
+
+  it("to_uppercase and to_lowercase work", async () => {
+    const source = `
+      module Test
+      function up(s: String) -> String { to_uppercase(s) }
+      function down(s: String) -> String { to_lowercase(s) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const up = instance.exports.up as (ptr: number) => number;
+    const down = instance.exports.down as (ptr: number) => number;
+    expect(runtime.readString(up(runtime.writeString("hello World")))).toBe("HELLO WORLD");
+    expect(runtime.readString(down(runtime.writeString("Hello World")))).toBe("hello world");
+  });
+
+  it("trim_start and trim_end work", async () => {
+    const source = `
+      module Test
+      function lstrip(s: String) -> String { trim_start(s) }
+      function rstrip(s: String) -> String { trim_end(s) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const lstrip = instance.exports.lstrip as (ptr: number) => number;
+    const rstrip = instance.exports.rstrip as (ptr: number) => number;
+    expect(runtime.readString(lstrip(runtime.writeString("  hi  ")))).toBe("hi  ");
+    expect(runtime.readString(rstrip(runtime.writeString("  hi  ")))).toBe("  hi");
+  });
+
+  it("pad_left and pad_right work", async () => {
+    const source = `
+      module Test
+      function pl(s: String) -> String { pad_left(s, 5, "0") }
+      function pr(s: String) -> String { pad_right(s, 5, "-") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const pl = instance.exports.pl as (ptr: number) => number;
+    const pr = instance.exports.pr as (ptr: number) => number;
+    expect(runtime.readString(pl(runtime.writeString("42")))).toBe("00042");
+    expect(runtime.readString(pr(runtime.writeString("hi")))).toBe("hi---");
+    // Already wide enough — unchanged
+    expect(runtime.readString(pl(runtime.writeString("12345")))).toBe("12345");
+  });
+
+  it("split_lines splits on newline variants", async () => {
+    const source = `
+      module Test
+      function test(s: String) -> Int64 { length(split_lines(s)) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test = instance.exports.test as (ptr: number) => bigint;
+    expect(test(runtime.writeString("a\nb\nc"))).toBe(3n);
+    expect(test(runtime.writeString("a\r\nb"))).toBe(2n);
+    expect(test(runtime.writeString(""))).toBe(1n); // empty string → one empty line
+  });
+
+  it("chars returns list of single-character strings", async () => {
+    const source = `
+      module Test
+      function test(s: String) -> Int64 { length(chars(s)) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const test = instance.exports.test as (ptr: number) => bigint;
+    expect(test(runtime.writeString("hello"))).toBe(5n);
+    expect(test(runtime.writeString(""))).toBe(0n);
   });
 
   it("multi-line string literals work end-to-end", async () => {
@@ -2124,6 +2288,84 @@ describe("Standard library (std/)", () => {
     expect((instance.exports.test_empty as () => number)()).toBe(1);
     expect((instance.exports.test_set_at as () => bigint)()).toBe(99n);
     expect(runtime.readString((instance.exports.test_string_head as () => number)())).toBe("a");
+  });
+
+  it("imports sort, sort_by, intersperse, reject, uniq from std/list", async () => {
+    const dir = setupStdTest(`
+      module Main
+      import { sort, sort_by, intersperse, reject, uniq } from "std/list"
+
+      function int_eq(a: Int64, b: Int64) -> Bool { a == b }
+      function is_odd_helper(n: Int64) -> Bool { n % 2 != 0 }
+      // Wrapper needed: builtins cannot be passed as first-class function references
+      function str_len(s: String) -> Int64 { string_length(s) }
+
+      function test_sort() -> Int64 {
+        let xs = sort([3, 1, 4, 1, 5]);
+        nth(xs, 0)
+      }
+      function test_sort_by() -> Int64 {
+        let words = ["banana", "fig", "apple"];
+        let sorted = sort_by(words, str_len);
+        str_len(head(sorted))
+      }
+      function test_intersperse() -> Int64 {
+        let xs = intersperse([1, 2, 3], 0);
+        length(xs)
+      }
+      function test_reject() -> Int64 {
+        let xs = reject([1, 2, 3, 4, 5], is_odd_helper);
+        length(xs)
+      }
+      function test_uniq() -> Int64 {
+        let xs = uniq([1, 1, 2, 2, 3], int_eq);
+        length(xs)
+      }
+    `);
+
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_sort as () => bigint)()).toBe(1n);        // min of [3,1,4,1,5] after sort
+    expect((instance.exports.test_sort_by as () => bigint)()).toBe(3n);     // "fig" has length 3
+    expect((instance.exports.test_intersperse as () => bigint)()).toBe(5n); // [1,0,2,0,3] has 5 elements
+    expect((instance.exports.test_reject as () => bigint)()).toBe(2n);      // [2,4] are the even numbers
+    expect((instance.exports.test_uniq as () => bigint)()).toBe(3n);        // [1,2,3] after uniq
+  });
+
+  it("multi-module symbol collision: two modules with same private function name", async () => {
+    // RQ-LANG-CLI-PKG-001: importing multiple modules with identically-named private helpers
+    // must not fail codegen (private functions are prefixed with their module name in WASM).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-collision-test-"));
+    // Module A — has private helper named "format"
+    fs.writeFileSync(path.join(dir, "moduleA.clarity"), `
+      module ModuleA
+      function format(x: Int64) -> String { int_to_string(x) ++ "A" }
+      export function result_a() -> String { format(42) }
+    `);
+    // Module B — also has private helper named "format"
+    fs.writeFileSync(path.join(dir, "moduleB.clarity"), `
+      module ModuleB
+      function format(x: Int64) -> String { int_to_string(x) ++ "B" }
+      export function result_b() -> String { format(42) }
+    `);
+    // Entry module imports both
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { result_a } from "./moduleA"
+      import { result_b } from "./moduleB"
+      function test_a() -> String { result_a() }
+      function test_b() -> String { result_b() }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_a as () => number)())).toBe("42A");
+    expect(runtime.readString((instance.exports.test_b as () => number)())).toBe("42B");
   });
 });
 

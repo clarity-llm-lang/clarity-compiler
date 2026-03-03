@@ -46,6 +46,14 @@ export function getBuiltins(): BuiltinDef[] {
 
     { name: "char_code", importModule: "env", importName: "char_code", params: i32, result: i64 },
     { name: "char_from_code", importModule: "env", importName: "char_from_code", params: i64, result: i32 },
+    { name: "to_uppercase", importModule: "env", importName: "to_uppercase", params: i32, result: i32 },
+    { name: "to_lowercase", importModule: "env", importName: "to_lowercase", params: i32, result: i32 },
+    { name: "trim_start", importModule: "env", importName: "trim_start", params: i32, result: i32 },
+    { name: "trim_end", importModule: "env", importName: "trim_end", params: i32, result: i32 },
+    { name: "pad_left", importModule: "env", importName: "pad_left", params: binaryen.createType([i32, i64, i32]), result: i32 },
+    { name: "pad_right", importModule: "env", importName: "pad_right", params: binaryen.createType([i32, i64, i32]), result: i32 },
+    { name: "split_lines", importModule: "env", importName: "split_lines", params: i32, result: i32 },
+    { name: "chars", importModule: "env", importName: "chars", params: i32, result: i32 },
 
     // --- Type conversions ---
     { name: "int_to_float", importModule: "env", importName: "int_to_float", params: i64, result: f64 },
@@ -66,6 +74,14 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "pow", importModule: "env", importName: "pow", params: pair_f64, result: f64 },
     { name: "floor", importModule: "env", importName: "floor", params: f64, result: f64 },
     { name: "ceil", importModule: "env", importName: "ceil", params: f64, result: f64 },
+    { name: "log", importModule: "env", importName: "log", params: f64, result: f64 },
+    { name: "log2", importModule: "env", importName: "log2", params: f64, result: f64 },
+    { name: "log10", importModule: "env", importName: "log10", params: f64, result: f64 },
+    { name: "exp", importModule: "env", importName: "exp", params: f64, result: f64 },
+    { name: "sin", importModule: "env", importName: "sin", params: f64, result: f64 },
+    { name: "cos", importModule: "env", importName: "cos", params: f64, result: f64 },
+    { name: "tan", importModule: "env", importName: "tan", params: f64, result: f64 },
+    { name: "atan2", importModule: "env", importName: "atan2", params: pair_f64, result: f64 },
     { name: "f64_rem", importModule: "env", importName: "f64_rem", params: pair_f64, result: f64 },
 
     // --- List operations ---
@@ -103,6 +119,10 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "write_file", importModule: "env", importName: "write_file", params: pair_i32, result: none },
     { name: "get_args", importModule: "env", importName: "get_args", params: binaryen.none, result: i32 },
     { name: "exit", importModule: "env", importName: "exit", params: i64, result: none },
+    { name: "list_dir", importModule: "env", importName: "list_dir", params: i32, result: i32 },
+    { name: "file_exists", importModule: "env", importName: "file_exists", params: i32, result: i32 },
+    { name: "remove_file", importModule: "env", importName: "remove_file", params: i32, result: none },
+    { name: "make_dir", importModule: "env", importName: "make_dir", params: i32, result: none },
 
     // --- Test assertions ---
     { name: "assert_eq", importModule: "env", importName: "assert_eq", params: pair_i64, result: none },

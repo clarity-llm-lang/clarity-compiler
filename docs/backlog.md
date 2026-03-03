@@ -19,14 +19,8 @@ Checked items (✅) are done. Each item references the audit finding number.
   `1..5` and `3..7` in the same match compile with no warning. Add overlap detection and
   emit a warning (or error) for overlapping Int64 range arms.
 
-- [ ] **#6 Record field layout has no alignment/padding** — `src/codegen/codegen.ts`
-  Fields are laid out sequentially in linear memory without word-alignment padding.
-  `{ a: Int64, b: Bool, c: Int64 }` produces misaligned reads. Fix: align each field
-  to its natural size (4 bytes for i32/f32, 8 bytes for i64/f64).
-
-- [ ] **#7 Union discriminant is unchecked at match time** — `src/codegen/codegen.ts`
-  The variant tag (i32) stored in memory is never bounds-checked when pattern matching.
-  A corrupted heap silently executes the wrong arm instead of trapping.
+- [x] **#6 Record field layout has no alignment/padding** — fixed *(2026-03-01)*
+- [x] **#7 Union discriminant is unchecked at match time** — fixed *(2026-03-01)*
 
 ### Unimplemented / Dead Stubs
 
@@ -60,15 +54,9 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 ### Missing Stdlib
 
-- [ ] **#10 String stdlib gaps** — `std/string.clarity`
-  Missing: `to_uppercase`, `to_lowercase`, `trim_start`, `trim_end`, `pad_left`, `pad_right`,
-  `split_lines`, `chars`
-
-- [ ] **#11 List stdlib gaps** — `std/list.clarity`
-  Missing: `sort`, `sort_by`, `group_by`, `uniq`, `partition`, `intersperse`
-
-- [ ] **#12 Math stdlib gaps** — `std/math.clarity`
-  Missing: `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `atan2`, `gcd`, `lcm`
+- [x] **#10 String stdlib gaps** — fixed *(2026-03-03)*
+- [x] **#11 List stdlib gaps** — fixed *(2026-03-03)*
+- [x] **#12 Math stdlib gaps** — fixed *(2026-03-03)*
 
 - [ ] **#13 Map operations** — no stdlib file
   Maps can only be built and looked up. Missing: `map_merge`, `map_filter`, `map_transform`,
@@ -198,3 +186,50 @@ Checked items (✅) are done. Each item references the audit finding number.
 
 - [x] **#4 `http_listen` dead stub removed** — Removed from registry and builtins.ts.
   Also cleaned up duplicate `http_request` import entry in builtins.ts. *(2026-03-01)*
+
+- [x] **#6 Record field alignment and Timestamp i64 load/store** — `src/codegen/codegen.ts`
+  + `src/codegen/runtime.ts`
+  Three fixes in one:
+  1. The bump allocator in runtime.ts now guarantees **8-byte alignment** (`heapPtr = (heapPtr + 7) & ~7`),
+     so record and union base pointers are always 8-byte aligned.
+  2. Union header widened from 4 bytes to **8 bytes** (i32 tag + 4 bytes padding), ensuring the
+     first variant field — even an Int64 or Float64 — lands at an 8-byte-aligned offset.
+     All field accesses in codegen updated from `+4` to `+8`; all JS-side union allocators
+     (`allocOptionI32/I64`, `allocResultI32/I64`, `string_to_int`, `string_to_float`,
+     `cosine_similarity`) updated to match (sizes and offsets).
+  3. `storeField`/`loadField` now handle `Timestamp` as i64 (was incorrectly using i32),
+     and use alignment hint `8` for `Int64`/`Float64`/`Timestamp` (was `4`).
+  *(2026-03-01)*
+
+- [x] **#7 Union discriminant bounds-check at match time** — `src/codegen/codegen.ts`
+  Both `generateUnionMatch` and `generateUnionMatchTCO` now emit an explicit
+  `(if (i32.ge_u tag numVariants) (unreachable))` guard before the if-else dispatch chain.
+  A corrupted tag that happens to equal a valid variant index can no longer silently execute
+  the wrong arm — out-of-range tags always trap. *(2026-03-01)*
+
+- [x] **#10 String stdlib gaps** — Added 8 new string builtins (`to_uppercase`, `to_lowercase`,
+  `trim_start`, `trim_end`, `pad_left`, `pad_right`, `split_lines`, `chars`) in registry, runtime,
+  and builtins stubs. Added `to_upper`, `to_lower`, `ltrim`, `rtrim` aliases to `std/string.clarity`.
+  5 new e2e tests. *(2026-03-03)*
+
+- [x] **#11 List stdlib gaps** — Added `sort`, `sort_by`, `uniq`, `intersperse`, `reject`,
+  `group_by` as pure Clarity implementations in `std/list.clarity`. No new builtins needed.
+  Note: `sort_by` takes a key function; builtins cannot be passed as first-class function
+  references (use a named wrapper function). *(2026-03-03)*
+
+- [x] **#12 Math stdlib gaps** — Added 8 new math builtins (`log`, `log2`, `log10`, `exp`,
+  `sin`, `cos`, `tan`, `atan2`) in registry, runtime, and builtins stubs. Added `ln`, `log_2`,
+  `log_10`, `e_pow` wrappers plus Clarity-level `gcd` / `lcm` in `std/math.clarity`. *(2026-03-03)*
+
+- [x] **RQ-LANG-CLI-FS-001/FS-002: FS directory and state primitives** — Added `list_dir`,
+  `file_exists`, `remove_file`, `make_dir` as `FileSystem` builtins in registry, runtime, and
+  builtins stubs. Enables `list`, `cancel`, and `watch` (via polling) in native Clarity CLI.
+  *(2026-03-03)*
+
+- [x] **RQ-LANG-CLI-PKG-001: Multi-module symbol collision** — `src/codegen/codegen.ts`
+  Private (non-exported) functions are now assigned collision-free WASM names by prefixing with
+  their module name (`ModuleName$funcName`). `setupModuleMulti` builds per-module name resolution
+  tables (`currentModuleWasmNames`) and generates functions module-by-module so call sites always
+  resolve to the correct WASM name. Exported functions keep their plain Clarity name. Covered by
+  e2e test "multi-module symbol collision: two modules with same private function name".
+  *(2026-03-03)*
