@@ -2972,6 +2972,261 @@ describe("Map builtins", () => {
   });
 });
 
+describe("Standard library: std/map", () => {
+  function setupMapTest(mainSource: string): string {
+    const mapSrc = fs.readFileSync(path.resolve("std/map.clarity"), "utf-8");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-map-test-"));
+    fs.mkdirSync(path.join(dir, "std"));
+    fs.writeFileSync(path.join(dir, "std", "map.clarity"), mapSrc);
+    fs.writeFileSync(path.join(dir, "main.clarity"), mainSource);
+    return dir;
+  }
+
+  it("compiles std/map without errors", () => {
+    const result = compileFile(path.resolve("std/map.clarity"));
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("map_merge: b keys overwrite a keys, unique keys from both survive", async () => {
+    const dir = setupMapTest(`
+      module Main
+      import { map_merge } from "std/map"
+      function test_size() -> Int64 {
+        let a: Map<String, Int64> = map_new();
+        let a2 = map_set(a, "x", 1);
+        let a3 = map_set(a2, "y", 2);
+        let b: Map<String, Int64> = map_new();
+        let b2 = map_set(b, "y", 99);
+        let b3 = map_set(b2, "z", 3);
+        let merged = map_merge(a3, b3);
+        map_size(merged)
+      }
+      function test_overwritten() -> Int64 {
+        let a: Map<String, Int64> = map_new();
+        let a2 = map_set(a, "y", 2);
+        let b: Map<String, Int64> = map_new();
+        let b2 = map_set(b, "y", 99);
+        let merged = map_merge(a2, b2);
+        match map_get(merged, "y") { None -> 0, Some(v) -> v }
+      }
+      function test_unique_from_a() -> Int64 {
+        let a: Map<String, Int64> = map_new();
+        let a2 = map_set(a, "x", 1);
+        let b: Map<String, Int64> = map_new();
+        let b2 = map_set(b, "z", 3);
+        let merged = map_merge(a2, b2);
+        match map_get(merged, "x") { None -> 0, Some(v) -> v }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_overwritten as () => bigint)()).toBe(99n);
+    expect((instance.exports.test_unique_from_a as () => bigint)()).toBe(1n);
+  });
+
+  it("map_filter: keeps only entries matching predicate", async () => {
+    const dir = setupMapTest(`
+      module Main
+      import { map_filter } from "std/map"
+      function is_positive(v: Int64) -> Bool { v > 0 }
+      function test_size() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 1);
+        let m3 = map_set(m2, "b", 0 - 2);
+        let m4 = map_set(m3, "c", 3);
+        let filtered = map_filter(m4, is_positive);
+        map_size(filtered)
+      }
+      function test_negative_absent() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "neg", 0 - 5);
+        let filtered = map_filter(m2, is_positive);
+        match map_get(filtered, "neg") { None -> 99, Some(v) -> v }
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_size as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_negative_absent as () => bigint)()).toBe(99n);
+  });
+
+  it("map_transform: applies function to all values", async () => {
+    const dir = setupMapTest(`
+      module Main
+      import { map_transform } from "std/map"
+      function double(x: Int64) -> Int64 { x * 2 }
+      function test_transformed() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "a", 5);
+        let m3 = map_set(m2, "b", 10);
+        let t = map_transform(m3, double);
+        match map_get(t, "a") { None -> 0, Some(v) -> v }
+      }
+      function test_size_unchanged() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "x", 1);
+        let m3 = map_set(m2, "y", 2);
+        map_size(map_transform(m3, double))
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_transformed as () => bigint)()).toBe(10n);
+    expect((instance.exports.test_size_unchanged as () => bigint)()).toBe(2n);
+  });
+
+  it("map_entries: returns all key-value pairs as a list", async () => {
+    const dir = setupMapTest(`
+      module Main
+      import { map_entries, MapEntry } from "std/map"
+      function test_entries_count() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "p", 10);
+        let m3 = map_set(m2, "q", 20);
+        let entries = map_entries(m3);
+        length(entries)
+      }
+      function test_first_value() -> Int64 {
+        let m: Map<String, Int64> = map_new();
+        let m2 = map_set(m, "only", 42);
+        let entries = map_entries(m2);
+        let e = nth(entries, 0);
+        e.value
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_entries_count as () => bigint)()).toBe(2n);
+    expect((instance.exports.test_first_value as () => bigint)()).toBe(42n);
+  });
+});
+
+describe("Complex nested generics", () => {
+  it("List<Result<String,String>>: collect Ok/Err results into a list", async () => {
+    const source = `
+      module Test
+      function safe_div(a: Int64, b: Int64) -> Result<String, String> {
+        match b == 0 {
+          True  -> Err("div by zero"),
+          False -> Ok(int_to_string(a / b))
+        }
+      }
+      function test_len() -> Int64 {
+        let results: List<Result<String, String>> = [
+          safe_div(10, 2),
+          safe_div(6, 0),
+          safe_div(9, 3)
+        ];
+        length(results)
+      }
+      function test_first_ok() -> String {
+        let results: List<Result<String, String>> = [safe_div(10, 2)];
+        match nth(results, 0) {
+          Ok(s) -> s,
+          Err(e) -> "ERROR"
+        }
+      }
+      function test_second_err() -> String {
+        let results: List<Result<String, String>> = [safe_div(10, 2), safe_div(6, 0)];
+        match nth(results, 1) {
+          Ok(s) -> "WRONG",
+          Err(e) -> e
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect((instance.exports.test_len as () => bigint)()).toBe(3n);
+    expect(runtime.readString((instance.exports.test_first_ok as () => number)())).toBe("5");
+    expect(runtime.readString((instance.exports.test_second_err as () => number)())).toBe("div by zero");
+  });
+
+  it("Result<Option<String>,String>: wraps optional string in a Result", async () => {
+    const source = `
+      module Test
+      function find_name(names: List<String>, idx: Int64) -> Result<Option<String>, String> {
+        match idx < 0 {
+          True -> Err("negative index"),
+          False -> match idx >= length(names) {
+            True -> Ok(None),
+            False -> Ok(Some(nth(names, idx)))
+          }
+        }
+      }
+      function test_found() -> String {
+        match find_name(["alice", "bob"], 1) {
+          Err(e) -> "ERR",
+          Ok(opt) -> match opt {
+            None -> "NONE",
+            Some(s) -> s
+          }
+        }
+      }
+      function test_oob() -> Int64 {
+        match find_name(["alice"], 5) {
+          Err(e) -> 0,
+          Ok(opt) -> match opt { None -> 1, Some(s) -> 2 }
+        }
+      }
+      function test_neg() -> String {
+        match find_name([], 0 - 1) {
+          Err(e) -> e,
+          Ok(opt) -> "OK"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    expect(runtime.readString((instance.exports.test_found as () => number)())).toBe("bob");
+    expect((instance.exports.test_oob as () => bigint)()).toBe(1n);
+    expect(runtime.readString((instance.exports.test_neg as () => number)())).toBe("negative index");
+  });
+
+  it("Option<List<Int64>>: optional integer list", async () => {
+    const source = `
+      module Test
+      function wrap_if_nonempty(xs: List<Int64>) -> Option<List<Int64>> {
+        match is_empty(xs) {
+          True -> None,
+          False -> Some(xs)
+        }
+      }
+      function test_some_len() -> Int64 {
+        match wrap_if_nonempty([10, 20, 30]) {
+          None -> 0 - 1,
+          Some(sub) -> length(sub)
+        }
+      }
+      function test_none() -> Int64 {
+        match wrap_if_nonempty([]) {
+          None -> 99,
+          Some(sub) -> 0
+        }
+      }
+      function test_some_first() -> Int64 {
+        match wrap_if_nonempty([42, 7]) {
+          None -> 0,
+          Some(sub) -> head(sub)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test_some_len as () => bigint)()).toBe(3n);
+    expect((instance.exports.test_none as () => bigint)()).toBe(99n);
+    expect((instance.exports.test_some_first as () => bigint)()).toBe(42n);
+  });
+});
+
 describe("JSON builtins", () => {
   it("json_parse parses flat object scalars into Map<String, String>", async () => {
     const source = `
@@ -6503,5 +6758,205 @@ describe("clarityc pack launcher generation", () => {
     const b64 = Buffer.from(result.wasm!).toString("base64");
     const recovered = Buffer.from(b64, "base64");
     expect(recovered).toEqual(Buffer.from(result.wasm!));
+  });
+});
+
+// =============================================================================
+// #18: Cross-module effect transitivity — importing an effectful function into
+//      a caller that does not declare the required effect must be rejected.
+// =============================================================================
+
+describe("Effect system: cross-module transitivity", () => {
+  function setupModuleEffectTest(
+    entrySource: string,
+    imports: Record<string, string>,
+  ): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-effect-test-"));
+    for (const [filename, src] of Object.entries(imports)) {
+      const fullPath = path.join(dir, filename);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, src);
+    }
+    fs.writeFileSync(path.join(dir, "main.clarity"), entrySource);
+    return dir;
+  }
+
+  it("calling a Network function from a pure caller is rejected", () => {
+    const dir = setupModuleEffectTest(
+      `
+        module Main
+        import { fetch_data } from "net_helper"
+        // No effect declaration — must be rejected
+        function go() -> Result<String, String> { fetch_data("http://example.com") }
+      `,
+      {
+        "net_helper.clarity": `
+          module NetHelper
+          export effect[Network] function fetch_data(url: String) -> Result<String, String> {
+            http_get(url)
+          }
+        `,
+      },
+    );
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => /Network/i.test(e.message))).toBe(true);
+  });
+
+  it("calling a Network function from a Network-declared caller is accepted", () => {
+    const dir = setupModuleEffectTest(
+      `
+        module Main
+        import { fetch_data } from "net_helper"
+        effect[Network] function go() -> Result<String, String> { fetch_data("http://example.com") }
+      `,
+      {
+        "net_helper.clarity": `
+          module NetHelper
+          export effect[Network] function fetch_data(url: String) -> Result<String, String> {
+            http_get(url)
+          }
+        `,
+      },
+    );
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("calling a Log function from a pure caller is rejected", () => {
+    const source = `
+      module Test
+      function helper() -> Unit { print_string("oops") }
+      function test() -> Unit { helper() }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => /Log/i.test(e.message))).toBe(true);
+  });
+
+  it("transitivity: pure caller -> Network callee -> Network callee is rejected", () => {
+    const dir = setupModuleEffectTest(
+      `
+        module Main
+        import { middle } from "middle"
+        // middle requires Network effect — pure Main must be rejected
+        function go() -> Result<String, String> { middle() }
+      `,
+      {
+        "middle.clarity": `
+          module Middle
+          export effect[Network] function middle() -> Result<String, String> {
+            http_get("http://example.com")
+          }
+        `,
+      },
+    );
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => /Network/i.test(e.message))).toBe(true);
+  });
+
+  it("FileSystem effect: calling read_file from pure function is rejected", () => {
+    const source = `
+      module Test
+      function bad() -> String { read_file("data.txt") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors.some((e) => /FileSystem/i.test(e.message))).toBe(true);
+  });
+
+  it("FileSystem effect: calling read_file from FileSystem function is accepted", () => {
+    const source = `
+      module Test
+      effect[FileSystem] function good() -> String { read_file("data.txt") }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// #8: Mutual tail-recursion warning
+// =============================================================================
+
+describe("Mutual tail-recursion warning (#8)", () => {
+  it("emits a warning for two functions that mutually tail-call each other", () => {
+    const source = `
+      module Test
+      // even/odd: canonical mutual recursion — each calls the other in tail position
+      function is_even(n: Int64) -> Bool {
+        match n == 0 {
+          True  -> True,
+          False -> is_odd(n - 1)
+        }
+      }
+      function is_odd(n: Int64) -> Bool {
+        match n == 0 {
+          True  -> False,
+          False -> is_even(n - 1)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    // Should warn about mutual tail recursion (either direction reported)
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(
+      result.warnings.some((w) => /mutual tail recursion/i.test(w.message)),
+    ).toBe(true);
+    expect(
+      result.warnings.some(
+        (w) => w.message.includes("is_even") && w.message.includes("is_odd"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does NOT warn for a normal helper call in tail position (non-recursive)", () => {
+    const source = `
+      module Test
+      function double(x: Int64) -> Int64 { x * 2 }
+      // apply calls double in tail position, but double does NOT call apply back
+      function apply(x: Int64) -> Int64 { double(x) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(
+      result.warnings.some((w) => /mutual tail recursion/i.test(w.message)),
+    ).toBe(false);
+  });
+
+  it("does NOT warn for self-recursive tail call", () => {
+    const source = `
+      module Test
+      function count_down(n: Int64) -> Int64 {
+        match n <= 0 {
+          True  -> 0,
+          False -> count_down(n - 1)
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(
+      result.warnings.some((w) => /mutual tail recursion/i.test(w.message)),
+    ).toBe(false);
+  });
+
+  it("warns only once per pair, not per direction", () => {
+    const source = `
+      module Test
+      function ping(n: Int64) -> Int64 {
+        match n <= 0 { True -> 0, False -> pong(n - 1) }
+      }
+      function pong(n: Int64) -> Int64 {
+        match n <= 0 { True -> 0, False -> ping(n - 1) }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    const mutualWarnings = result.warnings.filter((w) =>
+      /mutual tail recursion/i.test(w.message),
+    );
+    expect(mutualWarnings).toHaveLength(1);
   });
 });

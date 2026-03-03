@@ -1,5 +1,5 @@
 import type { Diagnostic, Span } from "../errors/diagnostic.js";
-import { error } from "../errors/diagnostic.js";
+import { error, warning } from "../errors/diagnostic.js";
 import type {
   ModuleDecl, Declaration, FunctionDecl, TypeDecl, ConstDecl,
   Expr, Pattern, TypeNode, TypeExpr,
@@ -89,6 +89,17 @@ export class Checker {
         this.checkConstDecl(decl);
       }
     }
+
+    // Fourth pass: warn about mutually-recursive tail calls that can't be TCO'd.
+    const localFuncNames = new Set(
+      module.declarations
+        .filter((d): d is FunctionDecl => d.kind === "FunctionDecl")
+        .map((d) => d.name),
+    );
+    this.warnMutualTailRecursion(
+      module.declarations.filter((d): d is FunctionDecl => d.kind === "FunctionDecl"),
+      localFuncNames,
+    );
 
     return this.diagnostics;
   }
@@ -322,6 +333,7 @@ export class Checker {
   // Create (or return cached) Option<T> union type for a given inner type.
   // Some/None constructors are NOT registered as global symbols — they are
   // resolved specially at call sites to support polymorphism.
+  // TypeVar-containing types are NOT cached (codegen needs concrete types only).
   makeOptionType(inner: ClarityType): ClarityType {
     const key = typeToString(inner);
     const cached = this.optionTypes.get(key);
@@ -335,7 +347,10 @@ export class Checker {
         { name: "None", fields: new Map() },
       ],
     };
-    this.optionTypes.set(key, optionUnion);
+    // Only cache concrete (non-TypeVar) instantiations for codegen
+    if (!containsTypeVar(inner)) {
+      this.optionTypes.set(key, optionUnion);
+    }
     return optionUnion;
   }
 
@@ -475,6 +490,7 @@ export class Checker {
     this.typeParamsInScope = prevTypeParams;
     this.env.exitScope();
     this.currentEffects = new Set();
+
   }
 
   private checkConstDecl(decl: ConstDecl): void {
@@ -496,6 +512,77 @@ export class Checker {
       mutable: false,
       defined: decl.span,
     });
+  }
+
+  // ============================================================
+  // Mutual Tail-Recursion Warning
+  // ============================================================
+
+  // Collect the set of names called directly in tail position of expr.
+  private tailCallees(expr: Expr): Set<string> {
+    const result = new Set<string>();
+    switch (expr.kind) {
+      case "CallExpr":
+        if (expr.callee.kind === "IdentifierExpr") {
+          result.add(expr.callee.name);
+        }
+        break;
+      case "BlockExpr":
+        if (expr.result) {
+          for (const n of this.tailCallees(expr.result)) result.add(n);
+        }
+        break;
+      case "MatchExpr":
+        for (const arm of expr.arms) {
+          for (const n of this.tailCallees(arm.body)) result.add(n);
+        }
+        break;
+      default:
+        break;
+    }
+    return result;
+  }
+
+  // Detect pairs of local functions that mutually tail-call each other (A→B and B→A)
+  // and emit a warning for each such pair. Only local (module-level) functions are checked.
+  private warnMutualTailRecursion(
+    decls: FunctionDecl[],
+    localFuncNames: Set<string>,
+  ): void {
+    // Build tail-call map: funcName → set of local functions it tail-calls (excluding itself)
+    const tailCallMap = new Map<string, Set<string>>();
+    for (const decl of decls) {
+      const callees = new Set<string>();
+      for (const callee of this.tailCallees(decl.body)) {
+        if (callee !== decl.name && localFuncNames.has(callee)) {
+          callees.add(callee);
+        }
+      }
+      tailCallMap.set(decl.name, callees);
+    }
+
+    // Warn for each pair (A, B) where A tail-calls B AND B tail-calls A
+    const warned = new Set<string>();
+    for (const decl of decls) {
+      const aCallees = tailCallMap.get(decl.name) ?? new Set();
+      for (const b of aCallees) {
+        const bCallees = tailCallMap.get(b) ?? new Set();
+        if (bCallees.has(decl.name)) {
+          // Mutual tail recursion: decl.name ↔ b
+          const pairKey = [decl.name, b].sort().join(":");
+          if (!warned.has(pairKey)) {
+            warned.add(pairKey);
+            this.diagnostics.push(
+              warning(
+                `Mutual tail recursion between '${decl.name}' and '${b}' cannot be tail-call optimised and may stack-overflow on deep inputs.`,
+                decl.span,
+                `Consider restructuring '${decl.name}' and '${b}' to use an explicit accumulator or a shared helper with an iterative loop.`,
+              ),
+            );
+          }
+        }
+      }
+    }
   }
 
   // ============================================================
@@ -703,8 +790,9 @@ export class Checker {
           let resolvedReturnType = substituteTypeVars(calleeType.returnType, bindings);
 
           // Convert Option<T> to its Union representation (required for pattern matching).
-          // This handles generic builtins like map_get whose return type uses Option<TypeVar>.
-          if (resolvedReturnType.kind === "Option" && !containsTypeVar(resolvedReturnType)) {
+          // Also handles Option<TypeVar> in generic function bodies — the Union with TypeVar
+          // fields is valid for checking; concrete types are handled at monomorphized call sites.
+          if (resolvedReturnType.kind === "Option") {
             resolvedReturnType = this.makeOptionType(resolvedReturnType.inner);
           }
 
