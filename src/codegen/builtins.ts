@@ -294,6 +294,44 @@ export function getBuiltins(): BuiltinDef[] {
     // eval_semantic(got, expected) → Result<Float64,String> (i32)
     { name: "eval_semantic", importModule: "env", importName: "eval_semantic", params: pair_i32, result: i32 },
 
+    // --- TTY operations ---
+    // tty_is_tty() → Bool (i32)
+    { name: "tty_is_tty", importModule: "env", importName: "tty_is_tty", params: binaryen.none, result: i32 },
+    // tty_term_width() → Int64
+    { name: "tty_term_width", importModule: "env", importName: "tty_term_width", params: binaryen.none, result: i64 },
+    // tty_term_height() → Int64
+    { name: "tty_term_height", importModule: "env", importName: "tty_term_height", params: binaryen.none, result: i64 },
+    // tty_enter_raw() → void
+    { name: "tty_enter_raw", importModule: "env", importName: "tty_enter_raw", params: binaryen.none, result: none },
+    // tty_exit_raw() → void
+    { name: "tty_exit_raw", importModule: "env", importName: "tty_exit_raw", params: binaryen.none, result: none },
+    // tty_read_key(timeout_ms: i64) → Option<String> as i32 pointer
+    { name: "tty_read_key", importModule: "env", importName: "tty_read_key", params: i64, result: i32 },
+    // tty_cursor_up(n: i64) → void
+    { name: "tty_cursor_up", importModule: "env", importName: "tty_cursor_up", params: i64, result: none },
+    // tty_cursor_down(n: i64) → void
+    { name: "tty_cursor_down", importModule: "env", importName: "tty_cursor_down", params: i64, result: none },
+    // tty_cursor_to_col(col: i64) → void
+    { name: "tty_cursor_to_col", importModule: "env", importName: "tty_cursor_to_col", params: i64, result: none },
+    // tty_clear_line() → void
+    { name: "tty_clear_line", importModule: "env", importName: "tty_clear_line", params: binaryen.none, result: none },
+    // tty_hide_cursor() → void
+    { name: "tty_hide_cursor", importModule: "env", importName: "tty_hide_cursor", params: binaryen.none, result: none },
+    // tty_show_cursor() → void
+    { name: "tty_show_cursor", importModule: "env", importName: "tty_show_cursor", params: binaryen.none, result: none },
+
+    // --- Mux operations (multi-stream SSE fan-in) ---
+    // mux_open() → Int64 handle
+    { name: "mux_open", importModule: "env", importName: "mux_open", params: binaryen.none, result: i64 },
+    // mux_add(handle: i64, stream_id: i32, url: i32, headers_json: i32) → void
+    { name: "mux_add", importModule: "env", importName: "mux_add", params: binaryen.createType([i64, i32, i32, i32]), result: none },
+    // mux_next(handle: i64, timeout_ms: i64) → Option<String> as i32 pointer
+    { name: "mux_next", importModule: "env", importName: "mux_next", params: binaryen.createType([i64, i64]), result: i32 },
+    // mux_remove(handle: i64, stream_id: i32) → void
+    { name: "mux_remove", importModule: "env", importName: "mux_remove", params: binaryen.createType([i64, i32]), result: none },
+    // mux_close(handle: i64) → void
+    { name: "mux_close", importModule: "env", importName: "mux_close", params: i64, result: none },
+
     // --- Policy introspection ---
     // policy_is_url_allowed(url) → Bool (i32: 1=allowed, 0=denied)
     { name: "policy_is_url_allowed", importModule: "env", importName: "policy_is_url_allowed", params: i32, result: i32 },

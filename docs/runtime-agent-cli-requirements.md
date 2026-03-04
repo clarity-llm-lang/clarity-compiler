@@ -105,6 +105,9 @@ During this migration, the following language/runtime gaps were identified:
 7. **RQ-LANG-CLI-009: Multi-run event fan-in**
    - Need a standard primitive/pattern to concurrently consume SSE/poll events for multiple run IDs in one operator loop.
    - Required for native multi-agent room chat and discuss orchestration.
+8. **RQ-LANG-CLI-010: Installable compiler packaging for git consumers**
+   - Need `clarity-lang` git dependency installs to provide a working `clarityc` binary without manual local linking/workarounds.
+   - Distribution must include or build required CLI artifacts reliably for downstream projects (`LLM-cli`) in clean `npm ci` environments.
 
 ## TypeScript Removal Requirements (Complete)
 
@@ -155,3 +158,8 @@ Acceptance criteria:
 - Priority: `P1`
 - Item: Deliver RQ-LANG-CLI-009 for native multi-agent room and discuss support in Clarity.
 - Dependency: multi-stream event fan-in with robust run-scoped dispatch.
+
+- Backlog ID: `LANG-CLI-PKG-002`
+- Priority: `P1`
+- Item: Deliver RQ-LANG-CLI-010 so downstream git-based installs expose a working `clarityc` with current HTTP server builtins.
+- Dependency: packaging/install strategy that does not require manual local symlink workarounds.
