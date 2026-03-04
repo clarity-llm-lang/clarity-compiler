@@ -1,5 +1,5 @@
 node_modules/
-dist/
 *.wasm
 .DS_Store
+**/.DS_Store
 .claude/

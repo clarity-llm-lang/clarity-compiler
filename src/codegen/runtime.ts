@@ -983,6 +983,57 @@ export function createRuntime(config: RuntimeConfig = {}) {
     ttyKeyWorker.on("error", () => { ttyKeyWorker = null; ttyKeySab = null; ttyKeyCtrl = null; });
   }
 
+  // --- FileSystem watch state ---
+  const FS_WATCH_SAB_SIZE = 8 + 4096; // 8 byte header + 4 KB for event JSON
+  interface FsWatchSession {
+    worker: import("node:worker_threads").Worker;
+    watchSab: SharedArrayBuffer;
+    watchCtrl: Int32Array;
+  }
+  const fsWatchTable = new Map<number, FsWatchSession>();
+  let nextFsWatchHandle = 1;
+  const _FS_WATCH_WORKER_CODE = `
+const { workerData, parentPort } = require('worker_threads');
+const fs = require('fs');
+const { watchSab, path } = workerData;
+const ctrl = new Int32Array(watchSab, 0, 2);
+const eventQueue = [];
+let busy = false;
+function flushQueue() {
+  if (busy || eventQueue.length === 0) return;
+  const evt = eventQueue.shift();
+  const encoded = Buffer.from(evt, 'utf8');
+  const evtLen = Math.min(encoded.length, 4096);
+  new Uint8Array(watchSab, 8, evtLen).set(encoded.subarray(0, evtLen));
+  Atomics.store(ctrl, 1, evtLen);
+  Atomics.store(ctrl, 0, 1);
+  Atomics.notify(ctrl, 0, 1);
+  busy = true;
+}
+var watcher;
+try {
+  watcher = fs.watch(path, { recursive: true }, function(event, filename) {
+    var evt = JSON.stringify({ event: event, filename: filename || '' });
+    eventQueue.push(evt);
+    flushQueue();
+  });
+  watcher.on('error', function(err) {
+    parentPort.postMessage({ type: 'error', message: err.message });
+  });
+} catch (e) {
+  parentPort.postMessage({ type: 'error', message: e.message });
+}
+parentPort.on('message', function(msg) {
+  if (msg.type === 'ack') {
+    busy = false;
+    flushQueue();
+  } else if (msg.type === 'close') {
+    if (watcher) { try { watcher.close(); } catch (_) {} }
+    process.exit(0);
+  }
+});
+`;
+
   // Mux session table: handle → { worker, muxSab, muxCtrl }
   interface MuxSession {
     worker: import("node:worker_threads").Worker;
@@ -2550,6 +2601,52 @@ export function createRuntime(config: RuntimeConfig = {}) {
       make_dir(pathPtr: number): void {
         const path = readString(pathPtr);
         nodeFs.mkdirSync(path, { recursive: true });
+      },
+
+      fs_watch_start(pathPtr: number): number {
+        const path = readString(pathPtr);
+        const watchSab = new SharedArrayBuffer(FS_WATCH_SAB_SIZE);
+        const watchCtrl = new Int32Array(watchSab, 0, 2);
+        const handle = nextFsWatchHandle++;
+        const worker = new Worker(_FS_WATCH_WORKER_CODE, {
+          eval: true,
+          workerData: { watchSab, path },
+        });
+        worker.on("message", (msg: { type: string; message?: string }) => {
+          if (msg.type === "error") {
+            fsWatchTable.delete(handle);
+          }
+        });
+        worker.on("error", (_err: Error) => {
+          fsWatchTable.delete(handle);
+        });
+        fsWatchTable.set(handle, { worker, watchSab, watchCtrl });
+        return allocResultI64(true, BigInt(handle), 0);
+      },
+
+      fs_watch_next(handleN: bigint, timeoutN: bigint): number {
+        const handle = Number(handleN);
+        const session = fsWatchTable.get(handle);
+        if (!session) return allocOptionI32(null);
+        const { watchCtrl, watchSab } = session;
+        Atomics.wait(watchCtrl, 0, 0, Number(timeoutN));
+        const state = Atomics.load(watchCtrl, 0);
+        if (state !== 1) return allocOptionI32(null);
+        const meta = new DataView(watchSab);
+        const evtLen = meta.getInt32(4, true);
+        const evtBytes = new Uint8Array(watchSab, 8, evtLen);
+        const evtJson = Buffer.from(evtBytes).toString("utf-8");
+        Atomics.store(watchCtrl, 0, 0);
+        session.worker.postMessage({ type: "ack" });
+        return allocOptionI32(writeString(evtJson));
+      },
+
+      fs_watch_stop(handleN: bigint): void {
+        const handle = Number(handleN);
+        const session = fsWatchTable.get(handle);
+        if (!session) return;
+        session.worker.postMessage({ type: "close" });
+        fsWatchTable.delete(handle);
       },
 
       list_reverse(ptr: number, elemSize: number): number {
