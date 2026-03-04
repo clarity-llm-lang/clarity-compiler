@@ -108,6 +108,22 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "http_get", importModule: "env", importName: "http_get", params: i32, result: i32 },
     { name: "http_post", importModule: "env", importName: "http_post", params: pair_i32, result: i32 },
 
+    // --- HTTP server operations ---
+    // http_listen(port: i64) → Result<Int64, String> as i32 pointer
+    { name: "http_listen", importModule: "env", importName: "http_listen", params: i64, result: i32 },
+    // http_next_request(handle: i64) → Result<String, String> as i32 pointer
+    { name: "http_next_request", importModule: "env", importName: "http_next_request", params: i64, result: i32 },
+    // http_respond(request_id: i64, status: i64, headers_json: i32, body: i32) → void
+    { name: "http_respond", importModule: "env", importName: "http_respond", params: binaryen.createType([i64, i64, i32, i32]), result: none },
+    // http_close_server(handle: i64) → void
+    { name: "http_close_server", importModule: "env", importName: "http_close_server", params: i64, result: none },
+    // http_start_sse(request_id: i64, headers_json: i32) → void
+    { name: "http_start_sse", importModule: "env", importName: "http_start_sse", params: binaryen.createType([i64, i32]), result: none },
+    // http_send_sse_event(request_id: i64, event_data: i32) → void
+    { name: "http_send_sse_event", importModule: "env", importName: "http_send_sse_event", params: binaryen.createType([i64, i32]), result: none },
+    // http_close_sse(request_id: i64) → void
+    { name: "http_close_sse", importModule: "env", importName: "http_close_sse", params: i64, result: none },
+
     // --- JSON helpers ---
     { name: "json_parse_object", importModule: "env", importName: "json_parse_object", params: i32, result: i32 },
     { name: "json_stringify_object", importModule: "env", importName: "json_stringify_object", params: i32, result: i32 },

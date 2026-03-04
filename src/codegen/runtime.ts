@@ -333,6 +333,127 @@ const STDIN_SAB_LINE_OFFSET = 8;
 const STDIN_SAB_MAX_LINE = 65536;
 const STDIN_SAB_SIZE = STDIN_SAB_LINE_OFFSET + STDIN_SAB_MAX_LINE;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP Server: pull-based request handling via worker thread + Atomics.
+//
+// Architecture:
+//   - Worker runs http.createServer(); incoming requests are queued in the worker.
+//   - Worker→Main: writes serialised request JSON into reqSab, sets state=1, notifies.
+//   - Main→Worker: sends response/SSE/close messages via postMessage (no Atomics.wait
+//     in the worker so the event loop stays free for SSE writes).
+//
+// reqSab layout (8 bytes header + up to HTTP_SERVER_MAX_REQ bytes body):
+//   [0..3]  Int32  state: 0=IDLE, 1=REQUEST_READY
+//   [4..7]  Int32  request JSON byte length
+//   [8..]   request JSON UTF-8
+//
+// startupSab layout (8 bytes header + error string):
+//   [0..3]  Int32  state: 0=pending, 1=ok, 2=error
+//   [4..7]  Int32  error message byte length
+//   [8..]   error message UTF-8
+// ─────────────────────────────────────────────────────────────────────────────
+const HTTP_SERVER_MAX_REQ = 8 * 1024 * 1024; // 8 MB
+const HTTP_SERVER_SAB_SIZE = 8 + HTTP_SERVER_MAX_REQ;
+const HTTP_SERVER_STARTUP_SAB_SIZE = 128; // 8-byte header + up to 120-byte error
+
+const _HTTP_SERVER_WORKER_CODE = `
+const { parentPort, workerData } = require('worker_threads');
+const http = require('http');
+const { reqSab, startupSab, port } = workerData;
+const reqCtrl = new Int32Array(reqSab, 0, 1);
+const reqMeta = new DataView(reqSab);
+const startupCtrl = new Int32Array(startupSab, 0, 1);
+const startupMeta = new DataView(startupSab);
+const REQ_MAX = reqSab.byteLength - 8;
+
+// In-flight HTTP requests: id -> { res, sseMode }
+var pendingRequests = new Map();
+var nextId = 1;
+// Queue of request objects waiting to be delivered to the main thread.
+var requestQueue = [];
+var reqSabBusy = false;
+
+function tryFlushQueue() {
+  if (reqSabBusy || requestQueue.length === 0) return;
+  var entry = requestQueue.shift();
+  var json = JSON.stringify(entry);
+  var encoded = Buffer.from(json, 'utf8');
+  var len = Math.min(encoded.length, REQ_MAX);
+  reqMeta.setInt32(4, len, true);
+  new Uint8Array(reqSab, 8, len).set(encoded.subarray(0, len));
+  reqSabBusy = true;
+  Atomics.store(reqCtrl, 0, 1);
+  Atomics.notify(reqCtrl, 0, 1);
+}
+
+var server = http.createServer(function(req, res) {
+  var chunks = [];
+  req.on('data', function(chunk) { chunks.push(Buffer.from(chunk)); });
+  req.on('end', function() {
+    var id = nextId++;
+    var url = req.url || '/';
+    var qIdx = url.indexOf('?');
+    var path = qIdx === -1 ? url : url.slice(0, qIdx);
+    var query = qIdx === -1 ? '' : url.slice(qIdx);
+    var hdrs = {};
+    var rawHdrs = req.headers;
+    for (var k in rawHdrs) { if (Object.prototype.hasOwnProperty.call(rawHdrs, k)) hdrs[k] = String(rawHdrs[k]); }
+    var body = Buffer.concat(chunks).toString('utf8');
+    pendingRequests.set(id, { res: res, sseMode: false });
+    requestQueue.push({ id: id, method: req.method || 'GET', path: path, query: query, headers: hdrs, body: body });
+    tryFlushQueue();
+  });
+});
+
+parentPort.on('message', function(msg) {
+  if (msg.type === 'ack') {
+    // Main thread has consumed the request; release the SAB slot.
+    reqSabBusy = false;
+    Atomics.store(reqCtrl, 0, 0);
+    tryFlushQueue();
+  } else if (msg.type === 'respond') {
+    var pr = pendingRequests.get(msg.id);
+    if (!pr || pr.sseMode) return;
+    pendingRequests.delete(msg.id);
+    pr.res.writeHead(msg.status || 200, msg.headers || {});
+    pr.res.end(msg.body || '');
+  } else if (msg.type === 'sse_start') {
+    var pr2 = pendingRequests.get(msg.id);
+    if (!pr2) return;
+    pr2.sseMode = true;
+    var sseHdrs = Object.assign({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' }, msg.headers || {});
+    pr2.res.writeHead(200, sseHdrs);
+    if (pr2.res.flushHeaders) pr2.res.flushHeaders();
+  } else if (msg.type === 'sse_event') {
+    var pr3 = pendingRequests.get(msg.id);
+    if (!pr3 || !pr3.sseMode) return;
+    pr3.res.write('data: ' + (msg.data || '') + '\\n\\n');
+  } else if (msg.type === 'sse_close') {
+    var pr4 = pendingRequests.get(msg.id);
+    if (!pr4) return;
+    pendingRequests.delete(msg.id);
+    pr4.res.end();
+  } else if (msg.type === 'close') {
+    server.close();
+    process.exit(0);
+  }
+});
+
+server.on('error', function(err) {
+  var encoded = Buffer.from(err.message, 'utf8');
+  var len = Math.min(encoded.length, startupSab.byteLength - 8);
+  startupMeta.setInt32(4, len, true);
+  new Uint8Array(startupSab, 8, len).set(encoded.subarray(0, len));
+  Atomics.store(startupCtrl, 0, 2);
+  Atomics.notify(startupCtrl, 0, 1);
+});
+
+server.listen(port, function() {
+  Atomics.store(startupCtrl, 0, 1);
+  Atomics.notify(startupCtrl, 0, 1);
+});
+`;
+
 const _STDIN_READER_WORKER_CODE = `
 const { workerData } = require('worker_threads');
 const fs = require('fs');
@@ -666,6 +787,17 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // Uses the same SharedArrayBuffer layout as stream sessions.
   const sseSessions = new Map<number, StreamSession>();
   let nextSseHandle = 1;
+
+  // HTTP server session table: handle → { worker, reqSab, reqCtrl }
+  interface HttpServerSession {
+    worker: import("node:worker_threads").Worker;
+    reqSab: SharedArrayBuffer;
+    reqCtrl: Int32Array;
+  }
+  const httpServerTable = new Map<number, HttpServerSession>();
+  let nextHttpServerHandle = 1;
+  // Maps request_id (bigint, as returned by http_next_request) → server handle, for routing
+  const httpRequestServerMap = new Map<bigint, number>();
 
   // Union layout (after alignment fix):
   //   [tag:i32 at 0][padding:i32 at 4][payload starting at 8]
@@ -1894,8 +2026,138 @@ export function createRuntime(config: RuntimeConfig = {}) {
         }
       },
 
-      http_listen(_port: bigint): number {
-        return allocResultString(false, writeString("http_listen not implemented yet"));
+      // -----------------------------------------------------------------------
+      // HTTP server primitives
+      // -----------------------------------------------------------------------
+
+      http_listen(portN: bigint): number {
+        const port = Number(portN);
+        const effectErr = policyCheckEffect("Network");
+        if (effectErr) return allocResultI64(false, 0n, writeString(effectErr));
+        try {
+          const reqSab = new SharedArrayBuffer(HTTP_SERVER_SAB_SIZE);
+          const startupSab = new SharedArrayBuffer(HTTP_SERVER_STARTUP_SAB_SIZE);
+          const startupCtrl = new Int32Array(startupSab, 0, 1);
+          const worker = new Worker(_HTTP_SERVER_WORKER_CODE, {
+            eval: true,
+            workerData: { reqSab, startupSab, port },
+          });
+          worker.on("error", (_err) => {
+            for (const [handle, s] of httpServerTable) {
+              if (s.worker === worker) { httpServerTable.delete(handle); break; }
+            }
+          });
+          // Block until server is listening (state 1) or failed (state 2).
+          Atomics.wait(startupCtrl, 0, 0);
+          const startupState = Atomics.load(startupCtrl, 0);
+          if (startupState === 2) {
+            const startupMeta = new DataView(startupSab);
+            const errLen = startupMeta.getInt32(4, true);
+            const errBytes = new Uint8Array(startupSab, 8, errLen);
+            const errMsg = Buffer.from(errBytes).toString("utf-8");
+            worker.terminate();
+            return allocResultI64(false, 0n, writeString(errMsg));
+          }
+          const handle = nextHttpServerHandle++;
+          httpServerTable.set(handle, { worker, reqSab, reqCtrl: new Int32Array(reqSab, 0, 1) });
+          audit({ effect: "Network", op: "http_listen", port, handle });
+          return allocResultI64(true, BigInt(handle));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return allocResultI64(false, 0n, writeString(msg));
+        }
+      },
+
+      http_next_request(handleN: bigint): number {
+        const handle = Number(handleN);
+        const session = httpServerTable.get(handle);
+        if (!session) return allocResultString(false, writeString(`Unknown http server handle: ${handle}`));
+        const { reqCtrl, reqSab, worker } = session;
+        // Block until the worker signals a request is ready (state 0→1).
+        Atomics.wait(reqCtrl, 0, 0);
+        const state = Atomics.load(reqCtrl, 0);
+        if (state !== 1) return allocResultString(false, writeString("http_next_request: unexpected SAB state"));
+        // Read request JSON from the SAB.
+        const reqMeta = new DataView(reqSab);
+        const jsonLen = reqMeta.getInt32(4, true);
+        const jsonBytes = new Uint8Array(reqSab, 8, jsonLen);
+        const requestJson = Buffer.from(jsonBytes).toString("utf-8");
+        // Reset state to IDLE before acking so the next Atomics.wait() blocks correctly.
+        Atomics.store(reqCtrl, 0, 0);
+        worker.postMessage({ type: "ack" });
+        // Register request_id → server handle for routing responses.
+        try {
+          const parsed = JSON.parse(requestJson) as { id?: number };
+          if (parsed && typeof parsed.id === "number") {
+            httpRequestServerMap.set(BigInt(parsed.id), handle);
+          }
+        } catch { /* ignore parse errors */ }
+        return allocResultString(true, writeString(requestJson));
+      },
+
+      http_respond(requestIdN: bigint, statusN: bigint, headersPtr: number, bodyPtr: number): void {
+        const requestId = requestIdN;
+        const status = Number(statusN);
+        const headersJson = readString(headersPtr);
+        const body = readString(bodyPtr);
+        const serverHandle = httpRequestServerMap.get(requestId);
+        if (serverHandle === undefined) return;
+        httpRequestServerMap.delete(requestId);
+        const session = httpServerTable.get(serverHandle);
+        if (!session) return;
+        let headers: Record<string, string> = {};
+        try {
+          if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
+            const parsed = JSON.parse(headersJson) as Record<string, unknown>;
+            for (const [k, v] of Object.entries(parsed)) headers[k] = String(v);
+          }
+        } catch { /* ignore */ }
+        session.worker.postMessage({ type: "respond", id: Number(requestId), status, headers, body });
+      },
+
+      http_close_server(handleN: bigint): void {
+        const handle = Number(handleN);
+        const session = httpServerTable.get(handle);
+        if (!session) return;
+        session.worker.postMessage({ type: "close" });
+        httpServerTable.delete(handle);
+      },
+
+      http_start_sse(requestIdN: bigint, headersPtr: number): void {
+        const requestId = requestIdN;
+        const headersJson = readString(headersPtr);
+        const serverHandle = httpRequestServerMap.get(requestId);
+        if (serverHandle === undefined) return;
+        const session = httpServerTable.get(serverHandle);
+        if (!session) return;
+        let headers: Record<string, string> = {};
+        try {
+          if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
+            const parsed = JSON.parse(headersJson) as Record<string, unknown>;
+            for (const [k, v] of Object.entries(parsed)) headers[k] = String(v);
+          }
+        } catch { /* ignore */ }
+        session.worker.postMessage({ type: "sse_start", id: Number(requestId), headers });
+      },
+
+      http_send_sse_event(requestIdN: bigint, dataPtr: number): void {
+        const requestId = requestIdN;
+        const data = readString(dataPtr);
+        const serverHandle = httpRequestServerMap.get(requestId);
+        if (serverHandle === undefined) return;
+        const session = httpServerTable.get(serverHandle);
+        if (!session) return;
+        session.worker.postMessage({ type: "sse_event", id: Number(requestId), data });
+      },
+
+      http_close_sse(requestIdN: bigint): void {
+        const requestId = requestIdN;
+        const serverHandle = httpRequestServerMap.get(requestId);
+        if (serverHandle === undefined) return;
+        httpRequestServerMap.delete(requestId);
+        const session = httpServerTable.get(serverHandle);
+        if (!session) return;
+        session.worker.postMessage({ type: "sse_close", id: Number(requestId) });
       },
 
       json_parse_object(ptr: number): number {
