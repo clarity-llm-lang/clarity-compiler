@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .release
-          PACKAGE_FILE="$(npm pack)"
+          PACKAGE_FILE="$(npm pack --ignore-scripts)"
           mv "$PACKAGE_FILE" ".release/$PACKAGE_FILE"
           (
             cd .release

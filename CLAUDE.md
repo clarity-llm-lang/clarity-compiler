@@ -363,6 +363,13 @@ After every implementation task, check and update these files if affected:
 - All tests must pass before pushing
 - Add e2e tests for every new feature or builtin
 
+### File size discipline
+- **Hard limit: 600 lines per source file.** When a file approaches this limit, split it by domain before adding more code.
+- `src/codegen/runtime.ts` is split into domain modules under `src/codegen/runtime/` (see Project structure). Add new runtime functions to the appropriate sub-module, not to the root runtime.ts.
+- `src/registry/builtins-registry.ts` is split into domain files under `src/registry/builtins/`. Add new builtins to the appropriate sub-file.
+- Each sub-module exports its runtime functions as a plain object; `runtime.ts` merges them via spread (`{ ...coreRuntime, ...fsRuntime, ... }`).
+- Rebuild `dist/` and commit it after every source change (`npm run build`).
+
 ## Extending the compiler
 
 ### Discovering current capabilities
@@ -391,8 +398,10 @@ npx clarityc introspect --effects    # all effects with their function lists
 
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
-- `src/registry/builtins-registry.ts` — Single source of truth for built-in functions and effects
-- `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
+- `src/registry/builtins-registry.ts` — Merges domain builtin files; single export used by checker and introspect
+- `src/registry/builtins/` — Per-domain builtin definitions (core, fs, network, http-server, tty, llm, agent, …)
+- `src/codegen/runtime.ts` — Merges domain runtime modules; exports `createRuntime()`
+- `src/codegen/runtime/` — Per-domain WASM host runtime modules (core, fs, network, http-server, tty, mux, watch, llm, agent, …)
 - `src/codegen/builtins.ts` — WASM import declarations (codegen internals)
 - `std/` — Standard library (Clarity source files: `math.clarity`, `string.clarity`)
 - `examples/` — Example Clarity programs
