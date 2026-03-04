@@ -202,6 +202,9 @@ export function getBuiltins(): BuiltinDef[] {
     { name: "regex_captures", importModule: "env", importName: "regex_captures", params: pair_i32, result: i32 },
 
     // --- Memory management ---
+    // __alloc(size) allocates `size` bytes on the runtime heap and returns a pointer.
+    // Used internally by codegen to allocate closure structs and capture environments.
+    { name: "__alloc", importModule: "env", importName: "__alloc", params: i32, result: i32 },
     // arena_save() returns the current heap watermark so it can be passed to arena_restore().
     { name: "arena_save", importModule: "env", importName: "arena_save", params: none, result: i64 },
     // arena_restore(mark) reclaims all heap memory allocated since arena_save() was called.

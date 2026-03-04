@@ -1,0 +1,181 @@
+// Core builtins: log, string, conversion, math, list, random, bytes, crypto,
+// json, map, regex, time, memory, test, policy.
+
+import {
+  INT64, FLOAT64, STRING, BOOL, UNIT, BYTES, TIMESTAMP,
+  LIST_STRING, MAP_STRING_STRING, OPTION_STRING, OPTION_MAP_STRING_STRING,
+  T, LIST_T, K, V, MAP_KV, LIST_K, LIST_V,
+  type ClarityType, type ClarityBuiltin,
+} from "./types.js";
+
+export const CORE_BUILTINS: ClarityBuiltin[] = [
+  // --- I/O & Logging (require Log effect) ---
+  { name: "print_string", params: [STRING], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print a string to stdout followed by a newline.", category: "log" },
+  { name: "print_int", params: [INT64], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print an integer to stdout followed by a newline.", category: "log" },
+  { name: "print_float", params: [FLOAT64], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print a float to stdout followed by a newline.", category: "log" },
+  { name: "log_info", params: [STRING], paramNames: ["message"], returnType: UNIT, effects: ["Log"], doc: "Log an informational message to stderr.", category: "log" },
+  { name: "log_warn", params: [STRING], paramNames: ["message"], returnType: UNIT, effects: ["Log"], doc: "Log a warning message to stderr.", category: "log" },
+  { name: "print_stderr", params: [STRING], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print a string to stderr followed by a newline. Unlike log_info/log_warn, no prefix is added. Use for error messages and diagnostics in CLI programs.", category: "log" },
+
+  // --- String operations ---
+  { name: "string_concat", params: [STRING, STRING], paramNames: ["a", "b"], returnType: STRING, effects: [], doc: "Concatenate two strings. Prefer the ++ operator for literals.", category: "string" },
+  { name: "string_eq", params: [STRING, STRING], paramNames: ["a", "b"], returnType: BOOL, effects: [], doc: "Compare two strings for equality. Returns True if equal.", category: "string" },
+  { name: "string_length", params: [STRING], paramNames: ["s"], returnType: INT64, effects: [], doc: "Return the length of a string in bytes (UTF-8).", category: "string" },
+  { name: "substring", params: [STRING, INT64, INT64], paramNames: ["s", "start", "end"], returnType: STRING, effects: [], doc: "Extract a substring from start index to end index (exclusive).", category: "string" },
+  { name: "char_at", params: [STRING, INT64], paramNames: ["s", "index"], returnType: STRING, effects: [], doc: "Return the character at the given index as a single-character string.", category: "string" },
+  { name: "contains", params: [STRING, STRING], paramNames: ["haystack", "needle"], returnType: BOOL, effects: [], doc: "Return True if the string contains the given substring.", category: "string" },
+  { name: "string_starts_with", params: [STRING, STRING], paramNames: ["s", "prefix"], returnType: BOOL, effects: [], doc: "Return True if s starts with prefix.", category: "string" },
+  { name: "string_ends_with", params: [STRING, STRING], paramNames: ["s", "suffix"], returnType: BOOL, effects: [], doc: "Return True if s ends with suffix.", category: "string" },
+  { name: "index_of", params: [STRING, STRING], paramNames: ["haystack", "needle"], returnType: INT64, effects: [], doc: "Return the index of the first occurrence of needle in haystack, or -1 if not found.", category: "string" },
+  { name: "trim", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Remove leading and trailing whitespace from a string.", category: "string" },
+  { name: "split", params: [STRING, STRING], paramNames: ["s", "delimiter"], returnType: LIST_STRING, effects: [], doc: "Split a string by a delimiter, returning a list of substrings.", category: "string" },
+  { name: "string_replace", params: [STRING, STRING, STRING], paramNames: ["s", "search", "replacement"], returnType: STRING, effects: [], doc: "Replace all occurrences of search in s with replacement.", category: "string" },
+  { name: "string_repeat", params: [STRING, INT64], paramNames: ["s", "count"], returnType: STRING, effects: [], doc: "Repeat a string count times. Negative counts return an empty string.", category: "string" },
+  { name: "char_code", params: [STRING], paramNames: ["s"], returnType: INT64, effects: [], doc: "Return the Unicode code point of the first character in the string. Returns 0 for empty strings.", category: "string" },
+  { name: "char_from_code", params: [INT64], paramNames: ["code"], returnType: STRING, effects: [], doc: "Return a single-character string from a Unicode code point.", category: "string" },
+  { name: "to_uppercase", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Convert all characters in s to uppercase.", category: "string" },
+  { name: "to_lowercase", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Convert all characters in s to lowercase.", category: "string" },
+  { name: "trim_start", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Remove leading whitespace from s.", category: "string" },
+  { name: "trim_end", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Remove trailing whitespace from s.", category: "string" },
+  { name: "pad_left", params: [STRING, INT64, STRING], paramNames: ["s", "width", "char"], returnType: STRING, effects: [], doc: "Pad s on the left with char until the total length is width. If s is already at least width characters, return s unchanged. char should be a single character.", category: "string" },
+  { name: "pad_right", params: [STRING, INT64, STRING], paramNames: ["s", "width", "char"], returnType: STRING, effects: [], doc: "Pad s on the right with char until the total length is width. If s is already at least width characters, return s unchanged. char should be a single character.", category: "string" },
+  { name: "split_lines", params: [STRING], paramNames: ["s"], returnType: { kind: "List", element: STRING }, effects: [], doc: "Split s into lines, recognising \\n, \\r\\n, and \\r as line endings. Returns a list of strings (without terminators).", category: "string" },
+  { name: "chars", params: [STRING], paramNames: ["s"], returnType: { kind: "List", element: STRING }, effects: [], doc: "Return a list of single-character strings from s (Unicode code-point iteration).", category: "string" },
+
+  // --- Type conversions ---
+  { name: "int_to_float", params: [INT64], paramNames: ["value"], returnType: FLOAT64, effects: [], doc: "Convert an Int64 to Float64.", category: "conversion" },
+  { name: "float_to_int", params: [FLOAT64], paramNames: ["value"], returnType: INT64, effects: [], doc: "Convert a Float64 to Int64 by truncation.", category: "conversion" },
+  { name: "int_to_string", params: [INT64], paramNames: ["value"], returnType: STRING, effects: [], doc: "Convert an Int64 to its decimal string representation.", category: "conversion" },
+  { name: "float_to_string", params: [FLOAT64], paramNames: ["value"], returnType: STRING, effects: [], doc: "Convert a Float64 to its string representation.", category: "conversion" },
+  {
+    name: "string_to_int", params: [STRING], paramNames: ["s"],
+    returnType: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Parse a string as Int64. Returns Some(value) on success, None on failure.", category: "conversion",
+  },
+  {
+    name: "string_to_float", params: [STRING], paramNames: ["s"],
+    returnType: { kind: "Union", name: "Option<Float64>", variants: [{ name: "Some", fields: new Map([["value", FLOAT64]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Parse a string as Float64. Returns Some(value) on success, None on failure.", category: "conversion",
+  },
+
+  // --- Math builtins ---
+  { name: "abs_int", params: [INT64], paramNames: ["n"], returnType: INT64, effects: [], doc: "Return the absolute value of an integer.", category: "math" },
+  { name: "min_int", params: [INT64, INT64], paramNames: ["a", "b"], returnType: INT64, effects: [], doc: "Return the smaller of two integers.", category: "math" },
+  { name: "max_int", params: [INT64, INT64], paramNames: ["a", "b"], returnType: INT64, effects: [], doc: "Return the larger of two integers.", category: "math" },
+  { name: "int_clamp", params: [INT64, INT64, INT64], paramNames: ["value", "min", "max"], returnType: INT64, effects: [], doc: "Clamp an integer into the inclusive range [min, max].", category: "math" },
+  { name: "float_clamp", params: [FLOAT64, FLOAT64, FLOAT64], paramNames: ["value", "min", "max"], returnType: FLOAT64, effects: [], doc: "Clamp a float into the inclusive range [min, max].", category: "math" },
+  { name: "sqrt", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Return the square root of a float.", category: "math" },
+  { name: "pow", params: [FLOAT64, FLOAT64], paramNames: ["base", "exponent"], returnType: FLOAT64, effects: [], doc: "Return base raised to the power of exponent.", category: "math" },
+  { name: "floor", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Round a float down to the nearest integer value.", category: "math" },
+  { name: "ceil", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Round a float up to the nearest integer value.", category: "math" },
+  { name: "log", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Natural logarithm (base e) of x.", category: "math" },
+  { name: "log2", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Base-2 logarithm of x.", category: "math" },
+  { name: "log10", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Base-10 logarithm of x.", category: "math" },
+  { name: "exp", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "e raised to the power x (e^x).", category: "math" },
+  { name: "sin", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Sine of x (x in radians).", category: "math" },
+  { name: "cos", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Cosine of x (x in radians).", category: "math" },
+  { name: "tan", params: [FLOAT64], paramNames: ["x"], returnType: FLOAT64, effects: [], doc: "Tangent of x (x in radians).", category: "math" },
+  { name: "atan2", params: [FLOAT64, FLOAT64], paramNames: ["y", "x"], returnType: FLOAT64, effects: [], doc: "Two-argument arctangent: angle (in radians) of the vector (x, y) from the positive x-axis. Range: (-\u03c0, \u03c0].", category: "math" },
+
+  // --- List operations (generic over element type T) ---
+  { name: "list_length", params: [LIST_T], paramNames: ["list"], returnType: INT64, effects: [], doc: "Return the number of elements in a list.", category: "list" },
+  { name: "length", params: [LIST_T], paramNames: ["list"], returnType: INT64, effects: [], doc: "Return the number of elements in a list (alias for list_length).", category: "list" },
+  { name: "head", params: [LIST_T], paramNames: ["list"], returnType: T, effects: [], doc: "Return the first element of a list. Traps on empty list.", category: "list" },
+  { name: "tail", params: [LIST_T], paramNames: ["list"], returnType: LIST_T, effects: [], doc: "Return a list without its first element.", category: "list" },
+  { name: "append", params: [LIST_T, T], paramNames: ["list", "element"], returnType: LIST_T, effects: [], doc: "Append an element to the end of a list.", category: "list" },
+  { name: "concat", params: [LIST_T, LIST_T], paramNames: ["a", "b"], returnType: LIST_T, effects: [], doc: "Concatenate two lists.", category: "list" },
+  { name: "reverse", params: [LIST_T], paramNames: ["list"], returnType: LIST_T, effects: [], doc: "Reverse a list.", category: "list" },
+  { name: "is_empty", params: [LIST_T], paramNames: ["list"], returnType: BOOL, effects: [], doc: "Return True if the list has no elements.", category: "list" },
+  { name: "nth", params: [LIST_T, INT64], paramNames: ["list", "index"], returnType: T, effects: [], doc: "Return the element at the given index (0-based). Traps if index is out of bounds.", category: "list" },
+  { name: "list_set", params: [LIST_T, INT64, T], paramNames: ["list", "index", "value"], returnType: LIST_T, effects: [], doc: "Return a new list with the element at the given index replaced (0-based). Traps if index is out of bounds.", category: "list" },
+
+  // --- Random operations (require Random effect) ---
+  { name: "random_int", params: [INT64, INT64], paramNames: ["min", "max"], returnType: INT64, effects: ["Random"], doc: "Return a random Int64 between min and max inclusive. If max < min, returns min.", category: "random" },
+  { name: "random_float", params: [], paramNames: [], returnType: FLOAT64, effects: ["Random"], doc: "Return a random Float64 in the range [0.0, 1.0).", category: "random" },
+
+  // --- Bytes builtins ---
+  { name: "bytes_new", params: [INT64], paramNames: ["size"], returnType: BYTES, effects: [], doc: "Create a new zero-filled Bytes buffer of the given size.", category: "bytes" },
+  { name: "bytes_length", params: [BYTES], paramNames: ["b"], returnType: INT64, effects: [], doc: "Return the length of a Bytes buffer.", category: "bytes" },
+  { name: "bytes_get", params: [BYTES, INT64], paramNames: ["b", "index"], returnType: INT64, effects: [], doc: "Get the byte at the given index (0-255). Returns 0 for out-of-bounds.", category: "bytes" },
+  { name: "bytes_set", params: [BYTES, INT64, INT64], paramNames: ["b", "index", "value"], returnType: BYTES, effects: [], doc: "Set the byte at the given index. Returns a new Bytes with the modification.", category: "bytes" },
+  { name: "bytes_slice", params: [BYTES, INT64, INT64], paramNames: ["b", "start", "length"], returnType: BYTES, effects: [], doc: "Extract a sub-range of bytes. Returns a new Bytes buffer.", category: "bytes" },
+  { name: "bytes_concat", params: [BYTES, BYTES], paramNames: ["a", "b"], returnType: BYTES, effects: [], doc: "Concatenate two Bytes buffers.", category: "bytes" },
+  { name: "bytes_from_string", params: [STRING], paramNames: ["s"], returnType: BYTES, effects: [], doc: "Encode a String as UTF-8 bytes.", category: "bytes" },
+  { name: "bytes_to_string", params: [BYTES], paramNames: ["b"], returnType: STRING, effects: [], doc: "Decode a Bytes buffer as a UTF-8 string.", category: "bytes" },
+
+  // --- Crypto builtins ---
+  { name: "sha256", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Compute the SHA-256 hash of a string and return the hex digest (64 lowercase hex chars).", category: "crypto" },
+
+  // --- JSON builtins ---
+  { name: "json_parse", params: [STRING], paramNames: ["json"], returnType: OPTION_MAP_STRING_STRING, effects: [], doc: "Parse a flat JSON object into Some(Map<String, String>). Returns None for invalid JSON, non-object roots, or nested values.", category: "json" },
+  { name: "json_stringify", params: [MAP_STRING_STRING], paramNames: ["obj"], returnType: STRING, effects: [], doc: "Serialize a Map<String, String> to JSON. Values matching JSON literals (null/true/false/number) are emitted as literals; others are emitted as strings.", category: "json" },
+  { name: "json_get", params: [STRING, STRING], paramNames: ["json", "key"], returnType: OPTION_STRING, effects: [], doc: "Extract a top-level value from a JSON object by key. Returns Some(value) for scalar values (string, number, bool) or Some(json_string) for nested objects/arrays. Returns None if the key is missing or the input is not a JSON object.", category: "json" },
+  { name: "json_get_path", params: [STRING, STRING], paramNames: ["json", "path"], returnType: OPTION_STRING, effects: [], doc: "Extract a nested value from a JSON object using a dot-separated path (e.g. \"agent.agentId\"). Returns Some(value) if the path resolves to a scalar, or Some(json_string) for nested objects/arrays. Returns None if any segment is missing.", category: "json" },
+  { name: "json_get_nested", params: [STRING, STRING], paramNames: ["json", "path"], returnType: OPTION_STRING, effects: [], doc: "Extract a value from a nested JSON structure using a dot-separated path (e.g. \"user.name\" or \"items.0.id\"). Array elements are accessed by numeric index. Returns Some(value) as a JSON-encoded string for objects/arrays, or as a plain scalar for strings/numbers/booleans. Returns None if the path does not exist.", category: "json" },
+  {
+    name: "json_array_length", params: [STRING], paramNames: ["json"],
+    returnType: { kind: "Union", name: "Option<Int64>", variants: [{ name: "Some", fields: new Map([["value", INT64]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Return Some(n) with the number of elements in a JSON array string, or None if the input is not a valid JSON array.", category: "json",
+  },
+  { name: "json_array_get", params: [STRING, INT64], paramNames: ["json", "index"], returnType: OPTION_STRING, effects: [], doc: "Return Some(element_json) for the element at `index` in a JSON array string (0-based). Returns None if out of bounds or not a valid array. Objects and arrays are returned as JSON strings; scalars as plain strings.", category: "json" },
+  {
+    name: "json_keys", params: [STRING], paramNames: ["json"],
+    returnType: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", { kind: "List", element: STRING }]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Return Some(List<String>) of the top-level keys of a JSON object, or None if the input is not a valid JSON object.", category: "json",
+  },
+  { name: "json_escape_string", params: [STRING], paramNames: ["s"], returnType: STRING, effects: [], doc: "Escape a string for safe embedding inside a JSON string value. Escapes backslashes, double quotes, and control characters. The result does NOT include surrounding quotes — wrap in '\"' ++ json_escape_string(s) ++ '\"' to produce a JSON string literal.", category: "json" },
+  {
+    name: "json_parse_object", params: [STRING], paramNames: ["json"],
+    returnType: { kind: "Union", name: "Result<Map<String, String>, String>", variants: [{ name: "Ok", fields: new Map([["value", { kind: "Map", key: STRING, value: STRING }]]) }, { name: "Err", fields: new Map([["error", STRING]]) }] },
+    effects: [], doc: "Parse a JSON object string into Map<String, String>. Returns Err(message) on parse/type errors.", category: "json",
+  },
+  { name: "json_stringify_object", params: [{ kind: "Map", key: STRING, value: STRING }], paramNames: ["obj"], returnType: STRING, effects: [], doc: "Serialize Map<String, String> to a JSON object string.", category: "json" },
+
+  // --- Map<K, V> operations ---
+  { name: "map_new", params: [], paramNames: [], returnType: MAP_KV, effects: [], doc: "Create a new empty Map<K, V>. Annotate the binding type to specify key and value types: `let m: Map<String, String> = map_new()`.", category: "map" },
+  { name: "map_size", params: [MAP_KV], paramNames: ["m"], returnType: INT64, effects: [], doc: "Return the number of key-value pairs in a map.", category: "map" },
+  { name: "map_has", params: [MAP_KV, K], paramNames: ["m", "key"], returnType: BOOL, effects: [], doc: "Return True if the map contains the given key.", category: "map" },
+  { name: "map_get", params: [MAP_KV, K], paramNames: ["m", "key"], returnType: { kind: "Option", inner: V }, effects: [], doc: "Return Some(value) if the key exists in the map, or None if not found.", category: "map" },
+  { name: "map_set", params: [MAP_KV, K, V], paramNames: ["m", "key", "value"], returnType: MAP_KV, effects: [], doc: "Return a new map with the key-value pair added or updated.", category: "map" },
+  { name: "map_remove", params: [MAP_KV, K], paramNames: ["m", "key"], returnType: MAP_KV, effects: [], doc: "Return a new map with the given key removed.", category: "map" },
+  { name: "map_keys", params: [MAP_KV], paramNames: ["m"], returnType: LIST_K, effects: [], doc: "Return all keys in the map as a list (insertion order).", category: "map" },
+  { name: "map_values", params: [MAP_KV], paramNames: ["m"], returnType: LIST_V, effects: [], doc: "Return all values in the map as a list (insertion order).", category: "map" },
+
+  // --- Regex operations ---
+  { name: "regex_match", params: [STRING, STRING], paramNames: ["pattern", "text"], returnType: BOOL, effects: [], doc: "Return True if pattern matches text.", category: "regex" },
+  {
+    name: "regex_captures", params: [STRING, STRING], paramNames: ["pattern", "text"],
+    returnType: { kind: "Union", name: "Option<List<String>>", variants: [{ name: "Some", fields: new Map([["value", LIST_STRING]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Return Some(list) with full match and capture groups when matched, None otherwise.", category: "regex",
+  },
+
+  // --- Timestamp / Time builtins ---
+  { name: "sleep", params: [INT64], paramNames: ["ms"], returnType: UNIT, effects: ["Time"], doc: "Pause execution for the given number of milliseconds. Uses a synchronous busy-wait via SharedArrayBuffer + Atomics so it works inside WASM imports. Useful for polling loops and rate limiting in CLI programs.", category: "time" },
+  { name: "now", params: [], paramNames: [], returnType: TIMESTAMP, effects: ["Time"], doc: "Return the current time as milliseconds since Unix epoch.", category: "time" },
+  { name: "timestamp_to_string", params: [TIMESTAMP], paramNames: ["t"], returnType: STRING, effects: [], doc: "Convert a Timestamp to an ISO 8601 string.", category: "time" },
+  { name: "timestamp_to_int", params: [TIMESTAMP], paramNames: ["t"], returnType: INT64, effects: [], doc: "Convert a Timestamp to milliseconds since epoch (Int64).", category: "time" },
+  { name: "timestamp_from_int", params: [INT64], paramNames: ["ms"], returnType: TIMESTAMP, effects: [], doc: "Create a Timestamp from milliseconds since epoch.", category: "time" },
+  {
+    name: "timestamp_parse_iso", params: [STRING], paramNames: ["s"],
+    returnType: { kind: "Union", name: "Option<Timestamp>", variants: [{ name: "Some", fields: new Map([["value", TIMESTAMP]]) }, { name: "None", fields: new Map() }] },
+    effects: [], doc: "Parse an ISO-8601 string into a Timestamp. Returns Some(timestamp) on success, None on failure.", category: "time",
+  },
+  { name: "timestamp_add", params: [TIMESTAMP, INT64], paramNames: ["t", "ms"], returnType: TIMESTAMP, effects: [], doc: "Add milliseconds to a Timestamp.", category: "time" },
+  { name: "timestamp_diff", params: [TIMESTAMP, TIMESTAMP], paramNames: ["a", "b"], returnType: INT64, effects: [], doc: "Return the difference in milliseconds between two Timestamps (a - b).", category: "time" },
+
+  // --- Memory management ---
+  { name: "arena_save", params: [], paramNames: [], returnType: INT64, effects: [], doc: "Save the current heap watermark and return it as an Int64. Pass the returned value to arena_restore() to reclaim all memory allocated since this call. Programs that repeatedly process data should save a mark before each unit of work and restore it when done to prevent unbounded heap growth.", category: "memory" },
+  { name: "arena_restore", params: [INT64], paramNames: ["mark"], returnType: UNIT, effects: [], doc: "Reclaim all heap memory allocated since the matching arena_save() call. Any pointer (string, list, record, etc.) obtained after the saved mark becomes invalid after this call — do not use such pointers afterwards.", category: "memory" },
+  { name: "memory_stats", params: [], paramNames: [], returnType: STRING, effects: [], doc: "Return a JSON string with current allocator statistics: heap_ptr (current top of heap), live_allocs (number of tracked live blocks), free_blocks (blocks available for reuse), interned_strings (number of cached string allocations). Useful for profiling and debugging memory usage.", category: "memory" },
+
+  // --- Test assertions (require Test effect) ---
+  { name: "assert_eq", params: [INT64, INT64], paramNames: ["actual", "expected"], returnType: UNIT, effects: ["Test"], doc: "Assert two Int64 values are equal.", category: "test" },
+  { name: "assert_eq_float", params: [FLOAT64, FLOAT64], paramNames: ["actual", "expected"], returnType: UNIT, effects: ["Test"], doc: "Assert two Float64 values are equal (epsilon 1e-9).", category: "test" },
+  { name: "assert_eq_string", params: [STRING, STRING], paramNames: ["actual", "expected"], returnType: UNIT, effects: ["Test"], doc: "Assert two String values are equal.", category: "test" },
+  { name: "assert_true", params: [BOOL], paramNames: ["condition"], returnType: UNIT, effects: ["Test"], doc: "Assert a condition is True.", category: "test" },
+  { name: "assert_false", params: [BOOL], paramNames: ["condition"], returnType: UNIT, effects: ["Test"], doc: "Assert a condition is False.", category: "test" },
+
+  // --- Policy introspection (no effect required) ---
+  { name: "policy_is_url_allowed", params: [STRING], paramNames: ["url"], returnType: BOOL, effects: [], doc: "Return True if the given URL is permitted by the runtime policy allowlist (CLARITY_ALLOW_HOSTS env var). Returns True when no allowlist is configured. Use this to proactively check access before connecting. Example: policy_is_url_allowed(\"http://api.example.com\").", category: "policy" },
+  { name: "policy_is_effect_allowed", params: [STRING], paramNames: ["effect_name"], returnType: BOOL, effects: [], doc: "Return True if the given effect family is not blocked by the policy deny list (CLARITY_DENY_EFFECTS env var). Returns True when no deny list is configured. Example: policy_is_effect_allowed(\"MCP\").", category: "policy" },
+];

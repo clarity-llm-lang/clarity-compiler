@@ -165,7 +165,7 @@ List builtins are generic: `head(xs)` returns the element type of the list.
 - No `class`/`interface` — use `type` for records and unions
 - No `var` — use `let` (immutable) or `let mut` (mutable)
 - No implicit type conversions
-- No lambdas/closures (yet) — pass named functions only
+- Lambdas and closures: `|param: Type| body` syntax, may capture variables from the enclosing named function scope
 
 ### I/O Primitives
 All I/O functions require the `FileSystem` effect.
@@ -262,8 +262,8 @@ Failures produce structured output with `actual`, `expected`, `function`, `locat
 
 ## Known gaps / missing features
 
-### No lambdas or closures
-Named functions can be passed as arguments, but there are no anonymous functions (lambdas) or closures. Functions cannot capture variables from enclosing scope.
+### Closures and memory
+Lambda expressions (`|param: Type| body`) support capturing variables from the enclosing named function scope. Each closure allocates a small heap struct (8 bytes for the closure + 8 bytes per captured variable). Nested closures (a lambda inside another lambda capturing the outer lambda's params) are not yet supported.
 
 ### Partial memory management
 The runtime uses a free-list allocator with power-of-two size classes. Strings are interned and short-lived allocations can be bulk-freed via `arena_save()`/`arena_restore()`. However there is no automatic garbage collection — programs that allocate unboundedly over time will still exhaust memory.
@@ -292,7 +292,7 @@ Make the type system robust enough for real programs.
 1. ✓ **Parametric polymorphism / generics** — Type parameters on functions (`function identity<T>(x: T) -> T`) and types (`type Wrapper<T> = { value: T }`). Type inference at call sites. Monomorphization in codegen.
 2. ✓ **Proper list builtin typing** — `head : List<T> -> T`, `tail : List<T> -> List<T>`, `append : (List<T>, T) -> List<T>`, etc. All list builtins are now generic.
 3. ✓ **Result<T, E> as built-in** — `Ok`/`Err` polymorphic constructors with type inference. Pattern matching with exhaustiveness checking.
-4. ✓ **Higher-order functions** — Function types `(T) -> U` as parameters, function references, `call_indirect`. Named functions can be passed as values. Lambdas/closures deferred.
+4. ✓ **Higher-order functions** — Function types `(T) -> U` as parameters, function references, `call_indirect`. Named functions can be passed as values. Lambda expressions `|param: Type| body` supported including closures that capture from the enclosing named function scope.
 5. ✓ **Type aliases** — `type UserId = Int64` as transparent aliases. Distinct (opaque) aliases deferred.
 
 ### Phase 3 — Module System & Multi-File (v0.4)
@@ -340,7 +340,7 @@ Make Clarity viable for production agentic and retrieval-augmented-generation wo
 8. ✓ **Streaming support** — Pull-based token streaming via `stream_start(model, prompt, system)` / `stream_next(handle) -> Option<String>` / `stream_close(handle) -> String` (all require Model effect). Worker thread + SharedArrayBuffer + Atomics.wait handshake sidesteps the WASM synchronous-import constraint. `std/stream` provides `call(model, prompt)` and `call_with_system(model, system, prompt)`. Also fixed latent codegen bug: `generateConstructorCall` was using the declared field type from whichever `Result<T,E>` instantiation `findConstructorType` found first, causing `i64.store` of i32 values when multiple instantiations coexist; fix uses `inferExprType(arg)` for the actual store width.
 9. ✓ **HITL (`HumanInLoop` effect)** — `hitl_ask(key, question)` pauses agent execution, writes a question file to `CLARITY_HITL_DIR` (default `.clarity-hitl/`), and blocks (Atomics.wait, 500 ms polls) until a human operator writes a response file. Timeout via `CLARITY_HITL_TIMEOUT_SECS` (default 600). `checkpoint_save_raw(key, value) -> Bool` added as a heap-allocation-free variant of `checkpoint_save` (safe before `arena_restore`). `std/agent` updated: each step is wrapped in `arena_save()`/`arena_restore()` so LLM intermediates (prompts, responses, embeddings) are bulk-freed after every step — memory growth is now O(steps × state-size) rather than O(steps × all-intermediates). `std/hitl` module provides `ask`, `confirm`, and `supervised_step` helpers. External CLI/web broker: see `clarity-hitl-broker` repo (separate project) for the operator-facing tool.
 
-- No lambdas or closures — pass named functions only
+- Lambdas and closures are implemented (single-level capture from enclosing named function scope).
 - Memory growth in agent loops is now bounded: arena GC in `std/agent` frees per-step intermediates automatically.
 
 ## Workflow rules
@@ -362,6 +362,13 @@ After every implementation task, check and update these files if affected:
 - Run `npm test` before every commit
 - All tests must pass before pushing
 - Add e2e tests for every new feature or builtin
+
+### File size discipline
+- **Hard limit: 600 lines per source file.** When a file approaches this limit, split it by domain before adding more code.
+- `src/codegen/runtime.ts` is split into domain modules under `src/codegen/runtime/` (see Project structure). Add new runtime functions to the appropriate sub-module, not to the root runtime.ts.
+- `src/registry/builtins-registry.ts` is split into domain files under `src/registry/builtins/`. Add new builtins to the appropriate sub-file.
+- Each sub-module exports its runtime functions as a plain object; `runtime.ts` merges them via spread (`{ ...coreRuntime, ...fsRuntime, ... }`).
+- Rebuild `dist/` and commit it after every source change (`npm run build`).
 
 ## Extending the compiler
 
@@ -391,8 +398,10 @@ npx clarityc introspect --effects    # all effects with their function lists
 
 ## Project structure
 - `src/` — Compiler implementation (TypeScript)
-- `src/registry/builtins-registry.ts` — Single source of truth for built-in functions and effects
-- `src/codegen/runtime.ts` — WASM host runtime (string memory, print, logging)
+- `src/registry/builtins-registry.ts` — Merges domain builtin files; single export used by checker and introspect
+- `src/registry/builtins/` — Per-domain builtin definitions (core, fs, network, http-server, tty, llm, agent, …)
+- `src/codegen/runtime.ts` — Merges domain runtime modules; exports `createRuntime()`
+- `src/codegen/runtime/` — Per-domain WASM host runtime modules (core, fs, network, http-server, tty, mux, watch, llm, agent, …)
 - `src/codegen/builtins.ts` — WASM import declarations (codegen internals)
 - `std/` — Standard library (Clarity source files: `math.clarity`, `string.clarity`)
 - `examples/` — Example Clarity programs

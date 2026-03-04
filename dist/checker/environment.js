@@ -44,6 +44,15 @@ export class Environment {
         }
         return undefined;
     }
+    /** Returns names visible in non-global scopes (locals, function params, let-bindings). */
+    getNonGlobalNames() {
+        const names = new Set();
+        for (let i = 1; i < this.scopes.length; i++) {
+            for (const name of this.scopes[i].keys())
+                names.add(name);
+        }
+        return names;
+    }
     allTypes() {
         const merged = new Map();
         for (const scope of this.typeScopes) {

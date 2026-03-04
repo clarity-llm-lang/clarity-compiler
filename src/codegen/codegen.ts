@@ -63,6 +63,9 @@ export class CodeGenerator {
   // Lambda lifting — lambdas collected during codegen, emitted after all named functions
   private lambdaCounter: number = 0;
   private pendingLambdas: Array<{ name: string; expr: import("../ast/nodes.js").LambdaExpr }> = [];
+  // Wrapper functions generated for named functions used as first-class values.
+  // Maps resolved WASM function name → its wrapper's table index.
+  private lambdaWrappers: Map<string, number> = new Map();
 
   // Monomorphization tracking for generic functions
   private generatedMonomorphs: Set<string> = new Set();
@@ -85,6 +88,7 @@ export class CodeGenerator {
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
+    this.lambdaWrappers = new Map();
     this.typeVarSubst = new Map();
 
     this.setupModule(module);
@@ -110,6 +114,7 @@ export class CodeGenerator {
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
+    this.lambdaWrappers = new Map();
 
     this.setupModule(module);
 
@@ -133,6 +138,7 @@ export class CodeGenerator {
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
+    this.lambdaWrappers = new Map();
 
     this.setupModuleMulti(allModules, entryModule);
 
@@ -160,6 +166,7 @@ export class CodeGenerator {
     this.generatedMonomorphs = new Set();
     this.lambdaCounter = 0;
     this.pendingLambdas = [];
+    this.lambdaWrappers = new Map();
 
     this.setupModuleMulti(allModules, entryModule);
 
@@ -694,11 +701,83 @@ export class CodeGenerator {
   // Function Generation
   // ============================================================
 
-  // Lambda lifting: emit the lambda body as a top-level WASM function,
-  // register it in the function table, and return its table index as an i32.const.
+  // ---------------------------------------------------------------------------
+  // Closure helpers
+  // ---------------------------------------------------------------------------
+
+  /** Allocate `size` bytes on the runtime heap. */
+  private callAlloc(size: number): binaryen.ExpressionRef {
+    return this.mod.call("__alloc", [this.mod.i32.const(size)], binaryen.i32);
+  }
+
+  /** Add a temporary (non-param) local to the current function frame and return its index. */
+  private addTempLocal(wasmType: binaryen.Type): number {
+    const idx = this.localIndex++;
+    this.additionalLocals.push(wasmType);
+    return idx;
+  }
+
+  /**
+   * Allocate an 8-byte closure struct [func_table_idx: i32, env_ptr: i32] on the heap.
+   * Returns an i32 expression that evaluates to the pointer to the closure struct.
+   * `envPtrExpr` must be an i32 expression; pass `i32.const(0)` for non-capturing closures.
+   */
+  private buildClosureStruct(tableIdx: number, envPtrExpr: binaryen.ExpressionRef): binaryen.ExpressionRef {
+    const tmp = this.addTempLocal(binaryen.i32);
+    const getPtr = () => this.mod.local.get(tmp, binaryen.i32);
+    return this.mod.block(null, [
+      this.mod.local.set(tmp, this.callAlloc(8)),
+      this.mod.i32.store(0, 4, getPtr(), this.mod.i32.const(tableIdx)),
+      this.mod.i32.store(4, 4, getPtr(), envPtrExpr),
+      getPtr(),
+    ], binaryen.i32);
+  }
+
+  /**
+   * Returns the function table index of the wrapper for a named function.
+   * The wrapper has signature (env_ptr: i32, params...) -> ret so it can be
+   * called via call_indirect with a uniform closure calling convention.
+   * Wrappers are generated on demand and cached in `lambdaWrappers`.
+   */
+  private getOrCreateWrapper(
+    resolvedFuncName: string,
+    fnType: Extract<ClarityType, { kind: "Function" }>,
+  ): number {
+    const cached = this.lambdaWrappers.get(resolvedFuncName);
+    if (cached !== undefined) return cached;
+
+    const wrapperName = `__wrap_${resolvedFuncName}`;
+    // Signature: (env_ptr: i32, declared_params...) -> ret
+    const paramWasmTypes: binaryen.Type[] = [binaryen.i32]; // env_ptr (ignored)
+    const forwardArgs: binaryen.ExpressionRef[] = [];
+    let localIdx = 1; // local 0 = env_ptr
+    for (const paramType of fnType.params) {
+      const wasmType = clarityTypeToWasm(paramType);
+      paramWasmTypes.push(wasmType);
+      forwardArgs.push(this.mod.local.get(localIdx++, wasmType));
+    }
+    const returnWasmType = clarityTypeToWasm(fnType.returnType);
+    const body = this.mod.call(resolvedFuncName, forwardArgs, returnWasmType);
+    this.mod.addFunction(wrapperName, binaryen.createType(paramWasmTypes), returnWasmType, [], body);
+
+    const tableIdx = this.functionTableNames.length;
+    this.functionTableIndices.set(wrapperName, tableIdx);
+    this.functionTableNames.push(wrapperName);
+    this.lambdaWrappers.set(resolvedFuncName, tableIdx);
+    return tableIdx;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lambda lifting
+  // ---------------------------------------------------------------------------
+
+  // Lift a lambda (potentially capturing) to a top-level WASM function and return
+  // a pointer to its closure struct [func_table_idx: i32, env_ptr: i32].
   private liftLambda(lambda: import("../ast/nodes.js").LambdaExpr): binaryen.ExpressionRef {
     const name = `__lambda_${this.lambdaCounter++}`;
     lambda.liftedName = name;
+
+    const captures = lambda.captures ?? [];
 
     // Save caller's local state
     const savedFunction = this.currentFunction;
@@ -706,12 +785,38 @@ export class CodeGenerator {
     const savedLocalIndex = this.localIndex;
     const savedAdditionalLocals = this.additionalLocals;
 
-    // Set up fresh local frame for the lambda body
+    // Compute capture layout using the OUTER locals (before resetting).
+    interface CaptureInfo {
+      name: string;
+      outerLocalIdx: number;  // local index in the outer function
+      wasmType: binaryen.Type;
+      clarityType: ClarityType;
+      envOffset: number;       // byte offset in the env struct (8-byte slots)
+    }
+    const captureLayout: CaptureInfo[] = captures
+      .filter(capName => savedLocals.has(capName))
+      .map((capName, i) => {
+        const outerLocal = savedLocals.get(capName)!;
+        return {
+          name: capName,
+          outerLocalIdx: outerLocal.index,
+          wasmType: outerLocal.wasmType,
+          clarityType: outerLocal.clarityType,
+          envOffset: i * 8,
+        };
+      });
+
+    // ---- Set up fresh local frame for the lifted function ----
     this.locals = new Map();
     this.localIndex = 0;
     this.additionalLocals = [];
 
-    const paramWasmTypes: binaryen.Type[] = [];
+    // Local 0: env_ptr (i32) — points to the captured-variable struct; 0 if non-capturing.
+    const ENV_PTR_LOCAL = 0;
+    this.localIndex = 1;
+
+    // Lambda declared params (locals 1..N)
+    const paramWasmTypes: binaryen.Type[] = [binaryen.i32]; // env_ptr first
     for (const param of lambda.params) {
       const ct = this.checker.resolveTypeRef(param.typeAnnotation) ?? { kind: "Error" } as ClarityType;
       const wasmType = clarityTypeToWasm(ct);
@@ -720,24 +825,75 @@ export class CodeGenerator {
       this.localIndex++;
     }
 
+    // Allocate inner locals for captures and emit load-from-env statements.
+    const captureLoadStmts: binaryen.ExpressionRef[] = [];
+    for (const cap of captureLayout) {
+      const innerLocalIdx = this.localIndex++;
+      this.additionalLocals.push(cap.wasmType);
+      this.locals.set(cap.name, { index: innerLocalIdx, wasmType: cap.wasmType, clarityType: cap.clarityType });
+
+      const envPtrGet = () => this.mod.local.get(ENV_PTR_LOCAL, binaryen.i32);
+      let loadExpr: binaryen.ExpressionRef;
+      if (cap.wasmType === binaryen.i64) {
+        loadExpr = this.mod.i64.load(cap.envOffset, 8, envPtrGet());
+      } else if (cap.wasmType === binaryen.f64) {
+        loadExpr = this.mod.f64.load(cap.envOffset, 8, envPtrGet());
+      } else {
+        loadExpr = this.mod.i32.load(cap.envOffset, 4, envPtrGet());
+      }
+      captureLoadStmts.push(this.mod.local.set(innerLocalIdx, loadExpr));
+    }
+
     const returnType = this.inferExprType(lambda.body);
     const returnWasmType = clarityTypeToWasm(returnType);
-    const body = this.generateExpr(lambda.body, returnType);
+    const bodyExpr = this.generateExpr(lambda.body, returnType);
 
-    this.mod.addFunction(name, binaryen.createType(paramWasmTypes), returnWasmType, this.additionalLocals, body);
+    const fullBody = captureLoadStmts.length > 0
+      ? this.mod.block(null, [...captureLoadStmts, bodyExpr], returnWasmType)
+      : bodyExpr;
 
-    // Register in function table so it can be used with call_indirect
+    this.mod.addFunction(name, binaryen.createType(paramWasmTypes), returnWasmType, this.additionalLocals, fullBody);
+
+    // Register in the function table.
     const tableIndex = this.functionTableNames.length;
     this.functionTableIndices.set(name, tableIndex);
     this.functionTableNames.push(name);
 
-    // Restore caller's local state
+    // ---- Restore caller's local state ----
     this.currentFunction = savedFunction;
     this.locals = savedLocals;
     this.localIndex = savedLocalIndex;
     this.additionalLocals = savedAdditionalLocals;
 
-    return this.mod.i32.const(tableIndex);
+    // ---- Build the env struct (in the OUTER function's context) ----
+    let envPtrExpr: binaryen.ExpressionRef;
+    if (captureLayout.length > 0) {
+      const envSize = captureLayout.length * 8;
+      const tmpEnv = this.addTempLocal(binaryen.i32);
+      const stmts: binaryen.ExpressionRef[] = [
+        this.mod.local.set(tmpEnv, this.callAlloc(envSize)),
+      ];
+      for (const cap of captureLayout) {
+        const outerVal = this.mod.local.get(cap.outerLocalIdx, cap.wasmType);
+        const envGet = () => this.mod.local.get(tmpEnv, binaryen.i32);
+        let storeExpr: binaryen.ExpressionRef;
+        if (cap.wasmType === binaryen.i64) {
+          storeExpr = this.mod.i64.store(cap.envOffset, 8, envGet(), outerVal);
+        } else if (cap.wasmType === binaryen.f64) {
+          storeExpr = this.mod.f64.store(cap.envOffset, 8, envGet(), outerVal);
+        } else {
+          storeExpr = this.mod.i32.store(cap.envOffset, 4, envGet(), outerVal);
+        }
+        stmts.push(storeExpr);
+      }
+      stmts.push(this.mod.local.get(tmpEnv, binaryen.i32));
+      envPtrExpr = this.mod.block(null, stmts, binaryen.i32);
+    } else {
+      envPtrExpr = this.mod.i32.const(0);
+    }
+
+    // Return a pointer to the closure struct [tableIndex, envPtr].
+    return this.buildClosureStruct(tableIndex, envPtrExpr);
   }
 
   private generateFunction(decl: FunctionDecl): void {
@@ -1193,12 +1349,18 @@ export class CodeGenerator {
         if (ctorInfo && ctorInfo.variant.fields.size === 0) {
           return this.generateConstructorCall(expr.name, ctorInfo, []);
         }
-        // Check if this is a function reference (for higher-order functions)
+        // Check if this is a function reference (for higher-order functions).
         // Resolve the Clarity name to its WASM name first (handles module prefixing).
         const resolvedFuncName = this.currentModuleWasmNames.get(expr.name) ?? expr.name;
-        const tableIndex = this.functionTableIndices.get(resolvedFuncName);
-        if (tableIndex !== undefined) {
-          return this.mod.i32.const(tableIndex);
+        if (this.functionTableIndices.has(resolvedFuncName)) {
+          // Produce a closure struct [wrapper_table_idx, 0] for this named function.
+          const sym = this.checker.lookupSymbol(expr.name);
+          if (sym && sym.type.kind === "Function") {
+            const wrapperIdx = this.getOrCreateWrapper(resolvedFuncName, sym.type);
+            return this.buildClosureStruct(wrapperIdx, this.mod.i32.const(0));
+          }
+          // Fallback (shouldn't happen in well-typed code): raw table index.
+          return this.mod.i32.const(this.functionTableIndices.get(resolvedFuncName)!);
         }
         throw new Error(`Undefined variable in codegen: ${expr.name}`);
       }
@@ -1463,14 +1625,19 @@ export class CodeGenerator {
     local: LocalVar,
     fnType: Extract<ClarityType, { kind: "Function" }>,
   ): binaryen.ExpressionRef {
-    const funcIndexExpr = this.mod.local.get(local.index, binaryen.i32);
+    // `local` holds a closure struct pointer: [func_idx: i32 @ +0, env_ptr: i32 @ +4].
+    // local.get is side-effect-free so we can read it twice.
+    const getPtr = () => this.mod.local.get(local.index, binaryen.i32);
+    const funcIdxExpr = this.mod.i32.load(0, 4, getPtr());
+    const envPtrExpr = this.mod.i32.load(4, 4, getPtr());
     const args = expr.args.map((a) => this.generateExpr(a.value));
-    const paramWasmTypes = fnType.params.map(clarityTypeToWasm);
+    // Lifted functions have signature (env_ptr: i32, declared_params...) -> ret.
+    const paramWasmTypes = [binaryen.i32, ...fnType.params.map(clarityTypeToWasm)];
     const returnWasmType = clarityTypeToWasm(fnType.returnType);
     return this.mod.call_indirect(
       "0",
-      funcIndexExpr,
-      args,
+      funcIdxExpr,
+      [envPtrExpr, ...args],
       binaryen.createType(paramWasmTypes),
       returnWasmType,
     );

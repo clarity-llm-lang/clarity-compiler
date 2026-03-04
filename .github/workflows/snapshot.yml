@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .snapshot
-          PACKAGE_FILE="$(npm pack)"
+          PACKAGE_FILE="$(npm pack --ignore-scripts)"
           SHORT_SHA="${GITHUB_SHA::8}"
           SNAPSHOT_FILE="${PACKAGE_FILE%.tgz}-snapshot.${GITHUB_RUN_NUMBER}+${SHORT_SHA}.tgz"
           mv "$PACKAGE_FILE" ".snapshot/$SNAPSHOT_FILE"
