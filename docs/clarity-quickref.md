@@ -53,7 +53,7 @@ effect[DB, Log] function save(name: String) -> Int64 { ... }
 // Generic
 function identity<T>(x: T) -> T { x }
 
-// Higher-order (named functions only, no lambdas)
+// Higher-order — named functions or lambda expressions
 function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 ```
 
@@ -92,6 +92,29 @@ let mut b = 2;       // mutable
 b = b + 1;           // reassignment (let mut only)
 a + b                // last expression = return value
 ```
+
+
+## Lambdas and closures
+```
+// Lambda expression — anonymous function with |param: Type| body syntax
+function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+function result() -> Int64 { apply(|n: Int64| n * 2, 5) }  // returns 10
+
+// Closures — lambdas may capture variables from the enclosing named function scope
+function make_adder(base: Int64) -> (Int64) -> Int64 {
+  |x: Int64| base + x          // `base` is captured at closure creation time
+}
+
+// Closures are commonly used with std/list higher-order functions
+import { map, filter } from "std/list"
+function double_evens(xs: List<Int64>) -> List<Int64> {
+  let evens = filter(xs, |n: Int64| n % 2 == 0);
+  map(evens, |n: Int64| n * 2)
+}
+```
+
+Capture semantics: variables are captured **by value** at the point the lambda is created.
+Nested closures (a lambda inside another lambda) are not supported.
 
 ## String literals
 ```
@@ -271,7 +294,7 @@ Set `CLARITY_EMBED_MODEL` to choose the embedding model (default `text-embedding
 Run `npx clarityc introspect --builtins` for the full built-in list (string ops, math, conversions, etc).
 
 ## What Clarity does NOT have
-No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions, no lambdas/closures (pass named functions only).
+No `if`/`else` (use `match`), no loops (use recursion), no `return` (last expr is return value), no `null` (use `Option<T>`), no exceptions (use `Result<T, E>`), no `class`/`interface` (use `type`), no `var` (use `let`/`let mut`), no implicit conversions. Pass named functions or use lambda expressions (`|param: Type| body`) for anonymous functions.
 
 ## Comments
 ```

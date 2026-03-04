@@ -180,7 +180,20 @@ function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 function result() -> Int64 { apply(double, 5) }  // returns 10
 ```
 
-Lambdas and closures are not yet supported. Only named functions can be passed as values.
+Lambda expressions are also supported using the `|param: Type| body` syntax:
+```
+// Lambda as argument
+function result() -> Int64 { apply(|n: Int64| n * 2, 5) }  // returns 10
+
+// Closure — captures variables from the enclosing named function scope
+function make_adder(base: Int64) -> (Int64) -> Int64 {
+  |x: Int64| base + x    // `base` captured by value at closure creation time
+}
+```
+
+**Capture semantics:** Variables from the enclosing named function scope are captured **by value** when the lambda expression is evaluated. Captured values are copied into a small heap-allocated closure struct (8 bytes header + 8 bytes per captured variable).
+
+**Limitations:** Nested closures — a lambda expression inside another lambda expression — are not supported. Only single-level capture from an enclosing *named* function scope is allowed.
 
 ### 3.6 Generics (Parametric Polymorphism)
 

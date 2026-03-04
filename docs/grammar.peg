@@ -33,7 +33,7 @@ UnionType       <- '|' VariantDef ('|' VariantDef)*
 VariantDef      <- Identifier ('(' FieldList ')')?
 
 # === Expressions ===
-Expression      <- MatchExpr / LetExpr / AssignmentExpr / BinaryExpr
+Expression      <- MatchExpr / LetExpr / AssignmentExpr / LambdaExpr / BinaryExpr
 LetExpr         <- 'let' 'mut'? Pattern '=' Expression
 AssignmentExpr  <- Identifier '=' Expression
 MatchExpr       <- 'match' Expression '{' MatchArm+ '}'
@@ -43,6 +43,9 @@ BinaryExpr      <- UnaryExpr (BinaryOp UnaryExpr)*
 UnaryExpr       <- ('!' / '-') UnaryExpr / CallExpr
 CallExpr        <- PrimaryExpr ('(' ArgList ')')* ('.' Identifier ('(' ArgList ')')?)*
 PrimaryExpr     <- Literal / Identifier / '(' Expression ')' / Block
+LambdaExpr      <- '|' LambdaParamList '|' Expression
+LambdaParamList <- (LambdaParam (',' LambdaParam)*)?
+LambdaParam     <- Identifier ':' TypeRef
 
 # Operator precedence (low to high):
 #   1: or
