@@ -980,6 +980,10 @@ export class Checker {
       case "LambdaExpr": {
         // Resolve param types from their type annotations
         const paramTypes: ClarityType[] = expr.params.map(p => this.resolveTypeRef(p.typeAnnotation) ?? ERROR_TYPE);
+        const paramNameSet = new Set(expr.params.map(p => p.name));
+        // Snapshot non-global names visible before entering the lambda scope.
+        // These are candidates for capture (outer function locals/params/let-bindings).
+        const outerLocalNames = this.env.getNonGlobalNames();
         // Check the body in a new scope with params bound
         this.env.enterScope();
         for (let i = 0; i < expr.params.length; i++) {
@@ -992,6 +996,10 @@ export class Checker {
         }
         const returnType = this.checkExpr(expr.body);
         this.env.exitScope();
+        // Free variable analysis: identifiers in the body that are not lambda params
+        // and are defined as outer locals → captured variables.
+        const freeVars = collectFreeVars(expr.body, paramNameSet);
+        expr.captures = [...freeVars].filter(name => outerLocalNames.has(name));
         return { kind: "Function", params: paramTypes, returnType, effects: new Set() };
       }
 
@@ -1245,5 +1253,95 @@ export class Checker {
     }
 
     return ERROR_TYPE;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Free variable analysis for lambda/closure capture computation.
+// Walks an expression tree and collects identifier names that are NOT in `bound`.
+// Does NOT recurse into nested LambdaExpr bodies (they manage their own captures).
+// ---------------------------------------------------------------------------
+function collectFreeVars(expr: Expr, bound: Set<string>): Set<string> {
+  const free = new Set<string>();
+  walkExpr(expr, bound, free);
+  return free;
+}
+
+function walkExpr(expr: Expr, bound: Set<string>, free: Set<string>): void {
+  switch (expr.kind) {
+    case "IdentifierExpr":
+      if (!bound.has(expr.name)) free.add(expr.name);
+      break;
+    case "LambdaExpr":
+      // Don't recurse into nested lambda bodies — they are independent closures.
+      break;
+    case "IntLiteral":
+    case "FloatLiteral":
+    case "StringLiteral":
+    case "BoolLiteral":
+      break;
+    case "ListLiteral":
+      for (const el of expr.elements) walkExpr(el, bound, free);
+      break;
+    case "RecordLiteral":
+      for (const f of expr.fields) walkExpr(f.value, bound, free);
+      break;
+    case "BinaryExpr":
+      walkExpr(expr.left, bound, free);
+      walkExpr(expr.right, bound, free);
+      break;
+    case "UnaryExpr":
+      walkExpr(expr.operand, bound, free);
+      break;
+    case "CallExpr":
+      walkExpr(expr.callee, bound, free);
+      for (const a of expr.args) walkExpr(a.value, bound, free);
+      break;
+    case "MemberExpr":
+      walkExpr(expr.object, bound, free);
+      break;
+    case "LetExpr": {
+      walkExpr(expr.value, bound, free);
+      // The let-bound name is NOT yet bound when we evaluate the value,
+      // and since LetExpr has no body sub-expression, nothing else to walk.
+      break;
+    }
+    case "AssignmentExpr":
+      walkExpr(expr.value, bound, free);
+      break;
+    case "BlockExpr": {
+      // Track locally-bound names introduced by LetExprs in this block.
+      const innerBound = new Set(bound);
+      for (const stmt of expr.statements) {
+        walkExpr(stmt, innerBound, free);
+        if (stmt.kind === "LetExpr") innerBound.add(stmt.name);
+      }
+      if (expr.result) walkExpr(expr.result, innerBound, free);
+      break;
+    }
+    case "MatchExpr":
+      walkExpr(expr.scrutinee, bound, free);
+      for (const arm of expr.arms) {
+        const armBound = new Set(bound);
+        collectPatternBindings(arm.pattern, armBound);
+        if (arm.guard) walkExpr(arm.guard, armBound, free);
+        walkExpr(arm.body, armBound, free);
+      }
+      break;
+  }
+}
+
+function collectPatternBindings(pattern: Pattern, bound: Set<string>): void {
+  switch (pattern.kind) {
+    case "BindingPattern":
+      bound.add(pattern.name);
+      break;
+    case "ConstructorPattern":
+      for (const pf of pattern.fields) collectPatternBindings(pf.pattern, bound);
+      break;
+    case "WildcardPattern":
+    case "LiteralPattern":
+    case "RangePattern":
+      break;
   }
 }

@@ -2469,6 +2469,103 @@ describe("Lambda expressions", () => {
   });
 });
 
+describe("Closures (capturing lambdas)", () => {
+  it("captures an Int64 from the outer scope", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test(n: Int64) -> Int64 {
+        apply(|x: Int64| x + n, 10)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as (n: bigint) => bigint)(5n)).toBe(15n);
+  });
+
+  it("make_adder — factory that returns a closure", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function make_adder(n: Int64) -> (Int64) -> Int64 {
+        |x: Int64| x + n
+      }
+      function test() -> Int64 {
+        let add5 = make_adder(5);
+        apply(add5, 37)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("captures multiple values from outer scope", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test(a: Int64, b: Int64) -> Int64 {
+        apply(|x: Int64| x + a + b, 0)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as (a: bigint, b: bigint) => bigint)(10n, 32n)).toBe(42n);
+  });
+
+  it("captures a mutable let binding value at closure-creation time", async () => {
+    const source = `
+      module Test
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 {
+        let mut n = 10;
+        let f = |x: Int64| x + n;
+        n = 99;
+        apply(f, 32)
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // Clarity captures by value at creation, so f captures n=10, not n=99
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("named function passed as HOF produces correct closure struct", async () => {
+    const source = `
+      module Test
+      function double(x: Int64) -> Int64 { x * 2 }
+      function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
+      function test() -> Int64 { apply(double, 21) }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect((instance.exports.test as () => bigint)()).toBe(42n);
+  });
+
+  it("closure passed to std/list map captures outer variable", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-closure-map-"));
+    fs.writeFileSync(path.join(dir, "main.clarity"), `
+      module Main
+      import { map } from "std/list"
+      function test(offset: Int64) -> Int64 {
+        let nums = append(append(append([], 1), 2), 3);
+        let shifted = map(nums, |x: Int64| x + offset);
+        head(shifted)
+      }
+    `);
+    const result = compileFile(path.join(dir, "main.clarity"));
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // offset=10, head([11, 12, 13]) = 11
+    expect((instance.exports.test as (offset: bigint) => bigint)(10n)).toBe(11n);
+  });
+});
+
 describe("String interpolation", () => {
   it("interpolates a simple variable", async () => {
     const source = `

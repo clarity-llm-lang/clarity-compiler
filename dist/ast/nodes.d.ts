@@ -170,6 +170,7 @@ export interface LambdaExpr extends BaseNode {
     kind: "LambdaExpr";
     params: Parameter[];
     body: Expr;
+    captures?: string[];
     liftedName?: string;
 }
 export type Pattern = WildcardPattern | LiteralPattern | RangePattern | ConstructorPattern | BindingPattern;

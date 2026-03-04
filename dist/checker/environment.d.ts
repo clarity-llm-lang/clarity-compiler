@@ -17,5 +17,7 @@ export declare class Environment {
     lookup(name: string): Symbol | undefined;
     defineType(name: string, type: ClarityType): boolean;
     lookupType(name: string): ClarityType | undefined;
+    /** Returns names visible in non-global scopes (locals, function params, let-bindings). */
+    getNonGlobalNames(): Set<string>;
     allTypes(): IterableIterator<[string, ClarityType]>;
 }

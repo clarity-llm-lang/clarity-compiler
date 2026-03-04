@@ -18,6 +18,7 @@ export declare class CodeGenerator {
     private functionDeclWasmNames;
     private lambdaCounter;
     private pendingLambdas;
+    private lambdaWrappers;
     private generatedMonomorphs;
     private typeVarSubst;
     generate(module: ModuleDecl, checker: Checker): Uint8Array;
@@ -53,6 +54,23 @@ export declare class CodeGenerator {
     private storeField;
     private loadField;
     private allocStringLiteral;
+    /** Allocate `size` bytes on the runtime heap. */
+    private callAlloc;
+    /** Add a temporary (non-param) local to the current function frame and return its index. */
+    private addTempLocal;
+    /**
+     * Allocate an 8-byte closure struct [func_table_idx: i32, env_ptr: i32] on the heap.
+     * Returns an i32 expression that evaluates to the pointer to the closure struct.
+     * `envPtrExpr` must be an i32 expression; pass `i32.const(0)` for non-capturing closures.
+     */
+    private buildClosureStruct;
+    /**
+     * Returns the function table index of the wrapper for a named function.
+     * The wrapper has signature (env_ptr: i32, params...) -> ret so it can be
+     * called via call_indirect with a uniform closure calling convention.
+     * Wrappers are generated on demand and cached in `lambdaWrappers`.
+     */
+    private getOrCreateWrapper;
     private liftLambda;
     private generateFunction;
     /**

@@ -250,12 +250,14 @@ export interface BlockExpr extends BaseNode {
 }
 
 // Lambda expression: |param: Type, ...| body
-// Non-capturing only — no free variable references to enclosing scope.
+// May capture variables from the enclosing scope (closures).
 // Lifted to a top-level WASM function during codegen.
 export interface LambdaExpr extends BaseNode {
   kind: "LambdaExpr";
   params: Parameter[];   // each must have a type annotation
   body: Expr;
+  // Filled in by the checker — names of free variables captured from the enclosing scope:
+  captures?: string[];
   // Filled in by codegen when the lambda is lifted:
   liftedName?: string;   // auto-generated function name, e.g. "__lambda_3"
 }
