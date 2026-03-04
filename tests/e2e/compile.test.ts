@@ -7286,3 +7286,402 @@ setTimeout(function() {
     await sseWorker.terminate();
   }, 15000);
 });
+
+// ---------------------------------------------------------------------------
+// TTY builtins
+// ---------------------------------------------------------------------------
+
+describe("TTY builtins", () => {
+  // --- Type-check tests ---
+
+  it("tty_is_tty type-checks (pure, no effect needed)", () => {
+    const src = `
+      module Test
+      function check_is_tty() -> Bool {
+        tty_is_tty()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("tty_term_width and tty_term_height type-check with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function get_dims() -> Int64 {
+        let w = tty_term_width();
+        let h = tty_term_height();
+        w + h
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("tty_enter_raw and tty_exit_raw type-check with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function toggle_raw() -> Unit {
+        tty_enter_raw();
+        tty_exit_raw()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("tty_read_key type-checks as Option<String> with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function try_read_key() -> Int64 {
+        match tty_read_key(0) {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("cursor movement ops type-check with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function move_cursor() -> Unit {
+        tty_cursor_up(1);
+        tty_cursor_down(1);
+        tty_cursor_to_col(1)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("tty_clear_line type-checks with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function clear() -> Unit {
+        tty_clear_line()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("tty_hide_cursor and tty_show_cursor type-check with TTY effect", () => {
+    const src = `
+      module Test
+      effect[TTY] function toggle_cursor() -> Unit {
+        tty_hide_cursor();
+        tty_show_cursor()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("error: calling TTY builtins without TTY effect is rejected", () => {
+    const src = `
+      module Test
+      function bad_width() -> Int64 {
+        tty_term_width()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  // --- Runtime tests ---
+
+  it("tty_is_tty returns false in non-TTY test environment", async () => {
+    const src = `
+      module Test
+      function check_is_tty() -> Bool {
+        tty_is_tty()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    // vitest runs in a worker_threads context — stdout is not a TTY
+    const val = (instance.exports.check_is_tty as () => number)();
+    expect(val).toBe(0); // Bool false = i32 0
+  });
+
+  it("tty_term_width returns 80 as default in non-TTY environment", async () => {
+    const src = `
+      module Test
+      effect[TTY] function get_width() -> Int64 {
+        tty_term_width()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.get_width as () => bigint)();
+    expect(val).toBe(80n);
+  });
+
+  it("tty_term_height returns 24 as default in non-TTY environment", async () => {
+    const src = `
+      module Test
+      effect[TTY] function get_height() -> Int64 {
+        tty_term_height()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.get_height as () => bigint)();
+    expect(val).toBe(24n);
+  });
+
+  it("tty_enter_raw and tty_exit_raw are no-ops in non-TTY environment", async () => {
+    const src = `
+      module Test
+      effect[TTY] function do_raw_toggle() -> Int64 {
+        tty_enter_raw();
+        tty_exit_raw();
+        42
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(() => {
+      const val = (instance.exports.do_raw_toggle as () => bigint)();
+      expect(val).toBe(42n);
+    }).not.toThrow();
+  });
+
+  it("tty_read_key with 0ms timeout returns None immediately", async () => {
+    const src = `
+      module Test
+      effect[TTY] function try_read() -> Int64 {
+        match tty_read_key(0) {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.try_read as () => bigint)();
+    expect(val).toBe(0n); // None -> 0
+  });
+
+  it("cursor ops and clear execute without error", async () => {
+    const src = `
+      module Test
+      effect[TTY] function do_cursor_ops() -> Int64 {
+        tty_cursor_up(1);
+        tty_cursor_down(2);
+        tty_cursor_to_col(1);
+        tty_clear_line();
+        tty_hide_cursor();
+        tty_show_cursor();
+        99
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.do_cursor_ops as () => bigint)();
+    expect(val).toBe(99n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mux builtins
+// ---------------------------------------------------------------------------
+
+describe("mux builtins", () => {
+  // --- Type-check tests ---
+
+  it("mux_open type-checks (no effect needed, returns Int64)", () => {
+    const src = `
+      module Test
+      function open_mux() -> Int64 {
+        mux_open()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("mux_add type-checks with Network effect", () => {
+    const src = `
+      module Test
+      effect[Network] function add_stream(handle: Int64) -> Unit {
+        mux_add(handle, "s1", "http://example.com/sse", "{}")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("mux_next type-checks as Option<String> with Network effect", () => {
+    const src = `
+      module Test
+      effect[Network] function poll_mux(handle: Int64) -> Int64 {
+        match mux_next(handle, 0) {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("mux_remove type-checks with Network effect", () => {
+    const src = `
+      module Test
+      effect[Network] function remove_stream(handle: Int64) -> Unit {
+        mux_remove(handle, "s1")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("mux_close type-checks with Network effect", () => {
+    const src = `
+      module Test
+      effect[Network] function close_mux(handle: Int64) -> Unit {
+        mux_close(handle)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("error: calling mux_next without Network effect is rejected", () => {
+    const src = `
+      module Test
+      function bad_poll(handle: Int64) -> Int64 {
+        match mux_next(handle, 0) {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  // --- Runtime tests ---
+
+  it("mux_open returns a valid handle (>= 0)", async () => {
+    const src = `
+      module Test
+      function open_mux() -> Int64 {
+        mux_open()
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const handle = (instance.exports.open_mux as () => bigint)();
+    expect(handle).toBeGreaterThanOrEqual(0n);
+  });
+
+  it("mux_next with 0ms timeout returns None on empty mux", async () => {
+    const src = `
+      module Test
+      effect[Network] function test_empty_mux() -> Int64 {
+        let handle = mux_open();
+        let result = mux_next(handle, 0);
+        mux_close(handle);
+        match result {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.test_empty_mux as () => bigint)();
+    expect(val).toBe(0n); // None -> 0
+  });
+
+  it("mux_close works on an open handle without error", async () => {
+    const src = `
+      module Test
+      effect[Network] function open_and_close() -> Int64 {
+        let handle = mux_open();
+        mux_close(handle);
+        1
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const val = (instance.exports.open_and_close as () => bigint)();
+    expect(val).toBe(1n);
+  });
+
+  it("mux_add + mux_next round-trip with live SSE server", async () => {
+    const src = `
+      module Test
+      effect[Network] function mux_roundtrip(port: Int64) -> String {
+        let handle = mux_open();
+        let url = "http://127.0.0.1:" ++ int_to_string(port) ++ "/sse";
+        mux_add(handle, "s1", url, "{}");
+        let evt = match mux_next(handle, 5000) {
+          None -> "timeout",
+          Some(json) -> match json_get(json, "event") {
+            None -> "no-event",
+            Some(v) -> v
+          }
+        };
+        mux_close(handle);
+        evt
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+
+    // Start a minimal SSE server in a Worker; signal port back via SAB.
+    const portSab = new SharedArrayBuffer(8);
+    const portCtrl = new Int32Array(portSab);
+
+    const serverWorker = new Worker(`
+const { workerData } = require('worker_threads');
+const http = require('http');
+const { portSab } = workerData;
+const portCtrl = new Int32Array(portSab);
+const server = http.createServer(function(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  res.write('data: hello_from_mux\\n\\n');
+  setTimeout(function() { res.end(); server.close(); }, 300);
+});
+server.listen(0, '127.0.0.1', function() {
+  var port = server.address().port;
+  Atomics.store(portCtrl, 1, port);
+  Atomics.store(portCtrl, 0, 1);
+  Atomics.notify(portCtrl, 0, 1);
+});
+`, { eval: true, workerData: { portSab } });
+
+    // Wait for server ready (max 3s).
+    Atomics.wait(portCtrl, 0, 0, 3000);
+    expect(Atomics.load(portCtrl, 0)).toBe(1);
+    const port = Atomics.load(portCtrl, 1);
+
+    // Run Clarity function — blocks inside mux_next until SSE event arrives.
+    const evtPtr = (instance.exports.mux_roundtrip as (p: bigint) => number)(BigInt(port));
+    const evtStr = runtime.readString(evtPtr);
+    expect(evtStr).toBe("hello_from_mux");
+
+    await serverWorker.terminate();
+  }, 15000);
+});

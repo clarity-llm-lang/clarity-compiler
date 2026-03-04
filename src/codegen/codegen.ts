@@ -469,14 +469,8 @@ export class CodeGenerator {
         this.registerNestedResultTypes(type.element);
         break;
       case "Option":
-        // Option is stored as a Union in allTypeDecls already; recurse into inner
-        if (type.variants) {
-          for (const v of type.variants) {
-            for (const ft of v.fields.values()) {
-              this.registerNestedResultTypes(ft);
-            }
-          }
-        }
+        // Recurse into the inner type (e.g. the String in Option<String>)
+        this.registerNestedResultTypes(type.inner);
         break;
       case "Union":
         for (const v of type.variants) {
