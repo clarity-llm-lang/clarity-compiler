@@ -97,6 +97,14 @@ During this migration, the following language/runtime gaps were identified:
    - Need first-class support for shipping Clarity apps as standalone CLI binaries or package-friendly launch artifacts.
 4. **RQ-LANG-CLI-004: Runtime integration harness**
    - Need official e2e fixtures for runtime-agent chat contracts to verify behavior against live runtime streams and terminal states.
+5. **RQ-LANG-CLI-007: Raw terminal key input**
+   - Need raw stdin key event support (`up`, `down`, `enter`, `space`, `escape`) for native arrow-key selection UX.
+   - Must restore terminal mode on exit/error.
+6. **RQ-LANG-CLI-008: Terminal render control**
+   - Need cursor/clear primitives for in-place list redraw in TTY UIs, with a documented non-TTY fallback.
+7. **RQ-LANG-CLI-009: Multi-run event fan-in**
+   - Need a standard primitive/pattern to concurrently consume SSE/poll events for multiple run IDs in one operator loop.
+   - Required for native multi-agent room chat and discuss orchestration.
 
 ## TypeScript Removal Requirements (Complete)
 
@@ -121,6 +129,10 @@ Acceptance criteria:
 - `LLM-cli` can be built and run with no mandatory TypeScript runtime dependency.
 - Existing CI behavior parity is maintained (build/lint/test equivalents for native CLI).
 - TS command router and runtime client modules are removed or reduced to non-runtime dev tooling only.
+- `claritycli`-level UX is available natively in Clarity:
+  - Arrow-key/space/enter selection of one or many agents.
+  - Alias assignment for invited participants.
+  - Targeted messaging (`@alias`, `/to`) and multi-agent discuss loop.
 
 ## Backlog
 
@@ -133,3 +145,13 @@ Acceptance criteria:
 - Priority: `P1`
 - Item: Deliver RQ-LANG-CLI-005 and RQ-LANG-CLI-006 so TypeScript can be removed completely from production CLI execution paths.
 - Dependency: native packaging/runtime-entrypoint support + broker/server capability parity in Clarity.
+
+- Backlog ID: `LANG-CLI-TUI-001`
+- Priority: `P1`
+- Item: Deliver RQ-LANG-CLI-007 and RQ-LANG-CLI-008 for native interactive selector UX in Clarity.
+- Dependency: terminal raw input + cursor/clear output primitives.
+
+- Backlog ID: `LANG-CLI-ROOM-001`
+- Priority: `P1`
+- Item: Deliver RQ-LANG-CLI-009 for native multi-agent room and discuss support in Clarity.
+- Dependency: multi-stream event fan-in with robust run-scoped dispatch.

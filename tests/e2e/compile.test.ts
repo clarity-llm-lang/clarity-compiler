@@ -4,6 +4,7 @@ import { createRuntime, type RuntimeConfig } from "../../src/codegen/runtime.js"
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { Worker } from "worker_threads";
 
 function makeRuntime(config?: RuntimeConfig) {
   return createRuntime(config);
@@ -1018,23 +1019,21 @@ describe("end-to-end compilation", () => {
     expect(out).toContain('"alice"');
   });
 
-  // Note: http_listen and db_execute/db_query were removed from the registry
-  // because they were never implemented (always returned Err("not implemented")).
-  // The tests below verify they are no longer callable from Clarity.
+  // http_listen is now a real builtin returning Result<Int64, String>.
+  // The test below verifies it type-checks correctly.
 
-  it("http_listen is not a known builtin (removed)", () => {
+  it("http_listen type-checks as Result<Int64, String>", () => {
     const source = `
       module Test
-      effect[Network] function bad() -> String {
+      effect[Network] function start_server() -> Int64 {
         match http_listen(8080) {
-          Ok(v) -> v,
-          Err(e) -> e
+          Ok(handle) -> handle,
+          Err(_e) -> 0
         }
       }
     `;
     const result = compile(source, "test.clarity");
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0].message).toContain("http_listen");
+    expect(result.errors).toHaveLength(0);
   });
 
   it("db_execute is not a known builtin (removed)", () => {
@@ -6959,4 +6958,331 @@ describe("Mutual tail-recursion warning (#8)", () => {
     );
     expect(mutualWarnings).toHaveLength(1);
   });
+});
+
+// ---------------------------------------------------------------------------
+// HTTP server builtins (http_listen, http_next_request, http_respond, etc.)
+// ---------------------------------------------------------------------------
+describe("HTTP server builtins", () => {
+  // ── Type-check tests ────────────────────────────────────────────────────
+
+  it("http_listen compiles and returns Result<Int64, String>", () => {
+    const src = `
+      module Test
+      effect[Network] function start(port: Int64) -> Int64 {
+        match http_listen(port) {
+          Ok(handle) -> handle,
+          Err(_e) -> 0
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("http_next_request compiles and returns Result<String, String>", () => {
+    const src = `
+      module Test
+      effect[Network] function get_req(handle: Int64) -> String {
+        match http_next_request(handle) {
+          Ok(json) -> json,
+          Err(e) -> e
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("http_respond compiles with correct parameter types", () => {
+    const src = `
+      module Test
+      effect[Network] function respond(id: Int64, status: Int64) -> Unit {
+        http_respond(id, status, "{}", "OK")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("http_close_server compiles correctly", () => {
+    const src = `
+      module Test
+      effect[Network] function close(handle: Int64) -> Unit {
+        http_close_server(handle)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("http_start_sse, http_send_sse_event, http_close_sse compile correctly", () => {
+    const src = `
+      module Test
+      effect[Network] function run_sse(req_id: Int64) -> Unit {
+        http_start_sse(req_id, "{}");
+        http_send_sse_event(req_id, "hello");
+        http_close_sse(req_id)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects http_listen without Network effect", () => {
+    const src = `
+      module Test
+      function bad(port: Int64) -> Int64 {
+        match http_listen(port) {
+          Ok(h) -> h,
+          Err(_) -> 0
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toMatch(/Network/);
+  });
+
+  it("rejects http_respond without Network effect", () => {
+    const src = `
+      module Test
+      function bad(id: Int64) -> Unit {
+        http_respond(id, 200, "{}", "OK")
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].message).toMatch(/Network/);
+  });
+
+  // ── Runtime tests ────────────────────────────────────────────────────────
+
+  it("http_listen starts a server and http_close_server shuts it down", async () => {
+    const src = `
+      module Test
+      effect[Network] function run(port: Int64) -> Int64 {
+        match http_listen(port) {
+          Err(_e) -> 0 - 1,
+          Ok(handle) -> {
+            http_close_server(handle);
+            handle
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+    const port = 19600 + Math.floor(Math.random() * 200);
+    const handle = (instance.exports.run as (p: bigint) => bigint)(BigInt(port));
+    expect(Number(handle)).toBeGreaterThan(0);
+  }, 10000);
+
+  it("http_listen returns Err when port is already in use", async () => {
+    const src = `
+      module Test
+      // Start server on port, then try to start another server on the same port.
+      // Returns 1 if second listen failed (expected), 0 if it succeeded (unexpected).
+      effect[Network] function run(port: Int64) -> Int64 {
+        match http_listen(port) {
+          Err(_) -> 0 - 1,
+          Ok(h1) -> {
+            let result = match http_listen(port) {
+              Err(_e) -> 1,
+              Ok(h2) -> { http_close_server(h2); 0 }
+            };
+            http_close_server(h1);
+            result
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const port = 19400 + Math.floor(Math.random() * 200);
+    const rv = (instance.exports.run as (p: bigint) => bigint)(BigInt(port));
+    expect(Number(rv)).toBe(1); // second http_listen returned Err
+  }, 10000);
+
+  it("http_listen / http_next_request / http_respond full round-trip", async () => {
+    // This Clarity function: starts a server, waits for one request, responds with "pong", closes server.
+    // Returns the request JSON so we can verify method/path.
+    const src = `
+      module Test
+      effect[Network] function handle_one(port: Int64) -> String {
+        match http_listen(port) {
+          Err(e) -> e,
+          Ok(handle) -> {
+            let req_json = match http_next_request(handle) {
+              Err(e) -> { http_close_server(handle); e },
+              Ok(j) -> j
+            };
+            let req_id = match json_get(req_json, "id") {
+              None -> 0,
+              Some(s) -> match string_to_int(s) {
+                None -> 0,
+                Some(n) -> n
+              }
+            };
+            http_respond(req_id, 200, "{}", "pong");
+            http_close_server(handle);
+            req_json
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+
+    const port = 19200 + Math.floor(Math.random() * 200);
+
+    // Use a Worker to send an HTTP GET request after the server is ready.
+    // The SAB is used to receive the HTTP response body from the worker.
+    const respSab = new SharedArrayBuffer(4096);
+    const respCtrl = new Int32Array(respSab, 0, 1);
+    const respMeta = new DataView(respSab);
+
+    const requestWorker = new Worker(`
+const { workerData } = require('worker_threads');
+const http = require('http');
+const { respSab, port } = workerData;
+const respCtrl = new Int32Array(respSab, 0, 1);
+const respMeta = new DataView(respSab);
+// Short delay so the Clarity program has time to call http_next_request.
+setTimeout(function() {
+  var req = http.request({ hostname: '127.0.0.1', port: port, path: '/hello', method: 'GET' }, function(res) {
+    var chunks = [];
+    res.on('data', function(c) { chunks.push(c); });
+    res.on('end', function() {
+      var body = Buffer.concat(chunks).toString('utf8');
+      var encoded = Buffer.from(body.slice(0, 4080), 'utf8');
+      respMeta.setInt32(4, encoded.length, true);
+      new Uint8Array(respSab, 8, encoded.length).set(encoded);
+      Atomics.store(respCtrl, 0, 1);
+      Atomics.notify(respCtrl, 0, 1);
+    });
+  });
+  req.on('error', function() { Atomics.store(respCtrl, 0, 2); Atomics.notify(respCtrl, 0, 1); });
+  req.end();
+}, 100);
+`, { eval: true, workerData: { respSab, port } });
+
+    // Call the Clarity function (blocks internally on http_next_request until request arrives).
+    const reqJsonPtr = (instance.exports.handle_one as (p: bigint) => number)(BigInt(port));
+    const reqJson = runtime.readString(reqJsonPtr);
+
+    // Wait for the request worker to receive the HTTP response (with 5s timeout).
+    Atomics.wait(respCtrl, 0, 0, 5000);
+    const status = Atomics.load(respCtrl, 0);
+    expect(status).toBe(1); // response received successfully
+
+    const bodyLen = respMeta.getInt32(4, true);
+    const bodyBytes = new Uint8Array(respSab, 8, bodyLen);
+    const responseBody = Buffer.from(bodyBytes).toString("utf-8");
+    expect(responseBody).toBe("pong");
+
+    // Also verify the request JSON structure.
+    const parsed = JSON.parse(reqJson) as { method?: string; path?: string };
+    expect(parsed.method).toBe("GET");
+    expect(parsed.path).toBe("/hello");
+
+    await requestWorker.terminate();
+  }, 15000);
+
+  it("http_start_sse / http_send_sse_event / http_close_sse round-trip", async () => {
+    // This Clarity function: starts a server, waits for one request, starts SSE, sends 2 events, closes.
+    const src = `
+      module Test
+      effect[Network] function sse_serve(port: Int64) -> Unit {
+        match http_listen(port) {
+          Err(_e) -> {},
+          Ok(handle) -> {
+            match http_next_request(handle) {
+              Err(_e) -> http_close_server(handle),
+              Ok(req_json) -> {
+                let req_id = match json_get(req_json, "id") {
+                  None -> 0,
+                  Some(s) -> match string_to_int(s) {
+                    None -> 0,
+                    Some(n) -> n
+                  }
+                };
+                http_start_sse(req_id, "{}");
+                http_send_sse_event(req_id, "event1");
+                http_send_sse_event(req_id, "event2");
+                http_close_sse(req_id);
+                http_close_server(handle)
+              }
+            }
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance } = await instantiate(result.wasm!);
+
+    const port = 19000 + Math.floor(Math.random() * 200);
+
+    // Worker: connect to SSE endpoint and collect events.
+    const evtSab = new SharedArrayBuffer(8192);
+    const evtCtrl = new Int32Array(evtSab, 0, 1);
+    const evtMeta = new DataView(evtSab);
+
+    const sseWorker = new Worker(`
+const { workerData } = require('worker_threads');
+const http = require('http');
+const { evtSab, port } = workerData;
+const evtCtrl = new Int32Array(evtSab, 0, 1);
+const evtMeta = new DataView(evtSab);
+setTimeout(function() {
+  var req = http.request({ hostname: '127.0.0.1', port: port, path: '/sse', method: 'GET' }, function(res) {
+    var events = [];
+    var buf = '';
+    res.on('data', function(chunk) {
+      buf += chunk.toString('utf8');
+      var lines = buf.split('\\n');
+      buf = lines.pop() || '';
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line.startsWith('data: ')) { events.push(line.slice(6)); }
+      }
+    });
+    res.on('end', function() {
+      var joined = events.join(',');
+      var encoded = Buffer.from(joined, 'utf8');
+      evtMeta.setInt32(4, encoded.length, true);
+      new Uint8Array(evtSab, 8, encoded.length).set(encoded);
+      Atomics.store(evtCtrl, 0, 1);
+      Atomics.notify(evtCtrl, 0, 1);
+    });
+    res.on('error', function() { Atomics.store(evtCtrl, 0, 2); Atomics.notify(evtCtrl, 0, 1); });
+  });
+  req.on('error', function() { Atomics.store(evtCtrl, 0, 2); Atomics.notify(evtCtrl, 0, 1); });
+  req.end();
+}, 100);
+`, { eval: true, workerData: { evtSab, port } });
+
+    // Run the Clarity function (blocks on http_next_request until request arrives).
+    (instance.exports.sse_serve as (p: bigint) => void)(BigInt(port));
+
+    // Wait for the SSE worker to receive all events (the response body closes after http_close_sse).
+    Atomics.wait(evtCtrl, 0, 0, 5000);
+    const status = Atomics.load(evtCtrl, 0);
+    expect(status).toBe(1);
+
+    const evtLen = evtMeta.getInt32(4, true);
+    const evtBytes = new Uint8Array(evtSab, 8, evtLen);
+    const evtBody = Buffer.from(evtBytes).toString("utf-8");
+    // evtBody should be "event1,event2"
+    expect(evtBody).toBe("event1,event2");
+
+    await sseWorker.terminate();
+  }, 15000);
 });
