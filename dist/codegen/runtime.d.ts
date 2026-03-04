@@ -170,6 +170,9 @@ export declare function createRuntime(config?: RuntimeConfig): {
             file_exists(pathPtr: number): number;
             remove_file(pathPtr: number): void;
             make_dir(pathPtr: number): void;
+            fs_watch_start(pathPtr: number): number;
+            fs_watch_next(handleN: bigint, timeoutN: bigint): number;
+            fs_watch_stop(handleN: bigint): void;
             list_reverse(ptr: number, elemSize: number): number;
             get_secret(namePtr: number): number;
             call_model(modelPtr: number, promptPtr: number): number;

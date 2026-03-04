@@ -7685,3 +7685,169 @@ server.listen(0, '127.0.0.1', function() {
     await serverWorker.terminate();
   }, 15000);
 });
+
+// ---------------------------------------------------------------------------
+// fs_watch builtins (RQ-LANG-CLI-FS-003)
+// ---------------------------------------------------------------------------
+
+describe("fs_watch builtins", () => {
+  // --- Type-check tests ---
+
+  it("fs_watch_start type-checks as Result<Int64, String> with FileSystem effect", () => {
+    const src = `
+      module Test
+      effect[FileSystem] function start_watch(path: String) -> Int64 {
+        match fs_watch_start(path) {
+          Err(_) -> 0,
+          Ok(h) -> h
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("fs_watch_next type-checks as Option<String> with FileSystem effect", () => {
+    const src = `
+      module Test
+      effect[FileSystem] function poll_watch(handle: Int64) -> Int64 {
+        match fs_watch_next(handle, 0) {
+          None -> 0,
+          Some(_) -> 1
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("fs_watch_stop type-checks with FileSystem effect", () => {
+    const src = `
+      module Test
+      effect[FileSystem] function stop_watch(handle: Int64) -> Unit {
+        fs_watch_stop(handle)
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("error: calling fs_watch_start without FileSystem effect is rejected", () => {
+    const src = `
+      module Test
+      function bad_watch(path: String) -> Int64 {
+        match fs_watch_start(path) {
+          Err(_) -> 0,
+          Ok(h) -> h
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  // --- Runtime tests ---
+
+  it("fs_watch_start returns Ok handle for an existing directory", async () => {
+    const src = `
+      module Test
+      effect[FileSystem] function start_watch(path: String) -> Int64 {
+        match fs_watch_start(path) {
+          Err(_) -> -1,
+          Ok(h) -> h
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const tmpDir = os.tmpdir();
+    const pathPtr = runtime.writeString(tmpDir);
+    const handle = (instance.exports.start_watch as (p: number) => bigint)(pathPtr);
+    expect(handle).toBeGreaterThanOrEqual(0n);
+  });
+
+  it("fs_watch_next with 0ms timeout returns None when no changes occurred", async () => {
+    const src = `
+      module Test
+      effect[FileSystem] function watch_and_poll(path: String) -> Int64 {
+        match fs_watch_start(path) {
+          Err(_) -> -1,
+          Ok(handle) -> {
+            let result = fs_watch_next(handle, 0);
+            fs_watch_stop(handle);
+            match result {
+              None -> 0,
+              Some(_) -> 1
+            }
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const tmpDir = os.tmpdir();
+    const pathPtr = runtime.writeString(tmpDir);
+    const val = (instance.exports.watch_and_poll as (p: number) => bigint)(pathPtr);
+    expect(val).toBe(0n); // None -> 0 (no change yet)
+  });
+
+  it("fs_watch_next detects a file write in watched directory", async () => {
+    const src = `
+      module Test
+      effect[FileSystem] function watch_for_change(path: String) -> String {
+        match fs_watch_start(path) {
+          Err(e) -> e,
+          Ok(handle) -> {
+            let result = fs_watch_next(handle, 3000);
+            fs_watch_stop(handle);
+            match result {
+              None -> "timeout",
+              Some(json) -> match json_get(json, "event") {
+                None -> "no-event",
+                Some(v) -> v
+              }
+            }
+          }
+        }
+      }
+    `;
+    const result = compile(src, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+    const { instance, runtime } = await instantiate(result.wasm!);
+
+    // Create a temporary directory to watch.
+    const watchDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-watch-test-"));
+
+    // Worker: write a file into the directory after a short delay.
+    const doneSab = new SharedArrayBuffer(4);
+    const doneCtrl = new Int32Array(doneSab);
+    const writerWorker = new Worker(`
+const { workerData } = require('worker_threads');
+const fs = require('fs');
+const path = require('path');
+const { doneSab, watchDir } = workerData;
+const doneCtrl = new Int32Array(doneSab);
+setTimeout(function() {
+  fs.writeFileSync(path.join(watchDir, 'trigger.txt'), 'hello');
+  Atomics.store(doneCtrl, 0, 1);
+  Atomics.notify(doneCtrl, 0, 1);
+}, 200);
+`, { eval: true, workerData: { doneSab, watchDir } });
+
+    // Run Clarity watch — blocks in fs_watch_next until file write arrives.
+    const pathPtr = runtime.writeString(watchDir);
+    const evtPtr = (instance.exports.watch_for_change as (p: number) => number)(pathPtr);
+    const evtStr = runtime.readString(evtPtr);
+
+    // The event should be "change" or "rename" (OS-dependent on first write).
+    expect(["change", "rename"]).toContain(evtStr);
+
+    // Cleanup
+    Atomics.wait(doneCtrl, 0, 0, 3000);
+    await writerWorker.terminate();
+    try { fs.rmSync(watchDir, { recursive: true }); } catch (_) {}
+  }, 10000);
+});

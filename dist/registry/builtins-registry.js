@@ -758,6 +758,33 @@ export const CLARITY_BUILTINS = [
         doc: "Create a directory at the given path, creating all intermediate directories as needed (mkdir -p semantics). Does nothing if the directory already exists.",
         category: "io",
     },
+    {
+        name: "fs_watch_start",
+        params: [STRING],
+        paramNames: ["path"],
+        returnType: { kind: "Result", ok: INT64, err: STRING },
+        effects: ["FileSystem"],
+        doc: "Start watching a file or directory for changes. Returns Ok(handle) on success, Err(message) if the path does not exist or cannot be watched. Pass the handle to fs_watch_next to receive events and fs_watch_stop to stop. Uses OS-level file-watch APIs (FSEvents on macOS, inotify on Linux) with an automatic polling fallback where native APIs are unavailable.",
+        category: "filesystem",
+    },
+    {
+        name: "fs_watch_next",
+        params: [INT64, INT64],
+        paramNames: ["handle", "timeout_ms"],
+        returnType: OPTION_STRING,
+        effects: ["FileSystem"],
+        doc: "Block until a file system change event arrives on the given watch handle, or until timeout_ms milliseconds elapse. Returns Some(event_json) where event_json is {\"event\":\"change\"|\"rename\",\"filename\":\"relative/path\"}. Returns None on timeout. Call fs_watch_start first to obtain a handle.",
+        category: "filesystem",
+    },
+    {
+        name: "fs_watch_stop",
+        params: [INT64],
+        paramNames: ["handle"],
+        returnType: UNIT,
+        effects: ["FileSystem"],
+        doc: "Stop watching a directory and release the watch handle. After this call the handle is invalid. Safe to call if the handle is already stopped.",
+        category: "filesystem",
+    },
     // --- Network operations (require Network effect) ---
     {
         name: "http_request_full",

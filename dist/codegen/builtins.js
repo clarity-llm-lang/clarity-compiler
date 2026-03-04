@@ -119,6 +119,9 @@ export function getBuiltins() {
         { name: "file_exists", importModule: "env", importName: "file_exists", params: i32, result: i32 },
         { name: "remove_file", importModule: "env", importName: "remove_file", params: i32, result: none },
         { name: "make_dir", importModule: "env", importName: "make_dir", params: i32, result: none },
+        { name: "fs_watch_start", importModule: "env", importName: "fs_watch_start", params: i32, result: i32 },
+        { name: "fs_watch_next", importModule: "env", importName: "fs_watch_next", params: binaryen.createType([i64, i64]), result: i32 },
+        { name: "fs_watch_stop", importModule: "env", importName: "fs_watch_stop", params: i64, result: none },
         // --- Test assertions ---
         { name: "assert_eq", importModule: "env", importName: "assert_eq", params: pair_i64, result: none },
         { name: "assert_eq_float", importModule: "env", importName: "assert_eq_float", params: pair_f64, result: none },
