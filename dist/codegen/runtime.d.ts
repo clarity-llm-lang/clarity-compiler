@@ -118,6 +118,7 @@ export declare function createRuntime(config?: RuntimeConfig): {
             db_execute(_sqlPtr: number, _paramsPtr: number): number;
             db_query(_sqlPtr: number, _paramsPtr: number): number;
             read_line(): number;
+            read_line_or_eof(): number;
             read_all_stdin(): number;
             read_file(pathPtr: number): number;
             write_file(pathPtr: number, contentPtr: number): void;
@@ -131,6 +132,7 @@ export declare function createRuntime(config?: RuntimeConfig): {
             fs_watch_next(handleN: bigint, timeoutN: bigint): number;
             fs_watch_stop(handleN: bigint): void;
             stdin_try_read(timeoutN: bigint): number;
+            stdin_eof_detected(): number;
             string_concat(aPtr: number, bPtr: number): number;
             string_eq(aPtr: number, bPtr: number): number;
             string_length(ptr: number): bigint;

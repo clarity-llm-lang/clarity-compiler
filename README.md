@@ -10,7 +10,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
   <img src="https://img.shields.io/badge/version-0.9.0-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/tests-379%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-544%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/target-WebAssembly-purple.svg" alt="Target: WASM">
 </p>
 
@@ -384,6 +384,7 @@ Write all application code in the Clarity language.
 Quick reference: docs/clarity-quickref.md
 Full spec: docs/language-spec.md
 Runtime-agent CLI requirements: docs/runtime-agent-cli-requirements.md
+Shared runtime/CLI language requirements registry: docs/runtime-cli-language-requirements.md
 ```
 
 ### With any LLM
@@ -394,14 +395,14 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 
 ## Current Status (v0.9.0)
 
-**379 tests passing.**
+**544 tests passing.**
 
 ### Language
 - Full type system: Int64, Float64, String, Bool, Bytes, Timestamp, Unit, Option\<T\>, Result\<T,E\>, List\<T\>, Map\<K,V\>
 - Record and union types with exhaustive pattern matching
 - Pattern guards and range patterns (`1..10`)
 - Generics on functions and types with monomorphization
-- Higher-order functions (named functions as values)
+- Higher-order functions: named functions as values, lambda expressions (`|param: Type| body`), closures capturing variables from the enclosing scope
 - Immutable-by-default bindings (`let` / `let mut`)
 - Tail call optimization (self-recursive loops)
 - Multi-file programs with import/export and file-based module resolution

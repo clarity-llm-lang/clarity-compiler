@@ -88,6 +88,8 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
     const FS_WATCH_SAB_SIZE = 8 + 4096;
     const fsWatchTable = new Map();
     let nextFsWatchHandle = 1;
+    let stdinEofLatched = false; // latched after first EOF from read_line / read_line_or_eof
+    let stdinWorkerEofLatched = false; // latched after stdin_try_read sees STATUS_EOF
     function ensureStdinReader() {
         if (stdinReaderRef.sab)
             return;
@@ -102,16 +104,23 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
     return {
         read_line() {
             if (config.stdin !== undefined) {
+                if (config.stdin === "") {
+                    stdinEofLatched = true;
+                    return h.writeString("");
+                }
                 const newline = config.stdin.indexOf("\n");
                 if (newline === -1) {
                     const line = config.stdin;
                     config.stdin = "";
+                    // stdin exhausted after this line — next read_line() will latch EOF
                     return h.writeString(line);
                 }
                 const line = config.stdin.substring(0, newline);
                 config.stdin = config.stdin.substring(newline + 1);
                 return h.writeString(line);
             }
+            if (stdinEofLatched)
+                return h.writeString("");
             try {
                 const existingNl = stdinBufferRef.value.indexOf("\n");
                 if (existingNl !== -1) {
@@ -122,6 +131,7 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
                 const buf = Buffer.alloc(4096);
                 const bytesRead = nodeFs.readSync(0, buf, 0, buf.length, null);
                 if (bytesRead === 0) {
+                    stdinEofLatched = true;
                     const line = stdinBufferRef.value;
                     stdinBufferRef.value = "";
                     return h.writeString(line);
@@ -138,7 +148,57 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
                 return h.writeString(line);
             }
             catch {
+                stdinEofLatched = true;
                 return h.writeString("");
+            }
+        },
+        read_line_or_eof() {
+            if (config.stdin !== undefined) {
+                if (config.stdin === "") {
+                    stdinEofLatched = true;
+                    return h.allocOptionI32(null);
+                }
+                const newline = config.stdin.indexOf("\n");
+                if (newline === -1) {
+                    const line = config.stdin;
+                    config.stdin = "";
+                    // No more data after this — treat as EOF on next call
+                    return h.allocOptionI32(h.writeString(line));
+                }
+                const line = config.stdin.substring(0, newline);
+                config.stdin = config.stdin.substring(newline + 1);
+                return h.allocOptionI32(h.writeString(line));
+            }
+            if (stdinEofLatched)
+                return h.allocOptionI32(null);
+            try {
+                const existingNl = stdinBufferRef.value.indexOf("\n");
+                if (existingNl !== -1) {
+                    const line = stdinBufferRef.value.substring(0, existingNl);
+                    stdinBufferRef.value = stdinBufferRef.value.substring(existingNl + 1);
+                    return h.allocOptionI32(h.writeString(line));
+                }
+                const buf = Buffer.alloc(4096);
+                const bytesRead = nodeFs.readSync(0, buf, 0, buf.length, null);
+                if (bytesRead === 0) {
+                    stdinEofLatched = true;
+                    return h.allocOptionI32(null);
+                }
+                stdinBufferRef.value += buf.toString("utf-8", 0, bytesRead);
+                const newline = stdinBufferRef.value.indexOf("\n");
+                if (newline === -1) {
+                    const line = stdinBufferRef.value;
+                    stdinBufferRef.value = "";
+                    // Don't latch EOF yet — there might be more data pending without a trailing newline
+                    return h.allocOptionI32(h.writeString(line));
+                }
+                const line = stdinBufferRef.value.substring(0, newline);
+                stdinBufferRef.value = stdinBufferRef.value.substring(newline + 1);
+                return h.allocOptionI32(h.writeString(line));
+            }
+            catch {
+                stdinEofLatched = true;
+                return h.allocOptionI32(null);
             }
         },
         read_all_stdin() {
@@ -291,6 +351,8 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
                 config.stdin = config.stdin.substring(newline + 1);
                 return h.allocOptionI32(h.writeString(line));
             }
+            if (stdinWorkerEofLatched)
+                return h.allocOptionI32(null);
             ensureStdinReader();
             const ctrl = stdinReaderRef.ctrl;
             const sab = stdinReaderRef.sab;
@@ -300,6 +362,7 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
                 current = Atomics.load(ctrl, 0);
             }
             if (current === 1) {
+                // STATUS_LINE
                 const meta = new DataView(sab);
                 const lineLen = meta.getInt32(4, true);
                 const lineBytes = new Uint8Array(sab, STDIN_SAB_LINE_OFFSET, lineLen);
@@ -308,7 +371,14 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
                 Atomics.notify(ctrl, 0, 1);
                 return h.allocOptionI32(h.writeString(line));
             }
+            if (current === 2 || current === 3) {
+                // STATUS_EOF or STATUS_ERROR — latch so future calls return immediately
+                stdinWorkerEofLatched = true;
+            }
             return h.allocOptionI32(null);
+        },
+        stdin_eof_detected() {
+            return (stdinEofLatched || stdinWorkerEofLatched) ? 1 : 0;
         },
     };
 }

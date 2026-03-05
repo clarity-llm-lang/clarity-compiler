@@ -2,7 +2,8 @@
 import { INT64, STRING, BOOL, UNIT, LIST_STRING, OPTION_STRING, } from "./types.js";
 export const FS_BUILTINS = [
     // --- I/O primitives (require FileSystem effect) ---
-    { name: "read_line", params: [], paramNames: [], returnType: STRING, effects: ["FileSystem"], doc: "Read one line from stdin (up to newline).", category: "io" },
+    { name: "read_line", params: [], paramNames: [], returnType: STRING, effects: ["FileSystem"], doc: "Read one line from stdin (up to newline). Returns empty string on EOF.", category: "io" },
+    { name: "read_line_or_eof", params: [], paramNames: [], returnType: OPTION_STRING, effects: ["FileSystem"], doc: "Read one line from stdin. Returns Some(line) on success, None on EOF. After the first None, all subsequent calls also return None immediately (EOF is latched). Use this instead of read_line() when you need to distinguish EOF from an empty line. Do not mix with stdin_try_read() in the same program.", category: "io" },
     { name: "read_all_stdin", params: [], paramNames: [], returnType: STRING, effects: ["FileSystem"], doc: "Read all remaining input from stdin.", category: "io" },
     { name: "read_file", params: [STRING], paramNames: ["path"], returnType: STRING, effects: ["FileSystem"], doc: "Read the entire contents of a file as a string.", category: "io" },
     { name: "write_file", params: [STRING, STRING], paramNames: ["path", "content"], returnType: UNIT, effects: ["FileSystem"], doc: "Write a string to a file, replacing existing contents.", category: "io" },
@@ -32,5 +33,6 @@ export const FS_BUILTINS = [
         returnType: OPTION_STRING,
         effects: ["FileSystem"], doc: "Attempt to read a line from stdin, blocking for at most timeout_ms milliseconds. Returns Some(line) when a line arrives within the timeout (trailing newline stripped), or None on timeout or EOF. Uses a background worker thread so it can be interleaved with sse_next_event_timeout in a poll loop. Do not mix with read_line() in the same program.", category: "io",
     },
+    { name: "stdin_eof_detected", params: [], paramNames: [], returnType: BOOL, effects: ["FileSystem"], doc: "Return True if stdin has reached EOF (i.e., a previous read_line_or_eof() returned None, or stdin_try_read() encountered EOF). Use to exit poll loops cleanly when piped input is exhausted.", category: "io" },
 ];
 //# sourceMappingURL=fs.js.map
