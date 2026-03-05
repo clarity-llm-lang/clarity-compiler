@@ -15,17 +15,35 @@ const STATUS_IDLE = 0, STATUS_KEY = 1, STATUS_EOF = 2, STATUS_ERROR = 3;
 function normalizeKey(buf, n) {
   if (n === 0) return null;
   var b0 = buf[0];
-  if (b0 === 0x1b && n >= 3 && buf[1] === 0x5b) {
-    var b2 = buf[2];
-    if (b2 === 0x41) return 'up';
-    if (b2 === 0x42) return 'down';
-    if (b2 === 0x43) return 'right';
-    if (b2 === 0x44) return 'left';
-    if (b2 === 0x48) return 'home';
-    if (b2 === 0x46) return 'end';
+  if (b0 === 0x1b) {
+    // macOS fix: if only ESC arrived, drain remaining sequence bytes.
+    // In raw mode on macOS, readSync may split escape sequences across reads.
+    // We try a second read up to 7 more bytes to capture the full sequence.
+    if (n === 1) {
+      var extra = 0;
+      try { extra = fs.readSync(0, buf, 1, 7, null); } catch(_) {}
+      if (extra > 0) n += extra;
+    }
+    if (n >= 3 && buf[1] === 0x5b) {
+      var b2 = buf[2];
+      if (b2 === 0x41) return 'up';
+      if (b2 === 0x42) return 'down';
+      if (b2 === 0x43) return 'right';
+      if (b2 === 0x44) return 'left';
+      if (b2 === 0x48) return 'home';
+      if (b2 === 0x46) return 'end';
+      if (b2 === 0x35 && n >= 4 && buf[3] === 0x7e) return 'page_up';
+      if (b2 === 0x36 && n >= 4 && buf[3] === 0x7e) return 'page_down';
+      if (b2 === 0x33 && n >= 4 && buf[3] === 0x7e) return 'delete';
+    }
+    if (n >= 3 && buf[1] === 0x4f) {
+      if (buf[2] === 0x50) return 'f1';
+      if (buf[2] === 0x51) return 'f2';
+      if (buf[2] === 0x52) return 'f3';
+      if (buf[2] === 0x53) return 'f4';
+    }
     return 'escape';
   }
-  if (b0 === 0x1b) return 'escape';
   if (b0 === 0x0d || b0 === 0x0a) return 'enter';
   if (b0 === 0x20) return 'space';
   if (b0 === 0x7f || b0 === 0x08) return 'backspace';
@@ -37,9 +55,10 @@ function normalizeKey(buf, n) {
 }
 
 function readNext() {
-  var buf = Buffer.alloc(4);
+  // Use 8-byte buffer to handle longer sequences (F-keys, etc.)
+  var buf = Buffer.alloc(8);
   var n;
-  try { n = fs.readSync(0, buf, 0, 4, null); }
+  try { n = fs.readSync(0, buf, 0, 8, null); }
   catch(e) {
     Atomics.store(ctrl, 0, STATUS_ERROR);
     Atomics.notify(ctrl, 0, 1);
@@ -68,6 +87,33 @@ export function createTtyRuntime(h) {
     let ttyKeyWorker = null;
     let ttyKeySab = null;
     let ttyKeyCtrl = null;
+    let rawModeActive = false;
+    let exitHandlersRegistered = false;
+    function restoreTerminal() {
+        if (rawModeActive) {
+            try {
+                if (process.stdin.isTTY)
+                    process.stdin.setRawMode(false);
+            }
+            catch { /* not a TTY */ }
+            rawModeActive = false;
+        }
+    }
+    function ensureExitHandlers() {
+        if (exitHandlersRegistered)
+            return;
+        exitHandlersRegistered = true;
+        // Restore terminal mode on process exit, SIGINT, SIGTERM, and uncaught errors
+        // so the user's terminal is not left in raw mode after the program exits.
+        process.on("exit", restoreTerminal);
+        process.on("SIGINT", () => { restoreTerminal(); process.exit(130); });
+        process.on("SIGTERM", () => { restoreTerminal(); process.exit(143); });
+        process.on("uncaughtException", (err) => {
+            restoreTerminal();
+            process.stderr.write(err.stack ?? String(err));
+            process.exit(1);
+        });
+    }
     function ensureTtyKeyReader() {
         if (ttyKeyWorker)
             return;
@@ -77,7 +123,13 @@ export function createTtyRuntime(h) {
             eval: true,
             workerData: { sab: ttyKeySab },
         });
-        ttyKeyWorker.on("error", () => { ttyKeyWorker = null; ttyKeySab = null; ttyKeyCtrl = null; });
+        ttyKeyWorker.on("error", (err) => {
+            // Worker failed — log to stderr for debugging and mark as broken.
+            process.stderr.write(`[tty_read_key worker error] ${err.message ?? String(err)}\n`);
+            ttyKeyWorker = null;
+            ttyKeySab = null;
+            ttyKeyCtrl = null;
+        });
     }
     return {
         tty_is_tty() {
@@ -91,17 +143,16 @@ export function createTtyRuntime(h) {
         },
         tty_enter_raw() {
             try {
-                if (process.stdin.isTTY)
+                if (process.stdin.isTTY) {
                     process.stdin.setRawMode(true);
+                    rawModeActive = true;
+                    ensureExitHandlers();
+                }
             }
             catch { /* not a TTY */ }
         },
         tty_exit_raw() {
-            try {
-                if (process.stdin.isTTY)
-                    process.stdin.setRawMode(false);
-            }
-            catch { /* not a TTY */ }
+            restoreTerminal();
         },
         tty_read_key(timeoutN) {
             const timeoutMs = Number(timeoutN);

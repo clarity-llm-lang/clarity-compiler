@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compile, compileFile } from "../../src/compiler.js";
-import { createRuntime, type RuntimeConfig } from "../../src/codegen/runtime.js";
+import { createRuntime } from "../../src/codegen/runtime.js";
+import type { RuntimeConfig } from "../../src/codegen/runtime.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -7947,4 +7948,119 @@ setTimeout(function() {
     await writerWorker.terminate();
     try { fs.rmSync(watchDir, { recursive: true }); } catch (_) {}
   }, 10000);
+});
+
+// =============================================================================
+// LANG-RUNTIME-CLI-EOF-001: read_line_or_eof + stdin_eof_detected
+// =============================================================================
+
+describe("read_line_or_eof and stdin_eof_detected builtins", () => {
+  it("read_line_or_eof type-checks (compile-only)", () => {
+    const source = `
+      module Test
+      effect[FileSystem] function read_one() -> Option<String> {
+        read_line_or_eof()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("read_line_or_eof requires FileSystem effect", () => {
+    const source = `
+      module Test
+      function read_one() -> Option<String> {
+        read_line_or_eof()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it("read_line_or_eof returns Some(line) for piped input", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> String {
+        match read_line_or_eof() {
+          Some(line) -> line,
+          None -> "eof"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "hello\nworld\n" });
+    const fn = instance.exports.run as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("hello");
+  });
+
+  it("read_line_or_eof returns None after stdin exhausted", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> String {
+        let first = read_line_or_eof();
+        let second = read_line_or_eof();
+        let third = read_line_or_eof();
+        match third {
+          Some(_) -> "not-eof",
+          None -> "eof"
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    // Provide only 2 lines — third call should see EOF
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "line1\nline2\n" });
+    const fn = instance.exports.run as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("eof");
+  });
+
+  it("stdin_eof_detected returns false before EOF", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> Bool {
+        stdin_eof_detected()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "some input\n" });
+    const fn = instance.exports.run as () => number;
+    expect(fn()).toBe(0); // False
+  });
+
+  it("stdin_eof_detected returns true after read_line_or_eof sees EOF", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> Bool {
+        let _ = read_line_or_eof(); // consumes "line"
+        let _ = read_line_or_eof(); // hits EOF
+        stdin_eof_detected()
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "line\n" });
+    const fn = instance.exports.run as () => number;
+    expect(fn()).toBe(1); // True
+  });
+
+  it("read_line returns empty string on EOF (backward-compatible)", async () => {
+    const source = `
+      module Test
+      effect[FileSystem] function run() -> String {
+        let first = read_line();
+        let second = read_line(); // EOF
+        second
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "only one line\n" });
+    const fn = instance.exports.run as () => number;
+    const ptr = fn();
+    expect(runtime.readString(ptr)).toBe("");
+  });
 });

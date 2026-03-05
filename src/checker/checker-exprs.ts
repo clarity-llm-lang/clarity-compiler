@@ -86,10 +86,17 @@ export function checkExprInner(ctx: CheckerContext, expr: Expr): ClarityType {
         return ERROR_TYPE;
       }
       // Zero-field union variant constructors can be used as bare identifiers
-      // e.g. `NoneVal` instead of `NoneVal()` — auto-call them
+      // e.g. `Red` (from `type Color = | Red | Green | Blue`) without `()`.
+      // Guard: only auto-call when the identifier is actually a variant name in
+      // the returned union. This prevents regular zero-param functions that happen
+      // to return a Union type (e.g. `read_line_or_eof`) from being silently
+      // "called" here and causing "Cannot call non-function type" at the call site.
       if (sym.type.kind === "Function" && sym.type.params.length === 0
           && sym.type.returnType.kind === "Union") {
-        return sym.type.returnType;
+        const isVariantConstructor = sym.type.returnType.variants.some(v => v.name === expr.name);
+        if (isVariantConstructor) {
+          return sym.type.returnType;
+        }
       }
       return sym.type;
     }

@@ -9,6 +9,7 @@ export declare function createFsRuntime(h: SharedHelpers, config: RuntimeConfig,
     worker: Worker | null;
 }): {
     read_line(): number;
+    read_line_or_eof(): number;
     read_all_stdin(): number;
     read_file(pathPtr: number): number;
     write_file(pathPtr: number, contentPtr: number): void;
@@ -22,4 +23,5 @@ export declare function createFsRuntime(h: SharedHelpers, config: RuntimeConfig,
     fs_watch_next(handleN: bigint, timeoutN: bigint): number;
     fs_watch_stop(handleN: bigint): void;
     stdin_try_read(timeoutN: bigint): number;
+    stdin_eof_detected(): number;
 };

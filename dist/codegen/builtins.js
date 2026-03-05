@@ -110,6 +110,7 @@ export function getBuiltins() {
         { name: "json_stringify_object", importModule: "env", importName: "json_stringify_object", params: i32, result: i32 },
         // --- I/O primitives ---
         { name: "read_line", importModule: "env", importName: "read_line", params: binaryen.none, result: i32 },
+        { name: "read_line_or_eof", importModule: "env", importName: "read_line_or_eof", params: binaryen.none, result: i32 },
         { name: "read_all_stdin", importModule: "env", importName: "read_all_stdin", params: binaryen.none, result: i32 },
         { name: "read_file", importModule: "env", importName: "read_file", params: i32, result: i32 },
         { name: "write_file", importModule: "env", importName: "write_file", params: pair_i32, result: none },
@@ -213,6 +214,8 @@ export function getBuiltins() {
         { name: "sse_next_event_timeout", importModule: "env", importName: "sse_next_event_timeout", params: binaryen.createType([i64, i64]), result: i32 },
         // stdin_try_read(timeout_ms: i64) → Option<String> as i32 pointer
         { name: "stdin_try_read", importModule: "env", importName: "stdin_try_read", params: i64, result: i32 },
+        // stdin_eof_detected() → Bool
+        { name: "stdin_eof_detected", importModule: "env", importName: "stdin_eof_detected", params: binaryen.none, result: i32 },
         // url_encode(s) → String as i32 pointer
         { name: "url_encode", importModule: "env", importName: "url_encode", params: i32, result: i32 },
         // url_decode(s) → String as i32 pointer
