@@ -1,10 +1,11 @@
 import type { Diagnostic, Span } from "../errors/diagnostic.js";
-import type { ModuleDecl, Expr, TypeNode } from "../ast/nodes.js";
+import type { ModuleDecl, Expr, Pattern, TypeNode } from "../ast/nodes.js";
 import { type ClarityType } from "./types.js";
+import { Environment } from "./environment.js";
 export declare class Checker {
-    private env;
-    private diagnostics;
-    private currentEffects;
+    env: Environment;
+    diagnostics: Diagnostic[];
+    currentEffects: Set<string>;
     private typeParamsInScope;
     private optionTypes;
     private resultTypes;
@@ -30,16 +31,14 @@ export declare class Checker {
     lookupType(name: string): ClarityType | undefined;
     private registerBuiltins;
     private registerTypeDecl;
-    private findRecordType;
+    findRecordType(fieldNames: Set<string>, fieldTypes?: Map<string, ClarityType>): (ClarityType & {
+        kind: "Record";
+    }) | null;
     private resolveTypeExpr;
     resolveTypeRef(node: TypeNode): ClarityType | null;
     makeOptionType(inner: ClarityType): ClarityType;
-    private resolveSomeCall;
-    private resolveNoneType;
     getOptionTypes(): Map<string, ClarityType>;
     makeResultType(okType: ClarityType, errType: ClarityType): ClarityType;
-    private resolveOkCall;
-    private resolveErrCall;
     resultToUnion(resultType: Extract<ClarityType, {
         kind: "Result";
     }>): ClarityType & {
@@ -49,11 +48,6 @@ export declare class Checker {
     private registerFunctionSignature;
     private checkFunctionBody;
     private checkConstDecl;
-    private tailCallees;
-    private warnMutualTailRecursion;
     checkExpr(expr: Expr): ClarityType;
-    private checkExprInner;
-    private checkPattern;
-    private checkBinaryOp;
-    private checkUnaryOp;
+    checkPattern(pattern: Pattern, expectedType: ClarityType): void;
 }

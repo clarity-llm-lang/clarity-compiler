@@ -384,6 +384,7 @@ Write all application code in the Clarity language.
 Quick reference: docs/clarity-quickref.md
 Full spec: docs/language-spec.md
 Runtime-agent CLI requirements: docs/runtime-agent-cli-requirements.md
+Shared runtime/CLI language requirements registry: docs/runtime-cli-language-requirements.md
 ```
 
 ### With any LLM

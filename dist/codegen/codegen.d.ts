@@ -1,26 +1,50 @@
-import type { ModuleDecl } from "../ast/nodes.js";
+import binaryen from "binaryen";
+import type { ModuleDecl, FunctionDecl } from "../ast/nodes.js";
+import type { ClarityType } from "../checker/types.js";
 import { Checker } from "../checker/checker.js";
+export interface LocalVar {
+    index: number;
+    wasmType: binaryen.Type;
+    clarityType: ClarityType;
+}
+export declare function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType;
 export declare class CodeGenerator {
-    private mod;
-    private locals;
-    private localIndex;
-    private additionalLocals;
-    private checker;
-    private currentFunction;
-    private stringLiterals;
-    private dataSegmentOffset;
-    private dataSegments;
-    private allFunctions;
-    private allTypeDecls;
-    private functionTableNames;
-    private functionTableIndices;
-    private currentModuleWasmNames;
-    private functionDeclWasmNames;
-    private lambdaCounter;
-    private pendingLambdas;
-    private lambdaWrappers;
-    private generatedMonomorphs;
-    private typeVarSubst;
+    mod: binaryen.Module;
+    locals: Map<string, LocalVar>;
+    localIndex: number;
+    additionalLocals: binaryen.Type[];
+    checker: Checker;
+    currentFunction: FunctionDecl;
+    stringLiterals: Map<string, number>;
+    dataSegmentOffset: number;
+    dataSegments: {
+        offset: number;
+        data: Uint8Array;
+    }[];
+    allFunctions: Map<string, FunctionDecl>;
+    allTypeDecls: Map<string, ClarityType>;
+    functionTableNames: string[];
+    functionTableIndices: Map<string, number>;
+    currentModuleWasmNames: Map<string, string>;
+    functionDeclWasmNames: Map<FunctionDecl, string>;
+    lambdaCounter: number;
+    pendingLambdas: Array<{
+        name: string;
+        expr: import("../ast/nodes.js").LambdaExpr;
+    }>;
+    lambdaWrappers: Map<string, number>;
+    generatedMonomorphs: Set<string>;
+    typeVarSubst: Map<string, ClarityType>;
+    get _inferCtx(): {
+        locals: Map<string, LocalVar>;
+        allFunctions: Map<string, FunctionDecl>;
+        allTypeDecls: Map<string, ClarityType>;
+        functionTableIndices: Map<string, number>;
+        typeVarSubst: Map<string, ClarityType>;
+        currentFunction: FunctionDecl;
+        checker: Checker;
+        builtinReturnTypeMap: Map<string, ClarityType>;
+    };
     generate(module: ModuleDecl, checker: Checker): Uint8Array;
     generateText(module: ModuleDecl, checker: Checker): string;
     /** Generate WASM binary from multiple modules merged into one */
@@ -45,7 +69,6 @@ export declare class CodeGenerator {
      */
     private registerNestedResultTypes;
     private prescanStringLiterals;
-    private scanExprForStrings;
     private fieldSize;
     private fieldAlign;
     private recordLayout;

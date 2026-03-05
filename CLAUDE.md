@@ -3,6 +3,40 @@
 ## What is this
 Clarity is a programming language optimized for LLM code generation that compiles to WASM. This repo contains the compiler (`clarityc`), written in TypeScript.
 
+## Workspace boundary
+
+This repo is one of three projects in the Clarity workspace:
+
+| Repo | Responsibility |
+|------|---------------|
+| `LLM-lang` ← **this repo** | Language definition, compiler, standard library |
+| `LLM-runtime` | Daemon + gateway that runs Clarity apps, MCP services, and agent orchestration |
+| `LLM-cli` | Operator CLI (`clarity-agent`) used to connect to agents running in `LLM-runtime`; must be implemented in native Clarity |
+
+### What LLM-lang owns
+- The Clarity **language spec** (grammar, type system, effects, semantics)
+- The **compiler** (`clarityc`) — parser, checker, codegen, WASM output
+- The **standard library** — pure Clarity modules (`std/math`, `std/string`, `std/list`, `std/agent`, `std/rag`, `std/llm`, `std/mcp`, `std/a2a`, `std/hitl`, …)
+- **Built-in functions** — runtime primitives callable from Clarity (I/O, LLM, HTTP, MCP, …)
+- **Language-level annotations** like `effect[Test]`, and the future `skill` keyword
+- The **`clarityc` CLI** — compile, run, check, test, introspect, start
+
+### What LLM-lang does NOT own
+- Service registry and lifecycle management → `LLM-runtime`
+- MCP gateway / tool serving → `LLM-runtime`
+- Agent run tracking, audit events, A2A agent cards → `LLM-runtime`
+- Operator UI (status dashboard, logs page) → `LLM-runtime`
+- Operator interactive CLI (`clarity-agent`) → `LLM-cli`
+
+### Cross-repo language requirements
+When `LLM-runtime` or `LLM-cli` hits a language or compiler gap, the requirement is recorded in:
+
+```
+docs/runtime-cli-language-requirements.md
+```
+
+Check that file for current open items before starting new language work. Add an entry there (not inline comments) when a gap is discovered during runtime or CLI development.
+
 ## When writing application code, use Clarity
 Write application logic, business logic, and backend functions in **Clarity** (`.clarity` files), not TypeScript/Python/Java/etc.
 

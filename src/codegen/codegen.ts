@@ -8,6 +8,22 @@ import { Checker } from "../checker/checker.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
 import { getBuiltins } from "./builtins.js";
 import { CLARITY_BUILTINS } from "../registry/builtins-registry.js";
+import {
+  allocStringLiteral as _allocStringLiteral,
+  prescanStringLiterals as _prescanStringLiterals,
+} from "./codegen-strings.js";
+import {
+  fieldSize as _fieldSize, fieldAlign as _fieldAlign,
+  recordLayout as _recordLayout, recordSize as _recordSize,
+  unionSize as _unionSize, storeField as _storeField, loadField as _loadField,
+} from "./codegen-memory.js";
+import {
+  inferExprType as _inferExprType,
+  inferFunctionType as _inferFunctionType,
+  inferFunctionReturnType as _inferFunctionReturnType,
+  inferWasmReturnType as _inferWasmReturnType,
+  findConstructorType as _findConstructorType,
+} from "./codegen-infer.js";
 
 // Lazily-built lookup from builtin name → Clarity return type.
 // Derived from the single source of truth (builtins-registry.ts) so that
@@ -16,13 +32,13 @@ const _builtinReturnTypeMap: Map<string, ClarityType> = new Map(
   CLARITY_BUILTINS.map(b => [b.name, b.returnType]),
 );
 
-interface LocalVar {
+export interface LocalVar {
   index: number;
   wasmType: binaryen.Type;
   clarityType: ClarityType;
 }
 
-function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType {
+export function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType {
   if (type == null) {
     throw new Error(`Internal compiler error: failed to resolve type for ${context}. This is a bug — the type checker should have caught this.`);
   }
@@ -30,50 +46,64 @@ function assertResolvedType(type: ClarityType | null | undefined, context: strin
 }
 
 export class CodeGenerator {
-  private mod!: binaryen.Module;
-  private locals!: Map<string, LocalVar>;
-  private localIndex!: number;
-  private additionalLocals!: binaryen.Type[];
-  private checker!: Checker;
-  private currentFunction!: FunctionDecl;
+  mod!: binaryen.Module;
+  locals!: Map<string, LocalVar>;
+  localIndex!: number;
+  additionalLocals!: binaryen.Type[];
+  checker!: Checker;
+  currentFunction!: FunctionDecl;
 
   // String literal data segment tracking
-  private stringLiterals: Map<string, number> = new Map();
-  private dataSegmentOffset: number = 0;
-  private dataSegments: { offset: number; data: Uint8Array }[] = [];
+  stringLiterals: Map<string, number> = new Map();
+  dataSegmentOffset: number = 0;
+  dataSegments: { offset: number; data: Uint8Array }[] = [];
 
   // All function declarations for cross-function type lookup
-  private allFunctions: Map<string, FunctionDecl> = new Map();
+  allFunctions: Map<string, FunctionDecl> = new Map();
 
   // All type declarations for record/union layout computation
-  private allTypeDecls: Map<string, ClarityType> = new Map();
+  allTypeDecls: Map<string, ClarityType> = new Map();
 
   // Function table for indirect calls (higher-order functions)
   // Keys are WASM function names (module-prefixed for private functions).
-  private functionTableNames: string[] = [];
-  private functionTableIndices: Map<string, number> = new Map();
+  functionTableNames: string[] = [];
+  functionTableIndices: Map<string, number> = new Map();
 
   // Multi-module name resolution:
   // Maps Clarity name → WASM name for the module currently being generated.
   // Private functions are prefixed with their module name to avoid collisions.
-  private currentModuleWasmNames: Map<string, string> = new Map();
+  currentModuleWasmNames: Map<string, string> = new Map();
   // Maps each FunctionDecl → its unique WASM name (set once during setupModuleMulti).
-  private functionDeclWasmNames: Map<FunctionDecl, string> = new Map();
+  functionDeclWasmNames: Map<FunctionDecl, string> = new Map();
 
   // Lambda lifting — lambdas collected during codegen, emitted after all named functions
-  private lambdaCounter: number = 0;
-  private pendingLambdas: Array<{ name: string; expr: import("../ast/nodes.js").LambdaExpr }> = [];
+  lambdaCounter: number = 0;
+  pendingLambdas: Array<{ name: string; expr: import("../ast/nodes.js").LambdaExpr }> = [];
   // Wrapper functions generated for named functions used as first-class values.
   // Maps resolved WASM function name → its wrapper's table index.
-  private lambdaWrappers: Map<string, number> = new Map();
+  lambdaWrappers: Map<string, number> = new Map();
 
   // Monomorphization tracking for generic functions
-  private generatedMonomorphs: Set<string> = new Set();
+  generatedMonomorphs: Set<string> = new Set();
 
   // Current type-variable substitution in effect while generating a monomorphized body.
   // inferExprType applies this to checker-annotated resolvedTypes so that TypeVars
   // carried from the generic declaration are replaced with their concrete types.
-  private typeVarSubst: Map<string, ClarityType> = new Map();
+  typeVarSubst: Map<string, ClarityType> = new Map();
+
+  // Helper: build InferContext for the infer helpers
+  get _inferCtx() {
+    return {
+      locals: this.locals,
+      allFunctions: this.allFunctions,
+      allTypeDecls: this.allTypeDecls,
+      functionTableIndices: this.functionTableIndices,
+      typeVarSubst: this.typeVarSubst,
+      currentFunction: this.currentFunction,
+      checker: this.checker,
+      builtinReturnTypeMap: _builtinReturnTypeMap,
+    };
+  }
 
   generate(module: ModuleDecl, checker: Checker): Uint8Array {
     this.mod = new binaryen.Module();
@@ -508,193 +538,35 @@ export class CodeGenerator {
 
 
   // ============================================================
-  // String Literal Pre-Scanning
+  // String Literal Pre-Scanning (delegates to codegen-strings.ts)
   // ============================================================
 
-  // Pre-scan the entire AST for string literals and allocate data segments
-  // so that setMemory can be called before function generation.
   private prescanStringLiterals(module: ModuleDecl): void {
-    for (const decl of module.declarations) {
-      if (decl.kind === "FunctionDecl") {
-        this.scanExprForStrings(decl.body);
-      }
-    }
-  }
-
-  private scanExprForStrings(expr: Expr): void {
-    switch (expr.kind) {
-      case "StringLiteral":
-        this.allocStringLiteral(expr.value);
-        break;
-      case "BinaryExpr":
-        this.scanExprForStrings(expr.left);
-        this.scanExprForStrings(expr.right);
-        break;
-      case "UnaryExpr":
-        this.scanExprForStrings(expr.operand);
-        break;
-      case "CallExpr":
-        for (const arg of expr.args) this.scanExprForStrings(arg.value);
-        if (expr.callee.kind !== "IdentifierExpr") this.scanExprForStrings(expr.callee);
-        break;
-      case "MatchExpr":
-        this.scanExprForStrings(expr.scrutinee);
-        for (const arm of expr.arms) {
-          this.scanExprForStrings(arm.body);
-          if (arm.pattern.kind === "LiteralPattern") this.scanExprForStrings(arm.pattern.value);
-        }
-        break;
-      case "LetExpr":
-        this.scanExprForStrings(expr.value);
-        break;
-      case "AssignmentExpr":
-        this.scanExprForStrings(expr.value);
-        break;
-      case "BlockExpr":
-        for (const stmt of expr.statements) this.scanExprForStrings(stmt);
-        if (expr.result) this.scanExprForStrings(expr.result);
-        break;
-      case "MemberExpr":
-        this.scanExprForStrings(expr.object);
-        break;
-      case "ListLiteral":
-        for (const elem of expr.elements) this.scanExprForStrings(elem);
-        break;
-      case "RecordLiteral":
-        for (const field of expr.fields) this.scanExprForStrings(field.value);
-        break;
-      case "LambdaExpr":
-        this.scanExprForStrings(expr.body);
-        break;
-    }
+    _prescanStringLiterals(this, module);
   }
 
   // ============================================================
-  // Memory Layout Helpers
+  // Memory Layout Helpers (delegates to codegen-memory.ts)
   // ============================================================
 
-  // Returns the size in bytes of a ClarityType when stored in linear memory.
-  private fieldSize(type: ClarityType): number {
-    switch (type.kind) {
-      case "Int64": return 8;
-      case "Float64": return 8;
-      case "Timestamp": return 8; // i64 ms since epoch
-      case "Bool": return 4;
-      case "Unit": return 0;
-      // Pointer types (i32)
-      case "String":
-      case "Record":
-      case "Union":
-      case "List":
-      case "Map":    // Map handle (opaque i32)
-      case "Option":
-      case "Result":
-      case "Bytes":
-        return 4;
-      default: return 4;
-    }
-  }
-
-  // Returns field alignment
-  private fieldAlign(type: ClarityType): number {
-    switch (type.kind) {
-      case "Int64": return 8;
-      case "Float64": return 8;
-      case "Timestamp": return 8;
-      default: return 4;
-    }
-  }
-
-  // Compute record layout: returns array of { name, type, offset }
-  private recordLayout(fields: Map<string, ClarityType>): { name: string; type: ClarityType; offset: number }[] {
-    const layout: { name: string; type: ClarityType; offset: number }[] = [];
-    let offset = 0;
-    for (const [name, type] of fields) {
-      const align = this.fieldAlign(type);
-      offset = (offset + align - 1) & ~(align - 1); // align up
-      layout.push({ name, type, offset });
-      offset += this.fieldSize(type);
-    }
-    return layout;
-  }
-
-  // Total size of a record
-  private recordSize(fields: Map<string, ClarityType>): number {
-    let offset = 0;
-    for (const [, type] of fields) {
-      const align = this.fieldAlign(type);
-      offset = (offset + align - 1) & ~(align - 1);
-      offset += this.fieldSize(type);
-    }
-    return (offset + 3) & ~3; // pad to 4-byte boundary
-  }
-
-  // Total size of a union (8-byte header + max variant payload).
-  // The header is 8 bytes (i32 tag + 4 bytes padding) so that the first field of
-  // any variant — even an Int64 or Float64 — lands on an 8-byte-aligned offset.
-  private unionSize(variants: ClarityVariant[]): number {
-    let maxPayload = 0;
-    for (const v of variants) {
-      const payloadSize = this.recordSize(v.fields);
-      if (payloadSize > maxPayload) maxPayload = payloadSize;
-    }
-    return 8 + maxPayload; // 8-byte aligned header (tag i32 + 4 bytes padding)
-  }
-
-  // Generate a store instruction for a specific ClarityType
+  private fieldSize(type: ClarityType): number { return _fieldSize(type); }
+  private fieldAlign(type: ClarityType): number { return _fieldAlign(type); }
+  private recordLayout(fields: Map<string, ClarityType>) { return _recordLayout(fields); }
+  private recordSize(fields: Map<string, ClarityType>): number { return _recordSize(fields); }
+  private unionSize(variants: ClarityVariant[]): number { return _unionSize(variants); }
   private storeField(basePtr: binaryen.ExpressionRef, offset: number, value: binaryen.ExpressionRef, type: ClarityType): binaryen.ExpressionRef {
-    switch (type.kind) {
-      case "Int64":
-      case "Timestamp":
-        // 8-byte aligned: allocator guarantees 8-byte alignment, and recordLayout/unionSize
-        // ensure i64/f64 fields land at 8-byte-aligned offsets.
-        return this.mod.i64.store(offset, 8, basePtr, value);
-      case "Float64":
-        return this.mod.f64.store(offset, 8, basePtr, value);
-      default:
-        // i32 (Bool, String, pointers) — 4-byte aligned
-        return this.mod.i32.store(offset, 4, basePtr, value);
-    }
+    return _storeField(this.mod, basePtr, offset, value, type);
   }
-
-  // Generate a load instruction for a specific ClarityType
   private loadField(basePtr: binaryen.ExpressionRef, offset: number, type: ClarityType): binaryen.ExpressionRef {
-    switch (type.kind) {
-      case "Int64":
-      case "Timestamp":
-        return this.mod.i64.load(offset, 8, basePtr);
-      case "Float64":
-        return this.mod.f64.load(offset, 8, basePtr);
-      default:
-        return this.mod.i32.load(offset, 4, basePtr);
-    }
+    return _loadField(this.mod, basePtr, offset, type);
   }
 
   // ============================================================
-  // String Data Segments
+  // String Data Segments (delegates to codegen-strings.ts)
   // ============================================================
 
-  // Allocate a string literal in the data segment.
-  // Layout: [length: u32 LE][utf8 bytes]
   private allocStringLiteral(value: string): number {
-    const existing = this.stringLiterals.get(value);
-    if (existing !== undefined) return existing;
-
-    const encoded = new TextEncoder().encode(value);
-    const ptr = this.dataSegmentOffset;
-
-    const data = new Uint8Array(4 + encoded.length);
-    const view = new DataView(data.buffer);
-    view.setUint32(0, encoded.length, true);
-    data.set(encoded, 4);
-
-    this.dataSegments.push({ offset: ptr, data });
-    this.stringLiterals.set(value, ptr);
-
-    this.dataSegmentOffset = ptr + data.length;
-    this.dataSegmentOffset = (this.dataSegmentOffset + 3) & ~3;
-
-    return ptr;
+    return _allocStringLiteral(this, value);
   }
 
   // ============================================================
@@ -1817,18 +1689,9 @@ export class CodeGenerator {
     }
   }
 
-  // Look up if a name is a union variant constructor. Returns the union type if found.
+  // Look up if a name is a union variant constructor (delegates to codegen-infer.ts).
   private findConstructorType(name: string): { union: Extract<ClarityType, { kind: "Union" }>; variantIndex: number; variant: ClarityVariant } | null {
-    for (const [, type] of this.allTypeDecls) {
-      if (type.kind === "Union") {
-        for (let i = 0; i < type.variants.length; i++) {
-          if (type.variants[i].name === name) {
-            return { union: type, variantIndex: i, variant: type.variants[i] };
-          }
-        }
-      }
-    }
-    return null;
+    return _findConstructorType(this._inferCtx, name);
   }
 
   // Generate a union variant constructor call: allocate memory, write tag + fields
@@ -2459,180 +2322,22 @@ export class CodeGenerator {
   }
 
   // ============================================================
-  // Type Inference Helpers
+  // Type Inference Helpers (delegates to codegen-infer.ts)
   // ============================================================
 
   private inferExprType(expr: Expr): ClarityType {
-    // Use the resolved type from the checker if available (preferred path).
-    // If we're inside a monomorphized body, substitute any TypeVars that the
-    // checker left in the resolvedType with their concrete bindings.
-    if (expr.resolvedType && expr.resolvedType.kind !== "Error") {
-      return this.typeVarSubst.size > 0
-        ? substituteTypeVars(expr.resolvedType, this.typeVarSubst)
-        : expr.resolvedType;
-    }
-
-    // Fallback for expressions not annotated by the checker (e.g., codegen
-    // internals or sub-expressions in match patterns).
-    switch (expr.kind) {
-      case "IntLiteral": return INT64;
-      case "FloatLiteral": return FLOAT64;
-      case "BoolLiteral": return BOOL;
-      case "StringLiteral": return { kind: "String" };
-
-      case "IdentifierExpr": {
-        const local = this.locals.get(expr.name);
-        if (local) return local.clarityType;
-        const ctor = this.findConstructorType(expr.name);
-        if (ctor) return ctor.union;
-        // Function reference — return Function type
-        if (this.functionTableIndices.has(expr.name)) {
-          const fn = this.allFunctions.get(expr.name);
-          if (fn) return this.inferFunctionType(fn);
-        }
-        return INT64;
-      }
-
-      case "BinaryExpr": {
-        const leftType = this.inferExprType(expr.left);
-        if (["==", "!=", "<", ">", "<=", ">="].includes(expr.op)) return BOOL;
-        if (expr.op === "and" || expr.op === "or") return BOOL;
-        if (expr.op === "++") return { kind: "String" };
-        return leftType;
-      }
-
-      case "UnaryExpr": {
-        if (expr.op === "!") return BOOL;
-        return this.inferExprType(expr.operand);
-      }
-
-      case "CallExpr": {
-        if (expr.callee.kind === "IdentifierExpr") {
-          const name = expr.callee.name;
-          // Check for indirect call through function-typed local
-          const local = this.locals.get(name);
-          if (local && local.clarityType.kind === "Function") {
-            return local.clarityType.returnType;
-          }
-          if (expr.args.length > 0) {
-            const argType = this.inferExprType(expr.args[0].value);
-            if (argType.kind === "List") {
-              switch (name) {
-                case "head": case "nth": return argType.element;
-                case "tail": case "append": case "concat": case "reverse": return argType;
-                case "length": case "list_length": return INT64;
-                case "is_empty": return BOOL;
-              }
-            }
-            if (argType.kind === "Map") {
-              switch (name) {
-                case "map_size": return INT64;
-                case "map_has": return BOOL;
-                case "map_set": case "map_remove": return argType;
-                case "map_keys": return { kind: "List", element: argType.key };
-                case "map_values": return { kind: "List", element: argType.value };
-                // map_get returns Option<V> — fall through to resolvedType (set by checker)
-              }
-            }
-          }
-          // map_new returns Map type — use resolvedType from checker
-          if (name === "map_new") {
-            if (expr.resolvedType && expr.resolvedType.kind !== "Error") return expr.resolvedType;
-          }
-          // list_set returns the same list type
-          if (name === "list_set" && expr.args.length > 0) {
-            return this.inferExprType(expr.args[0].value);
-          }
-          return this.inferFunctionReturnType(name);
-        }
-        return INT64;
-      }
-
-      case "MatchExpr": {
-        if (expr.arms.length > 0) {
-          return this.inferExprType(expr.arms[0].body);
-        }
-        return UNIT;
-      }
-
-      case "LetExpr": return UNIT;
-      case "AssignmentExpr": return UNIT;
-
-      case "BlockExpr": {
-        if (expr.result) return this.inferExprType(expr.result);
-        return UNIT;
-      }
-
-      case "MemberExpr": {
-        const objType = this.inferExprType(expr.object);
-        if (objType.kind === "Record") {
-          const fieldType = objType.fields.get(expr.member);
-          if (fieldType) return fieldType;
-        }
-        return INT64;
-      }
-
-      case "ListLiteral": {
-        if (expr.elements.length > 0) {
-          return { kind: "List", element: this.inferExprType(expr.elements[0]) };
-        }
-        return { kind: "List", element: INT64 };
-      }
-
-      case "RecordLiteral": {
-        const fieldNames = new Set(expr.fields.map(f => f.name));
-        for (const [, type] of this.allTypeDecls) {
-          if (type.kind === "Record") {
-            const typeFieldNames = new Set(type.fields.keys());
-            if (typeFieldNames.size === fieldNames.size && [...fieldNames].every(n => typeFieldNames.has(n))) {
-              return type;
-            }
-          }
-        }
-        return INT64;
-      }
-
-      default: return INT64;
-    }
+    return _inferExprType(this._inferCtx, expr);
   }
 
   private inferFunctionType(decl: FunctionDecl): ClarityType {
-    const params = decl.params.map(p =>
-      assertResolvedType(this.checker.resolveTypeRef(p.typeAnnotation), `parameter '${p.name}' in '${decl.name}'`),
-    );
-    const returnType = assertResolvedType(this.checker.resolveTypeRef(decl.returnType), `return type of '${decl.name}'`);
-    return { kind: "Function", params, returnType, effects: new Set(decl.effects) };
+    return _inferFunctionType(this._inferCtx, decl);
   }
 
   private inferFunctionReturnType(name: string): ClarityType {
-    if (name === this.currentFunction.name) {
-      return assertResolvedType(
-        this.checker.resolveTypeRef(this.currentFunction.returnType),
-        `return type of '${name}'`,
-      );
-    }
-    const fn = this.allFunctions.get(name);
-    if (fn) {
-      return assertResolvedType(this.checker.resolveTypeRef(fn.returnType), `return type of '${name}'`);
-    }
-
-    // Check if it's a union constructor
-    const ctor = this.findConstructorType(name);
-    if (ctor) {
-      return ctor.union;
-    }
-
-    // Look up return type from the single source of truth (builtins-registry).
-    // This map is built once at module load time from CLARITY_BUILTINS so that
-    // adding a new builtin to the registry automatically makes it known here —
-    // no manual sync needed.
-    const regType = _builtinReturnTypeMap.get(name);
-    if (regType !== undefined) return regType;
-    return INT64;
+    return _inferFunctionReturnType(this._inferCtx, name);
   }
 
   private inferWasmReturnType(name: string): binaryen.Type {
-    const clarityType = this.inferFunctionReturnType(name);
-    return clarityTypeToWasm(clarityType);
+    return _inferWasmReturnType(this._inferCtx, name);
   }
 }
