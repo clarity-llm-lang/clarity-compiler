@@ -23,7 +23,7 @@ export interface InferContext {
   readonly builtinReturnTypeMap: Map<string, ClarityType>;
 }
 
-function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType {
+export function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType {
   if (type == null) {
     throw new Error(`Internal compiler error: failed to resolve type for ${context}. This is a bug — the type checker should have caught this.`);
   }

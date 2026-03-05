@@ -1,6 +1,6 @@
 import { INT64, FLOAT64, BOOL, UNIT, STRING, substituteTypeVars, } from "../checker/types.js";
 import { clarityTypeToWasm } from "./wasm-types.js";
-function assertResolvedType(type, context) {
+export function assertResolvedType(type, context) {
     if (type == null) {
         throw new Error(`Internal compiler error: failed to resolve type for ${context}. This is a bug — the type checker should have caught this.`);
     }

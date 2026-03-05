@@ -16,6 +16,7 @@ export interface InferContext {
     readonly checker: Checker;
     readonly builtinReturnTypeMap: Map<string, ClarityType>;
 }
+export declare function assertResolvedType(type: ClarityType | null | undefined, context: string): ClarityType;
 export declare function inferExprType(ctx: InferContext, expr: Expr): ClarityType;
 export declare function inferFunctionType(ctx: InferContext, decl: FunctionDecl): ClarityType;
 export declare function inferFunctionReturnType(ctx: InferContext, name: string): ClarityType;
