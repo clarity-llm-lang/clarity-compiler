@@ -192,5 +192,5 @@ Source session: deep architecture/UX/security/docs/license/CI review across `LLM
 1. `RQ-LANG-DOC-001` (P1): **Done** — `README.md` updated: version 0.10.0, 561 tests, effects list, CLI reference, security section, std-library list. See `README.md`.
 2. `RQ-LANG-DOC-002` (P1): **Done** — Stale `DB` effect references removed from all public docs and spec examples. See `docs/language-spec.md`, `docs/clarity-quickref.md`, `docs/grammar.peg`.
 3. `RQ-LANG-LIC-001` (P1): **Done** — `LICENSE` (MIT, 2024–2026) added to repository root. See `LICENSE`.
-4. `RQ-LANG-CI-001` (P2): Open — Align GitHub workflow action major versions with sibling repos (`LLM-runtime`, `LLM-cli`).
-5. `RQ-LANG-CI-002` (P2): Open — Add missing repository governance automation parity (Dependabot/CODEOWNERS/templates) or document intentional differences.
+4. `RQ-LANG-CI-001` (P2): **Done** — `.github/workflows/ci.yml` added: build + test matrix (Node 20/22) on push/PR to main; type-check job. Actions pinned to v4 (`actions/checkout`, `actions/setup-node`). See `.github/workflows/ci.yml`.
+5. `RQ-LANG-CI-002` (P2): **Done** — Repository governance added: `.github/dependabot.yml` (weekly npm + Actions updates), `.github/CODEOWNERS` (compiler/runtime team routing), `.github/pull_request_template.md`, and issue templates for bugs and feature requests. See `.github/`.

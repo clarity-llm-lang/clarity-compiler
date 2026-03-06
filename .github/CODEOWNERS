@@ -1,0 +1,26 @@
+# CODEOWNERS — auto-request review from the appropriate team.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Compiler source — all changes require at least one reviewer
+/src/                  @clarity-llm-lang/compiler
+/dist/                 @clarity-llm-lang/compiler
+
+# Standard library
+/std/                  @clarity-llm-lang/compiler
+
+# Language spec and docs
+/docs/                 @clarity-llm-lang/compiler
+/README.md             @clarity-llm-lang/compiler
+
+# Cross-repo language requirements registry — runtime and CLI owners co-review
+/docs/runtime-cli-language-requirements.md     @clarity-llm-lang/compiler @clarity-llm-lang/runtime
+/docs/runtime-agent-cli-requirements.md        @clarity-llm-lang/compiler @clarity-llm-lang/runtime
+
+# CI / repo config
+/.github/              @clarity-llm-lang/compiler
+
+# Examples
+/examples/             @clarity-llm-lang/compiler
+
+# Tests
+/tests/                @clarity-llm-lang/compiler
