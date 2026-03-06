@@ -213,6 +213,13 @@ export function createRuntime(config = {}) {
     // ---------------------------------------------------------------------------
     // Build SharedHelpers passed to all domain factories
     // ---------------------------------------------------------------------------
+    // Agent event emitter — no-op when not configured; LLM-runtime injects a real one.
+    function emitAgentEvent(event) {
+        try {
+            config.agentEventEmitter?.(event);
+        }
+        catch { /* non-fatal */ }
+    }
     const h = {
         readString,
         writeString,
@@ -228,6 +235,7 @@ export function createRuntime(config = {}) {
         policyCheckUrl,
         policyCheckEffect,
         policyAuditLog: audit,
+        emitAgentEvent,
     };
     // ---------------------------------------------------------------------------
     // Instantiate all domain runtimes

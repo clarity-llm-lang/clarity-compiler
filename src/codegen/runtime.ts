@@ -9,7 +9,7 @@
 import * as nodeFs from "node:fs";
 
 // Re-export shared types for consumers of this module.
-export type { RuntimeConfig, AssertionFailure, RuntimeExports } from "./runtime/types.js";
+export type { RuntimeConfig, AssertionFailure, RuntimeExports, AgentEvent } from "./runtime/types.js";
 
 // Domain factory functions.
 import { createMathRuntime } from "./runtime/math.js";
@@ -227,6 +227,11 @@ export function createRuntime(config: RuntimeConfig = {}) {
   // ---------------------------------------------------------------------------
   // Build SharedHelpers passed to all domain factories
   // ---------------------------------------------------------------------------
+  // Agent event emitter — no-op when not configured; LLM-runtime injects a real one.
+  function emitAgentEvent(event: import("./runtime/types.js").AgentEvent): void {
+    try { config.agentEventEmitter?.(event); } catch { /* non-fatal */ }
+  }
+
   const h: SharedHelpers = {
     readString,
     writeString,
@@ -242,6 +247,7 @@ export function createRuntime(config: RuntimeConfig = {}) {
     policyCheckUrl,
     policyCheckEffect,
     policyAuditLog: audit,
+    emitAgentEvent,
   };
 
   // ---------------------------------------------------------------------------

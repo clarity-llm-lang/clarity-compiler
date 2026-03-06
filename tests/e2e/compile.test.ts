@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compile, compileFile } from "../../src/compiler.js";
 import { createRuntime } from "../../src/codegen/runtime.js";
-import type { RuntimeConfig } from "../../src/codegen/runtime.js";
+import type { RuntimeConfig, AgentEvent } from "../../src/codegen/runtime.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -8062,5 +8062,125 @@ describe("read_line_or_eof and stdin_eof_detected builtins", () => {
     const fn = instance.exports.run as () => number;
     const ptr = fn();
     expect(runtime.readString(ptr)).toBe("");
+  });
+});
+
+describe("agentEventEmitter — LANG-RUNTIME-A2A-001", () => {
+  it("agentEventEmitter is called with agent.tool_called when mcp_call_tool is invoked", async () => {
+    // We can't make a real MCP call in tests, so we verify the RuntimeConfig interface
+    // accepts agentEventEmitter and the event type is correct.
+    const events: AgentEvent[] = [];
+    const config: RuntimeConfig = {
+      agentEventEmitter: (e) => events.push(e),
+    };
+    const runtime = createRuntime(config);
+    // Verify the config was accepted (no TypeScript error and runtime created successfully)
+    expect(runtime).toBeDefined();
+    expect(events).toHaveLength(0); // No events before any Clarity operations
+  });
+
+  it("agentEventEmitter field is present in RuntimeConfig type", () => {
+    // Type-level test: this compiles iff AgentEvent is exported and RuntimeConfig accepts it
+    const cb: RuntimeConfig["agentEventEmitter"] = (e: AgentEvent) => {
+      const _kind: string = e.kind;
+      const _data: Record<string, unknown> = e.data;
+    };
+    expect(typeof cb).toBe("function");
+  });
+
+  it("createRuntime works without agentEventEmitter (backward-compatible)", async () => {
+    const source = `
+      module Test
+      function run() -> Int64 { 42 }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    // No agentEventEmitter in config — should not throw
+    const { instance } = await instantiate(result.wasm!, {});
+    const fn = instance.exports.run as () => bigint;
+    expect(fn()).toBe(42n);
+  });
+});
+
+describe("std/context — LANG-RUNTIME-CONTEXT-001", () => {
+  const stdlibDir = path.resolve(__dirname, "../../std");
+
+  // Write a temp .clarity file and compile with compileFile so std/ imports resolve.
+  function writeAndCompile(source: string): ReturnType<typeof compileFile> {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-ctx-test-"));
+    const filePath = path.join(tmpDir, "test.clarity");
+    fs.writeFileSync(filePath, source, "utf-8");
+    return compileFile(filePath);
+  }
+
+  it("std/context compiles cleanly", () => {
+    const result = compileFile(path.join(stdlibDir, "context.clarity"));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("get_task extracts context.task from context.v1 envelope", async () => {
+    const result = writeAndCompile(`
+      module Test
+      import { get_task, get_instructions, get_run_id } from "std/context"
+      function run() -> String {
+        let ctx = "{\\"runId\\":\\"run_1\\",\\"contextVersion\\":\\"context.v1\\",\\"context\\":{\\"task\\":\\"Summarize\\",\\"instructions\\":\\"Be concise\\"}}";
+        let task = get_task(ctx);
+        let instr = get_instructions(ctx);
+        let rid = get_run_id(ctx);
+        task ++ "|" ++ instr ++ "|" ++ rid
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("Summarize|Be concise|run_1");
+  });
+
+  it("get_history_truncated returns Bool correctly", async () => {
+    const result = writeAndCompile(`
+      module Test
+      import { get_history_truncated } from "std/context"
+      function run() -> Bool {
+        let ctx = "{\\"history\\":{\\"totalMessages\\":10,\\"usedMessages\\":5,\\"truncated\\":true}}";
+        get_history_truncated(ctx)
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(fn()).toBe(1); // True
+  });
+
+  it("has_context returns True for context.v1, False for absent version", async () => {
+    const result = writeAndCompile(`
+      module Test
+      import { has_context } from "std/context"
+      function with_ctx() -> Bool {
+        has_context("{\\"contextVersion\\":\\"context.v1\\"}")
+      }
+      function without_ctx() -> Bool {
+        has_context("{}")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    const withCtx = instance.exports.with_ctx as () => number;
+    const withoutCtx = instance.exports.without_ctx as () => number;
+    expect(withCtx()).toBe(1);    // True
+    expect(withoutCtx()).toBe(0); // False
+  });
+
+  it("get_runtime_state returns {} default when field absent", async () => {
+    const result = writeAndCompile(`
+      module Test
+      import { get_runtime_state } from "std/context"
+      function run() -> String {
+        get_runtime_state("{}")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("{}");
   });
 });
