@@ -16,4 +16,5 @@ export declare function createTtyRuntime(h: SharedHelpers): {
     tty_clear_line(): void;
     tty_hide_cursor(): void;
     tty_show_cursor(): void;
+    tty_read_numeric_choice(countN: bigint): bigint;
 };

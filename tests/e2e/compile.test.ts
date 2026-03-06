@@ -1049,7 +1049,10 @@ describe("end-to-end compilation", () => {
     expect(result.errors[0].message).toContain("db_execute");
   });
 
-  it("http_get works with Network effect", async () => {
+  it("http_get compiles with Network effect", async () => {
+    // LANG-SEC-NETWORK-FILE-001: http_get no longer accepts file:// URLs.
+    // This test verifies the function compiles correctly; integration with
+    // real HTTP endpoints is tested separately via live-request tests.
     const source = `
       module Test
       effect[Network] function fetch(url: String) -> String {
@@ -1063,16 +1066,28 @@ describe("end-to-end compilation", () => {
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
+  });
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-get-"));
-    const filePath = path.join(tmpDir, "payload.txt");
-    fs.writeFileSync(filePath, "pong", "utf-8");
+  it("http_get rejects file:// URLs (LANG-SEC-NETWORK-FILE-001)", async () => {
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_get(url) {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
 
     const { instance, runtime } = await instantiate(result.wasm!);
     const fetchFn = instance.exports.fetch as (urlPtr: number) => number;
-    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const urlPtr = runtime.writeString("file:///etc/passwd");
     const bodyPtr = fetchFn(urlPtr);
-    expect(runtime.readString(bodyPtr)).toBe("pong");
+    const body = runtime.readString(bodyPtr);
+    expect(body).toContain("file:// URLs are not permitted");
   });
 
   it("rejects http_get without Network effect", () => {
@@ -3509,7 +3524,23 @@ describe("JSON builtins", () => {
     expect((instance.exports.non_object_is_none as () => number)()).toBe(1);
   });
 
-  it("http_request performs GET with custom headers", async () => {
+  it("http_request compiles with Network effect", async () => {
+    // LANG-SEC-NETWORK-FILE-001: file:// is no longer accepted by http_request.
+    const source = `
+      module Test
+      effect[Network] function fetch(url: String) -> String {
+        match http_request("GET", url, "{}", "") {
+          Ok(body) -> body,
+          Err(message) -> message
+        }
+      }
+    `;
+    const result = compile(source, "test.clarity");
+    expect(result.errors).toHaveLength(0);
+    expect(result.wasm).toBeDefined();
+  });
+
+  it("http_request rejects file:// URLs (LANG-SEC-NETWORK-FILE-001)", async () => {
     const source = `
       module Test
       effect[Network] function fetch(url: String) -> String {
@@ -3523,18 +3554,14 @@ describe("JSON builtins", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-req-"));
-    const filePath = path.join(tmpDir, "data.txt");
-    fs.writeFileSync(filePath, "ok-data", "utf-8");
-
     const { instance, runtime } = await instantiate(result.wasm!);
     const fetchFn = instance.exports.fetch as (urlPtr: number) => number;
-    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const urlPtr = runtime.writeString("file:///etc/hosts");
     const bodyPtr = fetchFn(urlPtr);
-    expect(runtime.readString(bodyPtr)).toBe("ok-data");
+    expect(runtime.readString(bodyPtr)).toContain("file:// URLs are not permitted");
   });
 
-  it("http_request_full returns status and body as JSON", async () => {
+  it("http_request_full rejects file:// URLs (LANG-SEC-NETWORK-FILE-001)", async () => {
     const source = `
       module Test
       effect[Network] function fetch_status(url: String) -> String {
@@ -3551,15 +3578,11 @@ describe("JSON builtins", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.wasm).toBeDefined();
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-full-"));
-    const filePath = path.join(tmpDir, "payload.json");
-    fs.writeFileSync(filePath, "{\"hello\":\"world\"}", "utf-8");
-
     const { instance, runtime } = await instantiate(result.wasm!);
     const fetchFn = instance.exports.fetch_status as (urlPtr: number) => number;
-    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const urlPtr = runtime.writeString("file:///etc/hosts");
     const statusPtr = fetchFn(urlPtr);
-    expect(runtime.readString(statusPtr)).toBe("200");
+    expect(runtime.readString(statusPtr)).toContain("file:// URLs are not permitted");
   });
 
   it("rejects http_request without Network effect", () => {
@@ -6316,7 +6339,8 @@ describe("std/json module", () => {
 });
 
 describe("http_request builtin", () => {
-  it("performs a GET via http_request with empty headers and body", async () => {
+  it("http_request rejects file:// URLs (LANG-SEC-NETWORK-FILE-001)", async () => {
+    // Verify that Network-effect http_request cannot read local files via file://
     const source = `
       module Test
       effect[Network] function fetch(url: String) -> String {
@@ -6328,14 +6352,11 @@ describe("http_request builtin", () => {
     `;
     const result = compile(source, "test.clarity");
     expect(result.errors).toHaveLength(0);
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-http-req-"));
-    const filePath = path.join(tmpDir, "data.txt");
-    fs.writeFileSync(filePath, "hello from http_request", "utf-8");
     const { instance, runtime } = await instantiate(result.wasm!);
-    const urlPtr = runtime.writeString(`file://${filePath}`);
+    const urlPtr = runtime.writeString("file:///etc/passwd");
     const ptr = (instance.exports.fetch as (u: number) => number)(urlPtr);
-    expect(runtime.readString(ptr)).toBe("hello from http_request");
-    fs.rmSync(tmpDir, { recursive: true });
+    const body = runtime.readString(ptr);
+    expect(body).toContain("file:// URLs are not permitted");
   });
 
   it("rejects http_request without Network effect", () => {

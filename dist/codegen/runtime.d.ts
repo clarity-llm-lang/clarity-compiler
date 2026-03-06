@@ -100,6 +100,7 @@ export declare function createRuntime(config?: RuntimeConfig): {
             tty_clear_line(): void;
             tty_hide_cursor(): void;
             tty_show_cursor(): void;
+            tty_read_numeric_choice(countN: bigint): bigint;
             http_listen(portN: bigint): number;
             http_next_request(handleN: bigint): number;
             http_respond(requestIdN: bigint, statusN: bigint, headersPtr: number, bodyPtr: number): void;

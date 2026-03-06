@@ -9,6 +9,9 @@ import { formatDiagnostics } from "./errors/reporter.js";
 import { createRuntime } from "./codegen/runtime.js";
 import { CLARITY_BUILTINS, EFFECT_DEFINITIONS } from "./registry/builtins-registry.js";
 import { typeToString } from "./checker/types.js";
+import { registerWatchCommand } from "./cli/watch.js";
+import { registerLintCommand } from "./cli/lint.js";
+import { registerFmtCommand } from "./cli/fmt.js";
 
 async function resolveDefaultFile(file: string | undefined): Promise<string> {
   if (file) return file;
@@ -632,24 +635,53 @@ program
           console.log("(defined)");
         }
       } else {
-        // Treat as expression — wrap in a temporary eval function
+        // Treat as expression — wrap in a temporary eval function.
+        // LANG-CLI-REPL-001: Use heuristic type ordering + check-only probing so we
+        // perform up to 7 fast check-only compiles rather than 7 full WASM compilations.
+        // A full WASM compile is only done once, for the type that the checker accepts.
         const evalFnName = `__repl_eval_${evalCounter++}`;
 
-        // Try common return types until one compiles
-        let compiled = false;
-        for (const retType of ["Int64", "Float64", "String", "Bool", "Timestamp", "Bytes", "Unit"]) {
+        // Heuristic: order return types by likelihood based on expression text.
+        function guessReplTypes(expr: string): string[] {
+          const hasQuote = /"/.test(expr);
+          const hasConcat = /\+\+/.test(expr);
+          const hasBool = /\bTrue\b|\bFalse\b/.test(expr);
+          const hasCmp = /==|!=|<=?|>=?|\band\b|\bor\b/.test(expr);
+          const hasFloat = /\b\d+\.\d/.test(expr);
+          if (hasQuote || hasConcat) return ["String", "Bool", "Int64", "Float64", "Unit", "Bytes", "Timestamp"];
+          if (hasBool || (hasCmp && !hasFloat)) return ["Bool", "Int64", "Float64", "String", "Unit", "Bytes", "Timestamp"];
+          if (hasFloat) return ["Float64", "Int64", "Bool", "String", "Unit", "Bytes", "Timestamp"];
+          return ["Int64", "Float64", "Bool", "String", "Unit", "Bytes", "Timestamp"];
+        }
+
+        const orderedTypes = guessReplTypes(input);
+        let foundType: string | null = null;
+
+        // Phase 1: fast check-only probes to find the expression's type
+        for (const retType of orderedTypes) {
           const trySource = `module REPL\n${declarations.join("\n")}\nfunction ${evalFnName}() -> ${retType} {\n  ${input}\n}\n`;
-          const tryResult = compile(trySource, "<repl>");
-          if (tryResult.errors.length === 0 && tryResult.wasm) {
-            await runReplEval(tryResult.wasm, evalFnName);
-            compiled = true;
+          const checkResult = compile(trySource, "<repl>", { checkOnly: true });
+          if (checkResult.errors.length === 0) {
+            foundType = retType;
             break;
           }
         }
 
-        if (!compiled) {
+        if (foundType !== null) {
+          // Phase 2: single full compile with the determined type
+          const fullSource = `module REPL\n${declarations.join("\n")}\nfunction ${evalFnName}() -> ${foundType} {\n  ${input}\n}\n`;
+          const fullResult = compile(fullSource, "<repl>");
+          if (fullResult.errors.length === 0 && fullResult.wasm) {
+            await runReplEval(fullResult.wasm, evalFnName);
+          } else {
+            for (const err of fullResult.errors) {
+              console.error(`error: ${err.message}`);
+            }
+          }
+        } else {
+          // Could not type-check with any return type — report errors for Int64 (most common)
           const errSource = `module REPL\n${declarations.join("\n")}\nfunction ${evalFnName}() -> Int64 {\n  ${input}\n}\n`;
-          const errResult = compile(errSource, "<repl>");
+          const errResult = compile(errSource, "<repl>", { checkOnly: true });
           for (const err of errResult.errors) {
             console.error(`error: ${err.message}`);
           }
@@ -698,13 +730,14 @@ program
   .command("pack [file]")
   .description(
     "Compile a .clarity file and bundle it as a standalone Node.js launcher script.\n" +
-    "Produces a single self-contained .js file (WASM embedded as base64) that can be\n" +
-    "run directly or shipped as an npm package bin entry.\n\n" +
-    "The launcher requires clarity-lang to be installed in node_modules at runtime.\n" +
-    "Add it to your package.json dependencies: npm install clarity-lang"
+    "Produces a single .js file (WASM embedded as base64) that can be run directly.\n\n" +
+    "Default: launcher locates clarity-lang in node_modules at runtime.\n" +
+    "         Add it as a dependency: npm install clarity-lang\n" +
+    "--self-contained: copies the runtime alongside the output so no npm install is needed."
   )
   .option("-o, --output <file>", "Output launcher .js file (default: <input>.js)")
   .option("-f, --function <name>", "Entry function to call", "main")
+  .option("--self-contained", "Copy the Clarity runtime alongside the output for zero-dependency deployment")
   .action(async (file: string | undefined, opts: Record<string, unknown>) => {
     try {
       file = await resolveDefaultFile(file);
@@ -724,12 +757,78 @@ program
       const wasmB64 = Buffer.from(result.wasm).toString("base64");
       const outFile = (opts.output as string) ?? file.replace(/\.clarity$/, ".js");
 
+      // LANG-CLI-PACK-STANDALONE-001: --self-contained copies the runtime alongside output.
+      // The running clarityc binary is located at import.meta.url; its sibling codegen/
+      // directory contains the full runtime. We copy that directory next to the packed file.
+      if (opts.selfContained) {
+        const { fileURLToPath } = await import("node:url");
+        const { cp } = await import("node:fs/promises");
+        const cliDir = path.dirname(fileURLToPath(import.meta.url));
+        const runtimeSrc = path.join(cliDir, "codegen");
+        const rtDir = outFile.replace(/\.js$/, "") + ".clarity-rt";
+        await cp(runtimeSrc, rtDir, { recursive: true });
+
+        // Self-contained launcher uses a relative path to the copied runtime
+        const rtRelDir = path.relative(path.dirname(outFile), rtDir).replace(/\\/g, "/");
+        const selfContainedLauncher = `#!/usr/bin/env node
+// Clarity native application launcher — generated by clarityc pack --self-contained
+// Entry function: ${entryFn}
+// Source: ${path.basename(file)}
+// Runtime: bundled in ./${path.basename(rtDir)}/
+"use strict";
+
+const wasmB64 = "${wasmB64}";
+
+async function run() {
+  const nodePath = require("path");
+  const runtimeDir = nodePath.join(nodePath.dirname(process.argv[1]), "${rtRelDir}");
+  const runtimePath = nodePath.join(runtimeDir, "runtime.js");
+  const { createRuntime } = await import("file://" + runtimePath);
+  const wasmBytes = Buffer.from(wasmB64, "base64");
+  const rt = createRuntime({ argv: process.argv.slice(2) });
+  const { instance } = await WebAssembly.instantiate(wasmBytes, rt.imports);
+  const mem = instance.exports.memory;
+  if (mem) rt.bindMemory(mem);
+  const heap = instance.exports.__heap_base;
+  if (heap && typeof heap.value === "number") rt.setHeapBase(heap.value);
+
+  const fn = instance.exports["${entryFn}"];
+  if (typeof fn !== "function") {
+    const available = Object.keys(instance.exports).filter(k => typeof instance.exports[k] === "function");
+    process.stderr.write("Entry function '${entryFn}' not found.\\nAvailable: " + available.join(", ") + "\\n");
+    process.exit(1);
+  }
+  fn();
+}
+
+run().catch(e => {
+  process.stderr.write((e instanceof Error ? e.message : String(e)) + "\\n");
+  process.exit(1);
+});
+`;
+        await writeFile(outFile, selfContainedLauncher, { mode: 0o755 });
+        console.log(
+          `Packed ${file} -> ${outFile} + ${path.basename(rtDir)}/  ` +
+          `(${result.wasm.length} bytes WASM, self-contained, entry: ${entryFn})`
+        );
+        return;
+      }
+
+      // Standard launcher: resolves clarity-lang at runtime via node_modules search.
+      // Embeds the required package version so operators get a clear error on mismatch.
+      const pkgJson = JSON.parse(
+        await readFile(new URL("../../package.json", import.meta.url), "utf-8")
+      );
+      const requiredVersion = pkgJson.version as string;
+
       const launcher = `#!/usr/bin/env node
 // Clarity native application launcher — generated by clarityc pack
 // Entry function: ${entryFn}
 // Source: ${path.basename(file)}
+// Requires: clarity-lang@${requiredVersion}
 "use strict";
 
+const REQUIRED_VERSION = "${requiredVersion}";
 const wasmB64 = "${wasmB64}";
 
 async function run() {
@@ -752,11 +851,25 @@ async function run() {
   }
   if (!runtimePath) {
     process.stderr.write(
-      "clarity-lang runtime not found.\\n" +
-      "Install it with: npm install clarity-lang\\n"
+      "clarity-lang@" + REQUIRED_VERSION + " runtime not found.\\n" +
+      "Install it with: npm install clarity-lang@" + REQUIRED_VERSION + "\\n" +
+      "Or repack with: clarityc pack --self-contained  (no npm needed at runtime)\\n"
     );
     process.exit(1);
   }
+  // Version contract check
+  try {
+    const pkgPath = nodePath.join(nodePath.dirname(nodePath.dirname(runtimePath)), "package.json");
+    const installed = JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
+    if (installed !== REQUIRED_VERSION) {
+      process.stderr.write(
+        "Warning: clarity-lang version mismatch.\\n" +
+        "  Required: " + REQUIRED_VERSION + "\\n" +
+        "  Installed: " + installed + "\\n" +
+        "Install the correct version: npm install clarity-lang@" + REQUIRED_VERSION + "\\n"
+      );
+    }
+  } catch { /* ignore version check errors */ }
 
   const { createRuntime } = await import("file://" + runtimePath);
   const wasmBytes = Buffer.from(wasmB64, "base64");
@@ -788,7 +901,7 @@ run().catch(e => {
       await writeFile(outFile, launcher, { mode: 0o755 });
       console.log(
         `Packed ${file} -> ${outFile}  ` +
-        `(${result.wasm.length} bytes WASM, ${Buffer.byteLength(launcher)} bytes launcher, entry: ${entryFn})`
+        `(${result.wasm.length} bytes WASM, ${Buffer.byteLength(launcher)} bytes launcher, entry: ${entryFn}, requires clarity-lang@${requiredVersion})`
       );
     } catch (e) {
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -833,5 +946,10 @@ program
       console.log(JSON.stringify({ version: "0.9.0", builtins, effects, types }, null, 2));
     }
   });
+
+// LANG-CLI-TOOLING-001: first-class watch / lint / fmt commands
+registerWatchCommand(program);
+registerLintCommand(program);
+registerFmtCommand(program);
 
 program.parse();

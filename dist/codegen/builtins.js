@@ -290,6 +290,8 @@ export function getBuiltins() {
         { name: "tty_hide_cursor", importModule: "env", importName: "tty_hide_cursor", params: binaryen.none, result: none },
         // tty_show_cursor() → void
         { name: "tty_show_cursor", importModule: "env", importName: "tty_show_cursor", params: binaryen.none, result: none },
+        // tty_read_numeric_choice(count: i64) → i64
+        { name: "tty_read_numeric_choice", importModule: "env", importName: "tty_read_numeric_choice", params: i64, result: i64 },
         // --- Mux operations (multi-stream SSE fan-in) ---
         // mux_open() → Int64 handle
         { name: "mux_open", importModule: "env", importName: "mux_open", params: binaryen.none, result: i64 },

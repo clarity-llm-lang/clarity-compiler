@@ -1,6 +1,5 @@
 // Network builtins: http_request, SSE client, syncHttpRequest helper.
 
-import * as nodeFs from "node:fs";
 import { Worker } from "node:worker_threads";
 import type { SharedHelpers } from "./types.js";
 
@@ -168,15 +167,14 @@ export function syncHttpRequest(opts: {
   timeoutMs?: number;
   followRedirects?: boolean;
 }): SyncHttpResponse {
+  // LANG-SEC-NETWORK-FILE-001: file:// access is not permitted through Network-effect
+  // builtins. Use FileSystem-effect builtins (read_file / write_file) to access local files.
   if (opts.url.startsWith("file://")) {
-    try {
-      const filePath = new URL(opts.url).pathname;
-      const content = nodeFs.readFileSync(filePath, "utf-8");
-      return { ok: true, status: 200, body: content };
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { ok: false, status: 0, body: msg };
-    }
+    return {
+      ok: false,
+      status: 0,
+      body: "Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files",
+    };
   }
   const sab = new SharedArrayBuffer(12 + HTTP_MAX_BODY);
   const ctrl = new Int32Array(sab, 0, 1);
@@ -235,6 +233,10 @@ export function createNetworkRuntime(h: SharedHelpers) {
       const url = h.readString(urlPtr);
       const headersJson = h.readString(headersJsonPtr);
       const body = h.readString(bodyPtr);
+      if (url.startsWith("file://")) {
+        h.policyAuditLog({ effect: "Network", op: "http_request", url, result: "denied", reason: "file:// not permitted via Network effect" });
+        return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+      }
       try {
         let headers: Record<string, string> = {};
         if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
@@ -259,6 +261,10 @@ export function createNetworkRuntime(h: SharedHelpers) {
       const url = h.readString(urlPtr);
       const headersJson = h.readString(headersJsonPtr);
       const body = h.readString(bodyPtr);
+      if (url.startsWith("file://")) {
+        h.policyAuditLog({ effect: "Network", op: "http_request_full", url, result: "denied", reason: "file:// not permitted via Network effect" });
+        return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+      }
       try {
         let headers: Record<string, string> = {};
         if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
@@ -280,6 +286,10 @@ export function createNetworkRuntime(h: SharedHelpers) {
 
     http_get(urlPtr: number): number {
       const url = h.readString(urlPtr);
+      if (url.startsWith("file://")) {
+        h.policyAuditLog({ effect: "Network", op: "http_get", url, result: "denied", reason: "file:// not permitted via Network effect" });
+        return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+      }
       try {
         const resp = syncHttpRequest({ url, timeoutMs: 10000, followRedirects: true });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
@@ -293,6 +303,10 @@ export function createNetworkRuntime(h: SharedHelpers) {
     http_post(urlPtr: number, bodyPtr: number): number {
       const url = h.readString(urlPtr);
       const body = h.readString(bodyPtr);
+      if (url.startsWith("file://")) {
+        h.policyAuditLog({ effect: "Network", op: "http_post", url, result: "denied", reason: "file:// not permitted via Network effect" });
+        return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+      }
       try {
         const resp = syncHttpRequest({ url, method: "POST", headers: { "Content-Type": "text/plain" }, body, timeoutMs: 10000, followRedirects: true });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.body}`);
