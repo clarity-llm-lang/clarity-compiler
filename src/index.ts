@@ -239,7 +239,40 @@ interface ClarityProjectMeta {
     handoff_targets?: string[];
     depends_on?: string[];
     version?: string;
+    /**
+     * Explicit HITL capability override. When true, passes --agent-hitl to clarityctl
+     * regardless of source analysis. When false, suppresses auto-detection.
+     * Omit to rely on automatic detection from source (presence of HumanInLoop effect).
+     */
+    hitl?: boolean;
   };
+}
+
+/**
+ * Detect whether a Clarity source file (or any of its imported modules) uses
+ * the HumanInLoop effect. Since Clarity requires explicit effect declarations,
+ * a textual scan for the identifier is sufficient and reliable.
+ */
+async function detectHitlCapability(sourceFile: string): Promise<boolean> {
+  // Scan source file and all directly imported .clarity files in the same dir.
+  const visited = new Set<string>();
+  async function scan(filePath: string): Promise<boolean> {
+    if (visited.has(filePath)) return false;
+    visited.add(filePath);
+    let content: string;
+    try { content = await readFile(filePath, "utf-8"); } catch { return false; }
+    if (/\bHumanInLoop\b/.test(content)) return true;
+    // Follow local imports (e.g. import { x } from "./foo")
+    const dir = path.dirname(filePath);
+    const importRe = /import\s+\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = importRe.exec(content)) !== null) {
+      const imp = path.resolve(dir, m[1].endsWith(".clarity") ? m[1] : m[1] + ".clarity");
+      if (await scan(imp)) return true;
+    }
+    return false;
+  }
+  return scan(sourceFile);
 }
 
 async function loadProjectMeta(sourceFile: string): Promise<ClarityProjectMeta> {
@@ -312,6 +345,16 @@ program
       const clarityctlBin = process.env.CLARITYCTL_BIN ?? "clarityctl";
       const compilerBin = process.env.CLARITYC_BIN ?? "clarityc";
 
+      // Detect HumanInLoop capability: explicit override in clarity.json, or auto-detected
+      // from the source (and directly imported modules). This adds --agent-hitl so the runtime
+      // manifest can advertise HITL UI support for the agent.
+      let hitlCapability: boolean;
+      if (meta.agent?.hitl !== undefined) {
+        hitlCapability = meta.agent.hitl;
+      } else {
+        hitlCapability = await detectHitlCapability(sourceFile);
+      }
+
       const args: string[] = ["--daemon-url", daemonUrl];
       if (authToken) args.push("--auth-token", authToken);
       args.push("add", sourceFile);
@@ -331,6 +374,7 @@ program
       if (meta.agent?.handoff_targets?.length) args.push("--agent-handoff-targets", meta.agent.handoff_targets.join(","));
       if (meta.agent?.depends_on?.length) args.push("--agent-depends-on", meta.agent.depends_on.join(","));
       if (meta.agent?.version) args.push("--agent-version", meta.agent.version);
+      if (hitlCapability) args.push("--agent-hitl");
       args.push("--compiler-bin", compilerBin);
 
       await new Promise<void>((resolve, reject) => {

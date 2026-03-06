@@ -1,0 +1,166 @@
+// std/context — Typed helpers for the runtime chat handler context envelope (context.v1)
+//
+// The runtime dispatches chat messages to `fn__receive_chat` with four arguments:
+//   arg0: message (String)     — the user's message text
+//   arg1: sessionId (String)   — session identifier
+//   arg2: runId (String)       — run identifier
+//   arg3: context_json (String) — full context.v1 envelope as a JSON string
+//
+// The context.v1 envelope structure (arg3):
+//   {
+//     "runId": "...", "sessionId": "...", "serviceId": "...", "agent": "...",
+//     "messages": [...],
+//     "history": { "totalMessages": N, "usedMessages": N, "truncated": bool,
+//                  "maxTurns": N, "maxChars": N },
+//     "contextVersion": "context.v1",
+//     "context": {
+//       "task": "...",          // agent's primary task/goal
+//       "instructions": "...",  // system instructions
+//       "userContext": "...",   // user-provided context
+//       "retrieval": "...",     // RAG results (JSON array)
+//       "conversation": "...",  // conversation summary
+//       "runtimeState": "...",  // agent's persisted state
+//       "policy": "...",        // active policy settings
+//       "budget": "...",        // token/cost budget
+//       "provenance": "..."     // provenance metadata
+//     }
+//   }
+//
+// Quick start:
+//   import { get_task, get_instructions, get_history_total, get_messages_json,
+//            get_run_id, get_session_id, get_user_context, get_retrieval,
+//            get_runtime_state, get_budget_remaining } from "std/context"
+//
+//   effect[Network, Model] function fn__receive_chat(
+//     message: String, session_id: String, run_id: String, ctx_json: String
+//   ) -> String {
+//     let task = get_task(ctx_json);
+//     let instr = get_instructions(ctx_json);
+//     ...
+//   }
+
+module Context
+
+import { get, get_or, get_nested, get_nested_or } from "std/json"
+
+// ---------------------------------------------------------------------------
+// Top-level envelope fields
+// ---------------------------------------------------------------------------
+
+// The run ID for the current agent execution.
+export function get_run_id(ctx_json: String) -> String {
+  get_or(ctx_json, "runId", "")
+}
+
+// The session ID grouping multiple runs for the same conversation.
+export function get_session_id(ctx_json: String) -> String {
+  get_or(ctx_json, "sessionId", "")
+}
+
+// The service ID of the registered Clarity agent.
+export function get_service_id(ctx_json: String) -> String {
+  get_or(ctx_json, "serviceId", "")
+}
+
+// The agent name/identifier from the manifest.
+export function get_agent_name(ctx_json: String) -> String {
+  get_or(ctx_json, "agent", "")
+}
+
+// The context.v1 envelope version string (e.g. "context.v1").
+export function get_context_version(ctx_json: String) -> String {
+  get_or(ctx_json, "contextVersion", "")
+}
+
+// The full messages array as a JSON string (array of {role, content} objects).
+export function get_messages_json(ctx_json: String) -> Option<String> {
+  get(ctx_json, "messages")
+}
+
+// The full history object as a JSON string.
+export function get_history_json(ctx_json: String) -> Option<String> {
+  get(ctx_json, "history")
+}
+
+// ---------------------------------------------------------------------------
+// History metadata
+// ---------------------------------------------------------------------------
+
+// Total number of messages in this run's history.
+export function get_history_total(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "history.totalMessages", "0")
+}
+
+// Number of messages included in the context window.
+export function get_history_used(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "history.usedMessages", "0")
+}
+
+// Whether history was truncated to fit the context window.
+export function get_history_truncated(ctx_json: String) -> Bool {
+  match get_nested(ctx_json, "history.truncated") {
+    Some(v) -> v == "true",
+    None    -> False
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Structured context sub-fields (inside "context" key)
+// ---------------------------------------------------------------------------
+
+// The agent's primary task description.
+export function get_task(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.task", "")
+}
+
+// System instructions for the agent.
+export function get_instructions(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.instructions", "")
+}
+
+// User-provided context appended to the conversation.
+export function get_user_context(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.userContext", "")
+}
+
+// RAG retrieval results as a JSON string (typically a JSON array of chunks).
+export function get_retrieval(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.retrieval", "[]")
+}
+
+// A running conversation summary (if maintained by the runtime).
+export function get_conversation_summary(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.conversation", "")
+}
+
+// Agent's persisted runtime state (JSON string; use std/agent checkpoint helpers).
+export function get_runtime_state(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.runtimeState", "{}")
+}
+
+// Active policy settings as a JSON string.
+export function get_policy(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.policy", "{}")
+}
+
+// Budget information as a JSON string (token/cost limits).
+export function get_budget(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.budget", "{}")
+}
+
+// Provenance metadata as a JSON string.
+export function get_provenance(ctx_json: String) -> String {
+  get_nested_or(ctx_json, "context.provenance", "{}")
+}
+
+// ---------------------------------------------------------------------------
+// Convenience: check if any useful context is present
+// ---------------------------------------------------------------------------
+
+// True when the context.v1 envelope carries a non-empty task or instructions.
+export function has_context(ctx_json: String) -> Bool {
+  match get_nested(ctx_json, "contextVersion") {
+    Some(_) -> True,
+    None    -> False
+  }
+}

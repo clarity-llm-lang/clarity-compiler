@@ -84,14 +84,21 @@ export function createAgentRuntime(
         const t0 = Date.now();
         const raw = callMcp(session.url, body);
         const parsed = JSON.parse(raw) as { result?: { content?: Array<{ type: string; text?: string }> }; error?: { message?: string } };
-        if (parsed.error) { h.policyAuditLog({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "error" }); return h.allocResultString(false, h.writeString(`MCP error: ${parsed.error.message ?? "unknown"}`)); }
+        const duration_ms = Date.now() - t0;
+        if (parsed.error) {
+          h.policyAuditLog({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "error" });
+          h.emitAgentEvent({ kind: "agent.tool_called", data: { tool, url: session.url, result: "error", error: parsed.error.message ?? "unknown", duration_ms } });
+          return h.allocResultString(false, h.writeString(`MCP error: ${parsed.error.message ?? "unknown"}`));
+        }
         const content = parsed.result?.content ?? [];
         const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-        h.policyAuditLog({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "ok", duration_ms: Date.now() - t0 });
+        h.policyAuditLog({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "ok", duration_ms });
+        h.emitAgentEvent({ kind: "agent.tool_called", data: { tool, url: session.url, result: "ok", output_length: text.length, duration_ms } });
         return h.allocResultString(true, h.writeString(text || JSON.stringify(parsed.result)));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         h.policyAuditLog({ effect: "MCP", op: "mcp_call_tool", url: session.url, tool, result: "error" });
+        h.emitAgentEvent({ kind: "agent.tool_called", data: { tool, url: session.url, result: "error", error: msg } });
         return h.allocResultString(false, h.writeString(msg));
       }
     },
@@ -133,13 +140,20 @@ export function createAgentRuntime(
         const t0 = Date.now();
         const raw = callA2A(baseUrl, body);
         const parsed = JSON.parse(raw) as { result?: { id?: string; status?: { state?: string } }; error?: { message?: string } };
-        if (parsed.error) { h.policyAuditLog({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "error" }); return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`)); }
+        const duration_ms = Date.now() - t0;
+        if (parsed.error) {
+          h.policyAuditLog({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "error" });
+          h.emitAgentEvent({ kind: "agent.a2a_task_submitted", data: { url: baseUrl, result: "error", error: parsed.error.message ?? "unknown", duration_ms } });
+          return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+        }
         const returnedId = parsed.result?.id ?? taskId;
-        h.policyAuditLog({ effect: "A2A", op: "a2a_submit", url: baseUrl, task_id: returnedId, result: "ok", duration_ms: Date.now() - t0 });
+        h.policyAuditLog({ effect: "A2A", op: "a2a_submit", url: baseUrl, task_id: returnedId, result: "ok", duration_ms });
+        h.emitAgentEvent({ kind: "agent.a2a_task_submitted", data: { url: baseUrl, task_id: returnedId, result: "ok", duration_ms } });
         return h.allocResultString(true, h.writeString(returnedId));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         h.policyAuditLog({ effect: "A2A", op: "a2a_submit", url: baseUrl, result: "error" });
+        h.emitAgentEvent({ kind: "agent.a2a_task_submitted", data: { url: baseUrl, result: "error", error: msg } });
         return h.allocResultString(false, h.writeString(msg));
       }
     },
@@ -156,16 +170,23 @@ export function createAgentRuntime(
         const t0 = Date.now();
         const raw = callA2A(baseUrl, body);
         const parsed = JSON.parse(raw) as { result?: { id?: string; status?: { state?: string }; artifacts?: Array<{ parts?: Array<{ type: string; text?: string }> }> }; error?: { message?: string } };
-        if (parsed.error) { h.policyAuditLog({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "error" }); return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`)); }
+        const duration_ms = Date.now() - t0;
+        if (parsed.error) {
+          h.policyAuditLog({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "error" });
+          h.emitAgentEvent({ kind: "agent.a2a_task_updated", data: { url: baseUrl, task_id: taskId, result: "error", error: parsed.error.message ?? "unknown", duration_ms } });
+          return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+        }
         const result = parsed.result ?? {};
         const artParts = (result.artifacts ?? []).flatMap((a) => a.parts ?? []);
         const outputText = artParts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n");
         const summary = { id: result.id ?? taskId, status: result.status?.state ?? "unknown", output: outputText };
-        h.policyAuditLog({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, status: summary.status, result: "ok", duration_ms: Date.now() - t0 });
+        h.policyAuditLog({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, status: summary.status, result: "ok", duration_ms });
+        h.emitAgentEvent({ kind: "agent.a2a_task_updated", data: { url: baseUrl, task_id: taskId, status: summary.status, result: "ok", duration_ms } });
         return h.allocResultString(true, h.writeString(JSON.stringify(summary)));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         h.policyAuditLog({ effect: "A2A", op: "a2a_poll", url: baseUrl, task_id: taskId, result: "error" });
+        h.emitAgentEvent({ kind: "agent.a2a_task_updated", data: { url: baseUrl, task_id: taskId, result: "error", error: msg } });
         return h.allocResultString(false, h.writeString(msg));
       }
     },
@@ -182,14 +203,21 @@ export function createAgentRuntime(
         const t0 = Date.now();
         const raw = callA2A(baseUrl, body);
         const parsed = JSON.parse(raw) as { result?: { id?: string; status?: { state?: string } }; error?: { message?: string } };
-        if (parsed.error) { h.policyAuditLog({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "error" }); return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`)); }
+        const duration_ms = Date.now() - t0;
+        if (parsed.error) {
+          h.policyAuditLog({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "error" });
+          h.emitAgentEvent({ kind: "agent.a2a_task_cancelled", data: { url: baseUrl, task_id: taskId, result: "error", error: parsed.error.message ?? "unknown", duration_ms } });
+          return h.allocResultString(false, h.writeString(`A2A error: ${parsed.error.message ?? "unknown"}`));
+        }
         const result = parsed.result ?? {};
         const summary = { id: result.id ?? taskId, status: result.status?.state ?? "canceled" };
-        h.policyAuditLog({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "ok", duration_ms: Date.now() - t0 });
+        h.policyAuditLog({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "ok", duration_ms });
+        h.emitAgentEvent({ kind: "agent.a2a_task_cancelled", data: { url: baseUrl, task_id: taskId, result: "ok", duration_ms } });
         return h.allocResultString(true, h.writeString(JSON.stringify(summary)));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         h.policyAuditLog({ effect: "A2A", op: "a2a_cancel", url: baseUrl, task_id: taskId, result: "error" });
+        h.emitAgentEvent({ kind: "agent.a2a_task_cancelled", data: { url: baseUrl, task_id: taskId, result: "error", error: msg } });
         return h.allocResultString(false, h.writeString(msg));
       }
     },

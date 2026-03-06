@@ -1,5 +1,11 @@
 // Shared types for runtime sub-modules.
 
+/** Structured agent observability event emitted by std/mcp and std/a2a operations. */
+export interface AgentEvent {
+  kind: string;
+  data: Record<string, unknown>;
+}
+
 export interface RuntimeConfig {
   /** Command-line arguments to expose via get_args() */
   argv?: string[];
@@ -10,6 +16,13 @@ export interface RuntimeConfig {
     readFileSync: (path: string, encoding: string) => string;
     writeFileSync: (path: string, content: string) => void;
   };
+  /**
+   * Optional callback for structured agent.* observability events.
+   * LLM-runtime passes this when embedding WASM modules so MCP tool calls
+   * and A2A task operations appear on the agent event timeline.
+   * Events are also written to the audit log regardless of this callback.
+   */
+  agentEventEmitter?: (event: AgentEvent) => void;
 }
 
 export interface AssertionFailure {
@@ -40,4 +53,6 @@ export interface SharedHelpers {
   policyCheckUrl: (url: string) => string | null;
   policyCheckEffect: (effectName: string) => string | null;
   policyAuditLog: (entry: Record<string, unknown>) => void;
+  /** Emit a structured agent.* observability event (no-op when no emitter configured). */
+  emitAgentEvent: (event: AgentEvent) => void;
 }

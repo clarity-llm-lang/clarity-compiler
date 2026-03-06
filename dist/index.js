@@ -188,6 +188,40 @@ program
         process.exit(1);
     }
 });
+/**
+ * Detect whether a Clarity source file (or any of its imported modules) uses
+ * the HumanInLoop effect. Since Clarity requires explicit effect declarations,
+ * a textual scan for the identifier is sufficient and reliable.
+ */
+async function detectHitlCapability(sourceFile) {
+    // Scan source file and all directly imported .clarity files in the same dir.
+    const visited = new Set();
+    async function scan(filePath) {
+        if (visited.has(filePath))
+            return false;
+        visited.add(filePath);
+        let content;
+        try {
+            content = await readFile(filePath, "utf-8");
+        }
+        catch {
+            return false;
+        }
+        if (/\bHumanInLoop\b/.test(content))
+            return true;
+        // Follow local imports (e.g. import { x } from "./foo")
+        const dir = path.dirname(filePath);
+        const importRe = /import\s+\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g;
+        let m;
+        while ((m = importRe.exec(content)) !== null) {
+            const imp = path.resolve(dir, m[1].endsWith(".clarity") ? m[1] : m[1] + ".clarity");
+            if (await scan(imp))
+                return true;
+        }
+        return false;
+    }
+    return scan(sourceFile);
+}
 async function loadProjectMeta(sourceFile) {
     const dir = path.dirname(path.resolve(sourceFile));
     const metaPath = path.join(dir, "clarity.json");
@@ -254,6 +288,16 @@ program
         });
         const clarityctlBin = process.env.CLARITYCTL_BIN ?? "clarityctl";
         const compilerBin = process.env.CLARITYC_BIN ?? "clarityc";
+        // Detect HumanInLoop capability: explicit override in clarity.json, or auto-detected
+        // from the source (and directly imported modules). This adds --agent-hitl so the runtime
+        // manifest can advertise HITL UI support for the agent.
+        let hitlCapability;
+        if (meta.agent?.hitl !== undefined) {
+            hitlCapability = meta.agent.hitl;
+        }
+        else {
+            hitlCapability = await detectHitlCapability(sourceFile);
+        }
         const args = ["--daemon-url", daemonUrl];
         if (authToken)
             args.push("--auth-token", authToken);
@@ -289,6 +333,8 @@ program
             args.push("--agent-depends-on", meta.agent.depends_on.join(","));
         if (meta.agent?.version)
             args.push("--agent-version", meta.agent.version);
+        if (hitlCapability)
+            args.push("--agent-hitl");
         args.push("--compiler-bin", compilerBin);
         await new Promise((resolve, reject) => {
             const child = spawn(clarityctlBin, args, {

@@ -1,4 +1,4 @@
-export type { RuntimeConfig, AssertionFailure, RuntimeExports } from "./runtime/types.js";
+export type { RuntimeConfig, AssertionFailure, RuntimeExports, AgentEvent } from "./runtime/types.js";
 import type { RuntimeConfig, AssertionFailure } from "./runtime/types.js";
 export declare function createRuntime(config?: RuntimeConfig): {
     readonly memory: WebAssembly.Memory;
