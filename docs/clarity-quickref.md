@@ -48,7 +48,7 @@ type UserId = Int64
 function add(a: Int64, b: Int64) -> Int64 { a + b }
 
 // Effectful — must declare effects
-effect[DB, Log] function save(name: String) -> Int64 { ... }
+effect[Network, Log] function fetch_and_log(url: String) -> String { ... }
 
 // Generic
 function identity<T>(x: T) -> T { x }
@@ -58,8 +58,8 @@ function apply(f: (Int64) -> Int64, x: Int64) -> Int64 { f(x) }
 ```
 
 **All known effects:**
-`DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
-`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`
+`Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`, `HumanInLoop`, `TTY`
 
 ## Control flow — match only (no if/else, no loops)
 ```

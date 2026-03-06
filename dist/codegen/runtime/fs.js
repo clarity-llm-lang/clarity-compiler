@@ -1,5 +1,6 @@
 // FileSystem builtins: file I/O, stdin/stdout, args, process control, fs_watch.
 import * as nodeFs from "node:fs";
+import nodePath from "node:path";
 import { Worker } from "node:worker_threads";
 // SAB layout for stdin reader worker
 const STDIN_SAB_LINE_OFFSET = 8;
@@ -90,6 +91,25 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
     let nextFsWatchHandle = 1;
     let stdinEofLatched = false; // latched after first EOF from read_line / read_line_or_eof
     let stdinWorkerEofLatched = false; // latched after stdin_try_read sees STATUS_EOF
+    // RQ-LANG-SEC-002: FileSystem path guardrails
+    const fsAllowRoot = process.env.CLARITY_FS_ALLOW_ROOT
+        ? nodePath.resolve(process.env.CLARITY_FS_ALLOW_ROOT)
+        : null;
+    const fsDenyPaths = process.env.CLARITY_FS_DENY_PATHS
+        ? process.env.CLARITY_FS_DENY_PATHS.split(",").map(p => nodePath.resolve(p.trim())).filter(p => p.length > 0)
+        : [];
+    function checkFsPath(p) {
+        const abs = nodePath.resolve(p);
+        if (fsAllowRoot !== null && abs !== fsAllowRoot && !abs.startsWith(fsAllowRoot + nodePath.sep)) {
+            return `FileSystem: path '${p}' is outside CLARITY_FS_ALLOW_ROOT ('${fsAllowRoot}')`;
+        }
+        for (const denied of fsDenyPaths) {
+            if (abs === denied || abs.startsWith(denied + nodePath.sep)) {
+                return `FileSystem: path '${p}' is blocked by CLARITY_FS_DENY_PATHS`;
+            }
+        }
+        return null;
+    }
     function ensureStdinReader() {
         if (stdinReaderRef.sab)
             return;
@@ -221,25 +241,35 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
             }
         },
         read_file(pathPtr) {
-            const path = h.readString(pathPtr);
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "read_file", url: p, result: "denied", reason: denied });
+                return h.writeString("");
+            }
             try {
                 if (config.fs) {
-                    return h.writeString(config.fs.readFileSync(path, "utf-8"));
+                    return h.writeString(config.fs.readFileSync(p, "utf-8"));
                 }
-                return h.writeString(nodeFs.readFileSync(path, "utf-8"));
+                return h.writeString(nodeFs.readFileSync(p, "utf-8"));
             }
             catch {
                 return h.writeString("");
             }
         },
         write_file(pathPtr, contentPtr) {
-            const path = h.readString(pathPtr);
-            const content = h.readString(contentPtr);
-            if (config.fs) {
-                config.fs.writeFileSync(path, content);
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "write_file", url: p, result: "denied", reason: denied });
                 return;
             }
-            nodeFs.writeFileSync(path, content);
+            const content = h.readString(contentPtr);
+            if (config.fs) {
+                config.fs.writeFileSync(p, content);
+                return;
+            }
+            nodeFs.writeFileSync(p, content);
         },
         get_args() {
             const args = config.argv ?? [];
@@ -256,9 +286,14 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
             process.exit(Number(code));
         },
         list_dir(pathPtr) {
-            const path = h.readString(pathPtr);
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "list_dir", url: p, result: "denied", reason: denied });
+                return h.allocListI32([]);
+            }
             try {
-                const entries = nodeFs.readdirSync(path);
+                const entries = nodeFs.readdirSync(p);
                 return h.allocListI32(entries.map((e) => h.writeString(e)));
             }
             catch {
@@ -266,9 +301,14 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
             }
         },
         file_exists(pathPtr) {
-            const path = h.readString(pathPtr);
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "file_exists", url: p, result: "denied", reason: denied });
+                return 0;
+            }
             try {
-                nodeFs.statSync(path);
+                nodeFs.statSync(p);
                 return 1;
             }
             catch {
@@ -276,9 +316,14 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
             }
         },
         remove_file(pathPtr) {
-            const path = h.readString(pathPtr);
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "remove_file", url: p, result: "denied", reason: denied });
+                return;
+            }
             try {
-                nodeFs.unlinkSync(path);
+                nodeFs.unlinkSync(p);
             }
             catch (e) {
                 const err = e;
@@ -287,8 +332,13 @@ export function createFsRuntime(h, config, stdinBufferRef, stdinReaderRef) {
             }
         },
         make_dir(pathPtr) {
-            const path = h.readString(pathPtr);
-            nodeFs.mkdirSync(path, { recursive: true });
+            const p = h.readString(pathPtr);
+            const denied = checkFsPath(p);
+            if (denied) {
+                h.policyAuditLog({ effect: "FileSystem", op: "make_dir", url: p, result: "denied", reason: denied });
+                return;
+            }
+            nodeFs.mkdirSync(p, { recursive: true });
         },
         fs_watch_start(pathPtr) {
             const path = h.readString(pathPtr);

@@ -424,7 +424,6 @@ The effect system tracks **side effects** at the type level. A function that rea
 
 | Effect | Description |
 |--------|-------------|
-| `DB` | Database reads and writes |
 | `Network` | HTTP calls, socket operations |
 | `Time` | Getting current time, sleeping |
 | `Random` | Random number generation |
@@ -439,6 +438,8 @@ The effect system tracks **side effects** at the type level. A function that rea
 | `Persist` | Durable key-value checkpointing for resumable agents |
 | `Embed` | Text embedding and vector similarity (network I/O to embeddings API) |
 | `Eval` | LLM output evaluation — judge responses against rubrics or measure semantic similarity |
+| `HumanInLoop` | Pause execution and wait for a human operator response |
+| `TTY` | Raw terminal input, cursor control, and terminal queries |
 
 ### 6.3 Rules
 
@@ -450,17 +451,17 @@ The effect system tracks **side effects** at the type level. A function that rea
 // Pure function — cannot perform side effects
 function add(a: Int64, b: Int64) -> Int64 { a + b }
 
-// Effectful function — must declare DB
-effect[DB] function get_user(id: Int64) -> String { ... }
+// Effectful function — must declare effects
+effect[Network] function get_user(id: Int64) -> String { ... }
 
 // COMPILE ERROR: pure function calling effectful function
 function bad() -> String { get_user(1) }
 
 // OK: caller declares required effects
-effect[DB] function good() -> String { get_user(1) }
+effect[Network] function good() -> String { get_user(1) }
 
 // OK: caller declares superset of effects
-effect[DB, Log] function also_good() -> String { get_user(1) }
+effect[Network, Log] function also_good() -> String { get_user(1) }
 ```
 
 ---
@@ -690,12 +691,12 @@ Clarity uses **compile-time error detection** wherever possible:
 ### 10.1 Error Messages
 Error messages are designed for LLM consumption — precise, actionable, with fix suggestions:
 ```
-error: Function 'save' requires effects [DB] but caller only declares [none]
+error: Function 'fetch' requires effects [Network] but caller only declares [none]
   --> app.clarity:12:5
    |
-12 |     save(user)
+12 |     fetch(url)
    |     ^^^^^^^^^^
-   = help: Add the missing effects to the caller: effect[DB]
+   = help: Add the missing effects to the caller: effect[Network]
 ```
 
 When an LLM uses a construct from another language, the compiler provides migration hints:
@@ -1290,7 +1291,7 @@ type AuthResult =
   | Success(token: String)
   | Failure(reason: String)
 
-effect[DB, Log] function authenticate(
+effect[Network, Log] function authenticate(
   email: String,
   password: String,
 ) -> AuthResult {
@@ -1298,7 +1299,7 @@ effect[DB, Log] function authenticate(
   Success("token_abc")
 }
 
-// This would NOT compile — missing DB effect:
+// This would NOT compile — missing Network effect:
 // function bad() -> AuthResult { authenticate("a", "b") }
 ```
 
