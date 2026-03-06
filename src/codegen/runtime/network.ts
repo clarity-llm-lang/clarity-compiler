@@ -403,13 +403,5 @@ export function createNetworkRuntime(h: SharedHelpers) {
       return h.allocOptionI32(h.writeString(event));
     },
 
-    // Stub DB operations
-    db_execute(_sqlPtr: number, _paramsPtr: number): number {
-      return h.allocResultI64(false, 0n, h.writeString("db_execute not implemented yet"));
-    },
-
-    db_query(_sqlPtr: number, _paramsPtr: number): number {
-      return h.allocResultI32(false, h.writeString("db_query not implemented yet"));
-    },
   };
 }

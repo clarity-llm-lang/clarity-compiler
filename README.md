@@ -9,8 +9,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/version-0.9.0-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/tests-544%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/version-0.10.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/tests-561%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/target-WebAssembly-purple.svg" alt="Target: WASM">
 </p>
 
@@ -46,7 +46,7 @@ npm install -g clarity-lang
 This installs `clarityc` globally. No `npx` needed.
 
 ```bash
-clarityc --version    # 0.9.0
+clarityc --version    # 0.10.0
 clarityc --help
 ```
 
@@ -169,8 +169,8 @@ function score(text: String) -> Int64 { ... }
 effect[Model, FileSystem] function analyze(path: String) -> String { ... }
 ```
 
-Available effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
-`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`, `HumanInLoop`
+Available effects: `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`,
+`Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`, `HumanInLoop`, `TTY`
 
 ### No null, no exceptions
 
@@ -364,6 +364,17 @@ clarityc start [file] --daemon-url <url> --auth-token <token>
 
 clarityc repl                        # interactive REPL
 
+clarityc watch [file]                # watch and re-compile on changes
+clarityc lint [file]                 # lint for unused declarations/imports
+clarityc lint [file] --json          # machine-readable lint output
+clarityc fmt [file]                  # format source (dry-run: prints to stdout)
+clarityc fmt [file] --write          # format in place
+clarityc fmt [file] --check          # exit 1 if file is not formatted (CI)
+
+clarityc pack [file]                 # bundle as standalone .js launcher
+clarityc pack [file] --self-contained # copy runtime alongside output (no npm needed)
+clarityc pack [file] -f fn_name      # specify entry function (default: main)
+
 clarityc introspect                  # all capabilities as JSON
 clarityc introspect --builtins       # built-in functions
 clarityc introspect --effects        # effects
@@ -393,9 +404,9 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 
 ---
 
-## Current Status (v0.9.0)
+## Current Status (v0.10.0)
 
-**544 tests passing.**
+**561 tests passing.**
 
 ### Language
 - Full type system: Int64, Float64, String, Bool, Bytes, Timestamp, Unit, Option\<T\>, Result\<T,E\>, List\<T\>, Map\<K,V\>
@@ -421,9 +432,21 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 - **Policy + audit**: `CLARITY_ALLOW_HOSTS`, `CLARITY_DENY_EFFECTS`, `CLARITY_AUDIT_LOG`
 - **Memory**: free-list allocator + `arena_save`/`arena_restore`
 
+### CLI tooling
+- `clarityc watch` — live recompile on save
+- `clarityc lint` — unused declaration / import analysis
+- `clarityc fmt` — text-level formatter (`--write`, `--check`)
+- `clarityc pack --self-contained` — zero-dependency deployment artifact
+- `clarityc repl` — interactive REPL with heuristic type inference
+
+### Security
+- `Network`-effect HTTP builtins reject `file://` URLs; use `read_file()` for local files
+- `CLARITY_FS_ALLOW_ROOT` / `CLARITY_FS_DENY_PATHS` env vars guard FileSystem builtins
+
 ### Standard library
-`std/math`, `std/string`, `std/list`, `std/llm`, `std/mcp`, `std/a2a`,
-`std/agent`, `std/rag`, `std/eval`, `std/stream`, `std/hitl`
+`std/math`, `std/string`, `std/list`, `std/json`, `std/url`,
+`std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`,
+`std/eval`, `std/stream`, `std/hitl`, `std/context`
 
 ---
 

@@ -116,8 +116,6 @@ export declare function createRuntime(config?: RuntimeConfig): {
             sse_next_event(handleN: bigint): number;
             sse_close(handleN: bigint): void;
             sse_next_event_timeout(handleN: bigint, timeoutN: bigint): number;
-            db_execute(_sqlPtr: number, _paramsPtr: number): number;
-            db_query(_sqlPtr: number, _paramsPtr: number): number;
             read_line(): number;
             read_line_or_eof(): number;
             read_all_stdin(): number;

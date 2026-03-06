@@ -163,3 +163,34 @@ Acceptance criteria:
 - Priority: `P1`
 - Item: Deliver RQ-LANG-CLI-010 so downstream git-based installs expose a working `clarityc` with current HTTP server builtins.
 - Dependency: packaging/install strategy that does not require manual local symlink workarounds.
+
+## Cross-Project Audit Intake (2026-03-06)
+
+Source session: deep architecture/UX/security/docs/license/CI review across `LLM-lang`, `LLM-runtime`, and `LLM-cli`.
+
+### Architecture Requirements
+
+1. `RQ-LANG-ARCH-001` (P1): **Done** — Added `clarityc watch`, `clarityc fmt`, and `clarityc lint` commands. See `src/cli/watch.ts`, `src/cli/lint.ts`, `src/cli/fmt.ts`.
+2. `RQ-LANG-ARCH-002` (P1): **Done** — `clarityc pack` embeds required version with mismatch warning; `--self-contained` copies runtime for zero-dependency deployment. See `src/index.ts`.
+3. `RQ-LANG-ARCH-003` (P1): **Done** — All `DB` effect references removed from docs, spec, grammar, and CLAUDE.md. Dead `db_execute`/`db_query` stubs removed from runtime. See `docs/language-spec.md`, `docs/grammar.peg`, `docs/clarity-quickref.md`, `CLAUDE.md`, `src/codegen/runtime/network.ts`.
+4. `RQ-LANG-ARCH-004` (P2): Open — Remaining standard-library and coverage gaps (backlog items `#9`, `#14`–`#17`, `#24`–`#26`) need explicit acceptance tests.
+5. `RQ-LANG-ARCH-005` (P2): Open — Cross-repo conformance fixtures for language/runtime/CLI contracts needed beyond current baseline.
+
+### UX Requirements
+
+1. `RQ-LANG-UX-001` (P1): **Done** — REPL brute-force probing replaced with heuristic type ordering + check-only probing; single full WASM compile only after type is determined. See `src/index.ts`.
+2. `RQ-LANG-UX-002` (P1): Open — Language requirement statuses must stay synchronized between canonical registry and downstream CLI/runtime requirement docs.
+
+### Security Requirements
+
+1. `RQ-LANG-SEC-001` (P1): **Done** — `file://` URLs blocked in all Network-effect HTTP builtins with audit-log entry. See `src/codegen/runtime/network.ts`.
+2. `RQ-LANG-SEC-002` (P1): **Done** — `CLARITY_FS_ALLOW_ROOT` and `CLARITY_FS_DENY_PATHS` env vars enforce FileSystem path guardrails in `read_file`, `write_file`, `list_dir`, `file_exists`, `remove_file`, and `make_dir`. See `src/codegen/runtime/fs.ts`.
+3. `RQ-LANG-SEC-003` (P2): Open — Evolve coarse global policy knobs toward per-service/per-run policy controls for runtime embedding.
+
+### Documentation, License, and GitHub Setup Requirements
+
+1. `RQ-LANG-DOC-001` (P1): **Done** — `README.md` updated: version 0.10.0, 561 tests, effects list, CLI reference, security section, std-library list. See `README.md`.
+2. `RQ-LANG-DOC-002` (P1): **Done** — Stale `DB` effect references removed from all public docs and spec examples. See `docs/language-spec.md`, `docs/clarity-quickref.md`, `docs/grammar.peg`.
+3. `RQ-LANG-LIC-001` (P1): **Done** — `LICENSE` (MIT, 2024–2026) added to repository root. See `LICENSE`.
+4. `RQ-LANG-CI-001` (P2): Open — Align GitHub workflow action major versions with sibling repos (`LLM-runtime`, `LLM-cli`).
+5. `RQ-LANG-CI-002` (P2): Open — Add missing repository governance automation parity (Dependabot/CODEOWNERS/templates) or document intentional differences.

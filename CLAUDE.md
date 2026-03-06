@@ -94,12 +94,12 @@ function add(a: Int64, b: Int64) -> Int64 {
 }
 
 // Effectful function — must declare effects
-effect[DB, Log] function save_user(name: String) -> Int64 {
+effect[Network, Log] function fetch_user(name: String) -> String {
   // ...
 }
 ```
 
-Known effects: `DB`, `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`
+Known effects: `Network`, `Time`, `Random`, `Log`, `FileSystem`, `Test`, `Model`, `Secret`, `MCP`, `A2A`, `Trace`, `Persist`, `Embed`, `Eval`, `HumanInLoop`, `TTY`
 
 ### Control flow — match only
 Clarity has NO if/else, NO loops. Use `match` for all branching:
