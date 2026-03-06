@@ -1,5 +1,4 @@
 // Network builtins: http_request, SSE client, syncHttpRequest helper.
-import * as nodeFs from "node:fs";
 import { Worker } from "node:worker_threads";
 export const HTTP_MAX_BODY = 8 * 1024 * 1024; // 8 MB
 export const _HTTP_WORKER_CODE = `
@@ -149,16 +148,14 @@ req.on('error', function(e) { putError(e.message); });
 req.end();
 `;
 export function syncHttpRequest(opts) {
+    // LANG-SEC-NETWORK-FILE-001: file:// access is not permitted through Network-effect
+    // builtins. Use FileSystem-effect builtins (read_file / write_file) to access local files.
     if (opts.url.startsWith("file://")) {
-        try {
-            const filePath = new URL(opts.url).pathname;
-            const content = nodeFs.readFileSync(filePath, "utf-8");
-            return { ok: true, status: 200, body: content };
-        }
-        catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            return { ok: false, status: 0, body: msg };
-        }
+        return {
+            ok: false,
+            status: 0,
+            body: "Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files",
+        };
     }
     const sab = new SharedArrayBuffer(12 + HTTP_MAX_BODY);
     const ctrl = new Int32Array(sab, 0, 1);
@@ -205,6 +202,10 @@ export function createNetworkRuntime(h) {
             const url = h.readString(urlPtr);
             const headersJson = h.readString(headersJsonPtr);
             const body = h.readString(bodyPtr);
+            if (url.startsWith("file://")) {
+                h.policyAuditLog({ effect: "Network", op: "http_request", url, result: "denied", reason: "file:// not permitted via Network effect" });
+                return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+            }
             try {
                 let headers = {};
                 if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
@@ -230,6 +231,10 @@ export function createNetworkRuntime(h) {
             const url = h.readString(urlPtr);
             const headersJson = h.readString(headersJsonPtr);
             const body = h.readString(bodyPtr);
+            if (url.startsWith("file://")) {
+                h.policyAuditLog({ effect: "Network", op: "http_request_full", url, result: "denied", reason: "file:// not permitted via Network effect" });
+                return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+            }
             try {
                 let headers = {};
                 if (headersJson.trim() !== "" && headersJson.trim() !== "{}") {
@@ -251,6 +256,10 @@ export function createNetworkRuntime(h) {
         },
         http_get(urlPtr) {
             const url = h.readString(urlPtr);
+            if (url.startsWith("file://")) {
+                h.policyAuditLog({ effect: "Network", op: "http_get", url, result: "denied", reason: "file:// not permitted via Network effect" });
+                return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+            }
             try {
                 const resp = syncHttpRequest({ url, timeoutMs: 10000, followRedirects: true });
                 if (!resp.ok)
@@ -265,6 +274,10 @@ export function createNetworkRuntime(h) {
         http_post(urlPtr, bodyPtr) {
             const url = h.readString(urlPtr);
             const body = h.readString(bodyPtr);
+            if (url.startsWith("file://")) {
+                h.policyAuditLog({ effect: "Network", op: "http_post", url, result: "denied", reason: "file:// not permitted via Network effect" });
+                return h.allocResultString(false, h.writeString("Network: file:// URLs are not permitted — use FileSystem-effect builtins (read_file) to read local files"));
+            }
             try {
                 const resp = syncHttpRequest({ url, method: "POST", headers: { "Content-Type": "text/plain" }, body, timeoutMs: 10000, followRedirects: true });
                 if (!resp.ok)

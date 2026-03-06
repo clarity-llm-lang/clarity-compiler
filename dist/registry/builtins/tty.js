@@ -17,5 +17,11 @@ export const TTY_BUILTINS = [
     { name: "tty_clear_line", params: [], paramNames: [], returnType: UNIT, effects: ["TTY"], doc: "Clear the current line and move cursor to column 1. Equivalent to \\x1b[2K\\r. Use for in-place line redraw.", category: "tty" },
     { name: "tty_hide_cursor", params: [], paramNames: [], returnType: UNIT, effects: ["TTY"], doc: "Hide the terminal cursor. Remember to call tty_show_cursor() before your program exits.", category: "tty" },
     { name: "tty_show_cursor", params: [], paramNames: [], returnType: UNIT, effects: ["TTY"], doc: "Show the terminal cursor (restores visibility after tty_hide_cursor).", category: "tty" },
+    {
+        name: "tty_read_numeric_choice", params: [INT64], paramNames: ["count"],
+        returnType: INT64, effects: ["TTY"],
+        doc: "Read a numeric selection from stdin in a terminal-agnostic way. Prints a '> ' prompt, reads a line, and returns the zero-based index of the user's choice (i.e. input 1 → 0, input 2 → 1, …, input count → count-1). Returns -1 if the input is not a valid integer in the range 1..count. Works in both raw-mode TTY and plain line-buffered terminals (e.g. CI, SSH without PTY).",
+        category: "tty",
+    },
 ];
 //# sourceMappingURL=tty.js.map

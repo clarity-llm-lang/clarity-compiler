@@ -1,4 +1,5 @@
 // TTY builtins: raw key input, cursor control, terminal queries.
+import * as nodeFs from "node:fs";
 import { Worker } from "node:worker_threads";
 export const TTY_KEY_SAB_SIZE = 40;
 export const TTY_KEY_OFFSET = 8;
@@ -198,6 +199,35 @@ export function createTtyRuntime(h) {
         },
         tty_show_cursor() {
             process.stdout.write("\x1b[?25h");
+        },
+        tty_read_numeric_choice(countN) {
+            // RQ-LANG-CLI-TTY-003: numeric-selection fallback that works in any terminal.
+            // Prints a prompt, reads a full line from stdin, validates the integer 1..count,
+            // and returns the zero-based index (choice - 1). Returns -1n on invalid input.
+            // Works in both raw-mode TTY and plain line-buffered terminals (CI, SSH no PTY).
+            const count = Number(countN);
+            process.stdout.write("> ");
+            try {
+                const buf = Buffer.alloc(256);
+                let total = 0;
+                while (total < 255) {
+                    const n = nodeFs.readSync(0, buf, total, 1, null);
+                    if (n === 0)
+                        break;
+                    const ch = buf[total];
+                    total++;
+                    if (ch === 0x0a || ch === 0x0d)
+                        break; // LF or CR = end of line
+                }
+                const line = buf.subarray(0, total).toString("utf-8").replace(/[\r\n]+$/, "").trim();
+                const parsed = parseInt(line, 10);
+                if (isNaN(parsed) || parsed < 1 || parsed > count)
+                    return -1n;
+                return BigInt(parsed - 1);
+            }
+            catch {
+                return -1n;
+            }
         },
     };
 }
