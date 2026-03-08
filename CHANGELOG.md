@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.0](https://github.com/clarity-llm-lang/clarity-compiler/compare/clarity-lang-v0.10.0...clarity-lang-v0.11.0) (2026-03-08)
+
+
+### Features
+
+* agent event emitter, HITL capability detection, std/context ([c72ec0f](https://github.com/clarity-llm-lang/clarity-compiler/commit/c72ec0f76e1677cde30a13edd4c7fc6e799878a9))
+* docs/license/security audit — MIT LICENSE, DB drift fix, FS path guardrails ([a44b644](https://github.com/clarity-llm-lang/clarity-compiler/commit/a44b644b02fbc15ec38080aee5b14f386f9c43d4))
+* docs/license/security audit (MIT LICENSE, DB drift, FS guardrails) ([b2f50c9](https://github.com/clarity-llm-lang/clarity-compiler/commit/b2f50c9b5f554e6dc5a992c8d1f451add01f76bb))
+* **p2:** agent event emitter, HITL capability detection, std/context ([4fee0b2](https://github.com/clarity-llm-lang/clarity-compiler/commit/4fee0b2b0bc2965373e1435e03382b878a593955))
+* security, CLI tooling, standalone pack, REPL, and TTY fallback ([fe61aa0](https://github.com/clarity-llm-lang/clarity-compiler/commit/fe61aa01c7b781ff8e19d1262ba4451a320f0f4a))
+* security, CLI tooling, standalone pack, REPL, TTY fallback ([8595ea7](https://github.com/clarity-llm-lang/clarity-compiler/commit/8595ea795b2be8d0a8933a3167bfa6b3f0576aae))
+* std/tui module, print_no_newline builtin, \e/\r/\0 string escapes, TCO binding-pattern fix ([9cbbf7f](https://github.com/clarity-llm-lang/clarity-compiler/commit/9cbbf7fa489ab478a5cf5b10c201e7c83922ddf4))
+* std/tui module, print_no_newline, \e/\r/\0 escapes, TCO binding-pattern fix ([3053aef](https://github.com/clarity-llm-lang/clarity-compiler/commit/3053aef19164ce2ee5c64f118c0af5d1a60c788c))
+
 ## [0.10.0](https://github.com/clarity-llm-lang/clarity-compiler/compare/clarity-lang-v0.9.0...clarity-lang-v0.10.0) (2026-03-05)
 
 
