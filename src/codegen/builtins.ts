@@ -23,6 +23,7 @@ export function getBuiltins(): BuiltinDef[] {
   return [
     // --- I/O & Logging ---
     { name: "print_string", importModule: "env", importName: "print_string", params: i32, result: none },
+    { name: "print_no_newline", importModule: "env", importName: "print_no_newline", params: i32, result: none },
     { name: "print_int", importModule: "env", importName: "print_int", params: i64, result: none },
     { name: "print_float", importModule: "env", importName: "print_float", params: f64, result: none },
     { name: "log_info", importModule: "env", importName: "log_info", params: i32, result: none },

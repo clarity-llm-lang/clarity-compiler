@@ -100,6 +100,15 @@ export class Lexer {
                         case "t":
                             current += "\t";
                             break;
+                        case "r":
+                            current += "\r";
+                            break;
+                        case "e":
+                            current += "\x1b";
+                            break; // ESC — useful for ANSI terminal codes
+                        case "0":
+                            current += "\0";
+                            break; // NUL
                         case "\\":
                             current += "\\";
                             break;
@@ -200,6 +209,15 @@ export class Lexer {
                         case "t":
                             value += "\t";
                             break;
+                        case "r":
+                            value += "\r";
+                            break;
+                        case "e":
+                            value += "\x1b";
+                            break; // ESC — useful for ANSI terminal codes
+                        case "0":
+                            value += "\0";
+                            break; // NUL
                         case "\\":
                             value += "\\";
                             break;

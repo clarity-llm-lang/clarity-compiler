@@ -1,0 +1,352 @@
+// std/tui — interactive terminal UI helpers for Clarity
+//
+// Provides arrow-key single/multi selection, y/n confirm, and inline prompts
+// with an automatic non-TTY numeric fallback so the same code works in CI,
+// SSH sessions without a PTY, and interactive terminals.
+//
+// Quick start:
+//   import { select_one, select_many, confirm, prompt_line } from "std/tui"
+//
+//   let idx = select_one(["Alice", "Bob", "Carol"], "Choose a participant:");
+//   let selections = select_many(["Read", "Write", "Exec"], "Grant permissions:");
+//   let ok = confirm("Proceed?");
+//   let name = prompt_line("Your name");
+//
+// All functions require the TTY and Log effects.
+// In non-TTY mode (CI, piped input) a numbered-list fallback is used
+// automatically — no code changes required.
+
+module TUI
+
+// ---------------------------------------------------------------------------
+// ANSI helpers (built with \e = ESC, supported since Clarity 0.11)
+// ---------------------------------------------------------------------------
+
+function ansi_reset() -> String { "\e[0m" }
+function ansi_hl() -> String    { "\e[7m" }   // reverse-video highlight
+
+// ---------------------------------------------------------------------------
+// Internal: render a list of items to stdout, highlighting index cur.
+// Each item is printed on its own line (print_string adds \n).
+// After all items are printed, tty_cursor_up(count) returns to the top.
+// ---------------------------------------------------------------------------
+
+effect[TTY, Log] function render_items(items: List<String>, cur: Int64, i: Int64) -> Unit {
+  match is_empty(items) {
+    True -> {},
+    False -> {
+      let item = head(items);
+      let line = match i == cur {
+        True  -> ansi_hl() ++ " > " ++ item ++ ansi_reset(),
+        False -> "   " ++ item
+      };
+      print_string(line);
+      render_items(tail(items), cur, i + 1)
+    }
+  }
+}
+
+// Render items for multi-select: shows [x] / [ ] checkbox prefix.
+effect[TTY, Log] function render_items_multi(
+  items: List<String>,
+  sel:   List<Bool>,
+  cur:   Int64,
+  i:     Int64,
+) -> Unit {
+  match is_empty(items) {
+    True -> {},
+    False -> {
+      let item    = head(items);
+      let checked = match is_empty(sel) {
+        True  -> False,
+        False -> head(sel)
+      };
+      let box  = match checked { True -> "[x]", False -> "[ ]" };
+      let line = match i == cur {
+        True  -> ansi_hl() ++ " > " ++ box ++ " " ++ item ++ ansi_reset(),
+        False -> "   " ++ box ++ " " ++ item
+      };
+      print_string(line);
+      render_items_multi(
+        tail(items),
+        match is_empty(sel) { True -> sel, False -> tail(sel) },
+        cur,
+        i + 1,
+      )
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal: non-TTY fallback helpers
+// ---------------------------------------------------------------------------
+
+effect[Log] function print_numbered(items: List<String>, i: Int64) -> Unit {
+  match is_empty(items) {
+    True -> {},
+    False -> {
+      print_string(int_to_string(i + 1) ++ ". " ++ head(items));
+      print_numbered(tail(items), i + 1)
+    }
+  }
+}
+
+// Build a list of `n` False values (initial selection state).
+function make_false_list(n: Int64) -> List<Bool> {
+  match n <= 0 {
+    True  -> [],
+    False -> concat([False], make_false_list(n - 1))
+  }
+}
+
+// Toggle the Bool at index `target` in `sel`.
+function toggle_at(sel: List<Bool>, target: Int64) -> List<Bool> {
+  list_set(sel, target, !nth(sel, target))
+}
+
+// Collect 0-based indices of all True entries.
+function collect_selected(sel: List<Bool>, i: Int64) -> List<Int64> {
+  match is_empty(sel) {
+    True  -> [],
+    False -> {
+      let rest = collect_selected(tail(sel), i + 1);
+      match head(sel) {
+        True  -> concat([i], rest),
+        False -> rest
+      }
+    }
+  }
+}
+
+// Parse a space-separated string of 1-based numbers (e.g. "1 3") into a
+// List<Bool> of length `count` with the chosen positions set to True.
+// Out-of-range numbers are ignored.
+function parse_multi_input(raw: String, count: Int64) -> List<Bool> {
+  let base = make_false_list(count);
+  parse_multi_apply(split(raw, " "), base, count)
+}
+
+function parse_multi_apply(tokens: List<String>, sel: List<Bool>, count: Int64) -> List<Bool> {
+  match is_empty(tokens) {
+    True  -> sel,
+    False -> {
+      let tok = trim(head(tokens));
+      let rest = parse_multi_apply(tail(tokens), sel, count);
+      match string_length(tok) == 0 {
+        True  -> rest,
+        False -> match string_to_int(tok) {
+          None    -> rest,
+          Some(n) -> match n >= 1 and n <= count {
+            True  -> list_set(rest, n - 1, True),
+            False -> rest
+          }
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// select_one — single-item arrow-key selection
+// ---------------------------------------------------------------------------
+
+effect[TTY, Log] function select_one_loop(
+  items: List<String>,
+  cur:   Int64,
+  count: Int64,
+) -> Option<Int64> {
+  let k = tty_read_key(10000);
+  match k {
+    None      -> select_one_loop(items, cur, count),
+    Some(key) -> match key {
+      s if s == "up" -> {
+        let next = match cur > 0 { True -> cur - 1, False -> count - 1 };
+        tty_cursor_up(count);
+        render_items(items, next, 0);
+        select_one_loop(items, next, count)
+      },
+      s if s == "down" -> {
+        let next = match cur < count - 1 { True -> cur + 1, False -> 0 };
+        tty_cursor_up(count);
+        render_items(items, next, 0);
+        select_one_loop(items, next, count)
+      },
+      s if s == "enter"  -> Some(cur),
+      s if s == "escape" -> None,
+      s if s == "ctrl+c" -> None,
+      _                  -> select_one_loop(items, cur, count)
+    }
+  }
+}
+
+// Select one item from a list.
+// TTY: arrow keys to move, Enter to confirm, Escape/Ctrl+C to cancel.
+// Non-TTY: numbered list + numeric input.
+// Returns Some(0-based index) on selection, None on cancel or empty list.
+export effect[TTY, Log, FileSystem] function select_one(
+  items: List<String>,
+  label: String,
+) -> Option<Int64> {
+  let count = length(items);
+  match count == 0 {
+    True  -> None,
+    False -> {
+      print_string(label);
+      match tty_is_tty() {
+        False -> {
+          print_numbered(items, 0);
+          print_no_newline("> ");
+          let line = read_line();
+          let trimmed = trim(line);
+          match string_to_int(trimmed) {
+            None    -> None,
+            Some(n) -> match n >= 1 and n <= count {
+              True  -> Some(n - 1),
+              False -> None
+            }
+          }
+        },
+        True -> {
+          tty_hide_cursor();
+          render_items(items, 0, 0);
+          let result = select_one_loop(items, 0, count);
+          tty_show_cursor();
+          result
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// select_many — space-toggle multi-item selection
+// ---------------------------------------------------------------------------
+
+effect[TTY, Log] function select_many_loop(
+  items: List<String>,
+  sel:   List<Bool>,
+  cur:   Int64,
+  count: Int64,
+) -> List<Int64> {
+  let k = tty_read_key(10000);
+  match k {
+    None      -> select_many_loop(items, sel, cur, count),
+    Some(key) -> match key {
+      s if s == "up" -> {
+        let next = match cur > 0 { True -> cur - 1, False -> count - 1 };
+        tty_cursor_up(count);
+        render_items_multi(items, sel, next, 0);
+        select_many_loop(items, sel, next, count)
+      },
+      s if s == "down" -> {
+        let next = match cur < count - 1 { True -> cur + 1, False -> 0 };
+        tty_cursor_up(count);
+        render_items_multi(items, sel, next, 0);
+        select_many_loop(items, sel, next, count)
+      },
+      s if s == "space" -> {
+        let new_sel = toggle_at(sel, cur);
+        tty_cursor_up(count);
+        render_items_multi(items, new_sel, cur, 0);
+        select_many_loop(items, new_sel, cur, count)
+      },
+      s if s == "enter"  -> collect_selected(sel, 0),
+      s if s == "escape" -> [],
+      s if s == "ctrl+c" -> [],
+      _                  -> select_many_loop(items, sel, cur, count)
+    }
+  }
+}
+
+// Select zero or more items from a list.
+// TTY: arrow keys to move, Space to toggle, Enter to confirm, Escape/Ctrl+C
+//      cancels and returns an empty list.
+// Non-TTY: numbered list, user types space-separated numbers (e.g. "1 3").
+// Returns a list of selected 0-based indices (may be empty).
+export effect[TTY, Log, FileSystem] function select_many(
+  items: List<String>,
+  label: String,
+) -> List<Int64> {
+  let count = length(items);
+  match count == 0 {
+    True  -> [],
+    False -> {
+      print_string(label);
+      match tty_is_tty() {
+        False -> {
+          print_numbered(items, 0);
+          print_string("Enter numbers separated by spaces (e.g. 1 3), or press Enter for none:");
+          let line = read_line();
+          collect_selected(parse_multi_input(line, count), 0)
+        },
+        True -> {
+          let sel = make_false_list(count);
+          tty_hide_cursor();
+          render_items_multi(items, sel, 0, 0);
+          let result = select_many_loop(items, sel, 0, count);
+          tty_show_cursor();
+          result
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// confirm — y/n prompt
+// ---------------------------------------------------------------------------
+
+// TTY key-loop for confirm.
+effect[TTY] function confirm_loop() -> Bool {
+  let k = tty_read_key(60000);
+  match k {
+    None      -> confirm_loop(),
+    Some(key) -> match key {
+      s if s == "y"      -> True,
+      s if s == "Y"      -> True,
+      s if s == "enter"  -> True,
+      s if s == "n"      -> False,
+      s if s == "N"      -> False,
+      s if s == "escape" -> False,
+      s if s == "ctrl+c" -> False,
+      _                  -> confirm_loop()
+    }
+  }
+}
+
+// Prompt the user for a y/n answer.
+// TTY: press a single key (y/Enter=yes, n/Escape/Ctrl+C=no).
+// Non-TTY: read a line and accept y/yes (case-insensitive), anything else=no.
+// The prompt is printed without a newline so the key/answer appears inline.
+export effect[TTY, Log, FileSystem] function confirm(question: String) -> Bool {
+  print_no_newline(question ++ " [y/n] ");
+  match tty_is_tty() {
+    False -> {
+      let line = read_line();
+      let low = to_lowercase(trim(line));
+      low == "y" or low == "yes"
+    },
+    True -> {
+      tty_enter_raw();
+      let result = confirm_loop();
+      tty_exit_raw();
+      match result {
+        True  -> print_string("y"),
+        False -> print_string("n")
+      };
+      result
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// prompt_line — inline text prompt
+// ---------------------------------------------------------------------------
+
+// Prompt the user for a line of text.
+// Prints `label: ` (no newline) then reads a line.
+// Works in both TTY and non-TTY environments (read_line() handles both).
+export effect[Log, FileSystem] function prompt_line(label: String) -> String {
+  print_no_newline(label ++ ": ");
+  read_line()
+}

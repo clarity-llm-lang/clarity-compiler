@@ -390,6 +390,10 @@ export function createMiscRuntime(
       console.log(h.readString(ptr));
     },
 
+    print_no_newline(ptr: number): void {
+      process.stdout.write(h.readString(ptr));
+    },
+
     print_int(value: bigint): void {
       console.log(value.toString());
     },

@@ -53,6 +53,7 @@ export declare function createMiscRuntime(h: SharedHelpers, memoryState: {
     assert_true(value: number): void;
     assert_false(value: number): void;
     print_string(ptr: number): void;
+    print_no_newline(ptr: number): void;
     print_int(value: bigint): void;
     print_float(value: number): void;
     log_info(ptr: number): void;

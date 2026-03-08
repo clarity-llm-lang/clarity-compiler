@@ -334,6 +334,9 @@ mapTable, getNextMapHandle) {
         print_string(ptr) {
             console.log(h.readString(ptr));
         },
+        print_no_newline(ptr) {
+            process.stdout.write(h.readString(ptr));
+        },
         print_int(value) {
             console.log(value.toString());
         },

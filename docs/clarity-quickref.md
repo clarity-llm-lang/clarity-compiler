@@ -19,6 +19,7 @@ import { prompt, is_ok } from "std/llm"    // LLM interop
 import { get, post_json, request } from "std/http" // HTTP client
 import { connect, call_tool } from "std/mcp" // MCP tool servers
 import { submit, poll, is_done } from "std/a2a" // A2A agents
+import { select_one, select_many, confirm, prompt_line } from "std/tui" // terminal UI
 import { run, resume, clear } from "std/agent" // resumable agent loops
 import { retrieve, chunk, similarity } from "std/rag" // RAG pipelines
 export function add(a: Int64, b: Int64) -> Int64 { a + b }
@@ -119,7 +120,7 @@ Nested closures (a lambda inside another lambda) are not supported.
 ## String literals
 ```
 "plain string"
-"escape: \n \t \\ \""
+"escape: \n \t \r \e \0 \\ \""     // \e = ESC (0x1B), \0 = NUL, \r = CR
 "Hello ${name}!"                   // interpolation — expr must be String
 "Count: ${int_to_string(n)}"       // call inside interpolation
 "${a} and ${b}"                    // multiple slots
@@ -142,6 +143,7 @@ line
 | Function | Signature | Effect |
 |----------|-----------|--------|
 | `print_string(s)` | `String -> Unit` | Log |
+| `print_no_newline(s)` | `String -> Unit` | Log |
 | `print_int(n)` | `Int64 -> Unit` | Log |
 | `read_line()` | `-> String` | FileSystem |
 | `read_all_stdin()` | `-> String` | FileSystem |

@@ -10,7 +10,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
   <img src="https://img.shields.io/badge/version-0.10.0-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/tests-561%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-578%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/target-WebAssembly-purple.svg" alt="Target: WASM">
 </p>
 
@@ -257,6 +257,24 @@ effect[Model, Persist] function main() -> Result<String, String> {
 }
 ```
 
+### `std/tui` — Interactive terminal UI
+
+```
+import { select_one, select_many, confirm, prompt_line } from "std/tui"
+
+// Arrow-key selection with automatic non-TTY fallback
+effect[TTY, Log, FileSystem] function pick_file(files: List<String>) -> Option<Int64> {
+  select_one(files, "Select file:")
+}
+
+// y/n confirm prompt
+effect[TTY, Log, FileSystem] function should_proceed() -> Bool {
+  confirm("Continue?")
+}
+```
+
+TTY mode uses ANSI cursor control and raw key input. Non-TTY mode (CI, piped stdin) automatically falls back to a numbered list + readline — the same code works in both contexts. ANSI escape sequences (`\e[0m`, `\e[7m`) are supported directly in string literals.
+
 ### `std/hitl` — Human-in-the-loop
 
 ```
@@ -406,7 +424,7 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 
 ## Current Status (v0.10.0)
 
-**561 tests passing.**
+**578 tests passing.**
 
 ### Language
 - Full type system: Int64, Float64, String, Bool, Bytes, Timestamp, Unit, Option\<T\>, Result\<T,E\>, List\<T\>, Map\<K,V\>
@@ -416,6 +434,8 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 - Higher-order functions: named functions as values, lambda expressions (`|param: Type| body`), closures capturing variables from the enclosing scope
 - Immutable-by-default bindings (`let` / `let mut`)
 - Tail call optimization (self-recursive loops)
+- String escapes: `\n`, `\t`, `\r`, `\e` (ESC/ANSI), `\0` (NUL), `\\`, `\"`, `\$`; triple-quoted `"""..."""` multi-line strings
+- `print_no_newline` builtin for inline prompts and TUI rendering
 - Multi-file programs with import/export and file-based module resolution
 - LLM-friendly error messages with migration hints from other languages
 
@@ -426,6 +446,7 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 - **A2A**: `std/a2a` — discover agents, submit tasks, poll results
 - **Resumable agents**: `std/agent` with `Persist` effect + automatic checkpointing
 - **Human-in-the-loop**: `HumanInLoop` effect + `std/hitl`
+- **Terminal UI**: `TTY` effect + `std/tui` — arrow-key selection, y/n confirm, inline prompts; automatic non-TTY fallback
 - **RAG**: `std/rag` — chunk → embed → rank → retrieve
 - **Evals**: `std/eval` — exact, semantic, LLM-as-judge
 - **Observability**: `Trace` effect — structured span tracing in the audit log
@@ -446,7 +467,7 @@ Include [docs/clarity-quickref.md](docs/clarity-quickref.md) in your system prom
 ### Standard library
 `std/math`, `std/string`, `std/list`, `std/json`, `std/url`,
 `std/llm`, `std/mcp`, `std/a2a`, `std/agent`, `std/rag`,
-`std/eval`, `std/stream`, `std/hitl`, `std/context`
+`std/eval`, `std/stream`, `std/hitl`, `std/context`, `std/tui`
 
 ---
 

@@ -79,7 +79,18 @@ export function generateExprTCO(
   switch (expr.kind) {
     case "CallExpr": {
       if (expr.callee.kind === "IdentifierExpr" && expr.callee.name === funcName) {
-        return generateTailCallUpdate(ctx, expr, funcName, loopLabel);
+        const tcoBlock = generateTailCallUpdate(ctx, expr, funcName, loopLabel);
+        // When this TCO branch is used in a context that expects a value (e.g. inside
+        // a match arm or block that returns Option<T>, List<T>, etc.), the emitted
+        // (block none [... br $$loop]) has type `none`, which fails WASM validation
+        // when placed inside a (block (result T)).  Wrapping in a typed block with a
+        // trailing `unreachable` satisfies the validator: the `br` exits the loop
+        // unconditionally so `unreachable` is never reached at runtime.
+        if (expectedType && expectedType.kind !== "Unit") {
+          const wasmExpected = clarityTypeToWasm(expectedType);
+          return ctx.mod.block(null, [tcoBlock, ctx.mod.unreachable()], wasmExpected);
+        }
+        return tcoBlock;
       }
       return ctx.generateExpr(expr, expectedType);
     }
@@ -240,7 +251,7 @@ export function generateUnionMatchTCO(
         result = ctx.mod.block(null, [
           ctx.mod.local.set(bindLocal, getPtr()),
           generateExprTCO(ctx, arm.body, expectedType, funcName, loopLabel),
-        ]);
+        ], expectedType ? clarityTypeToWasm(expectedType) : binaryen.none);
       } else {
         result = generateExprTCO(ctx, arm.body, expectedType, funcName, loopLabel);
       }
@@ -335,7 +346,7 @@ export function generateGenericMatchTCO(
         result = ctx.mod.block(null, [
           ctx.mod.local.set(bindIndex, getTemp()),
           body,
-        ]);
+        ], expectedType ? clarityTypeToWasm(expectedType) : binaryen.none);
       } else {
         result = body;
       }
