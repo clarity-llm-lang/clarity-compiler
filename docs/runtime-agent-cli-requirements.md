@@ -151,6 +151,7 @@ Acceptance criteria:
 
 - Backlog ID: `LANG-CLI-TUI-001`
 - Priority: `P1`
+- Status: **Done** — `std/tui.clarity` delivers `select_one`, `select_many`, `confirm`, `prompt_line`. Arrow-key TTY mode with automatic non-TTY numeric/readline fallback. Requires `TTY`, `Log`, and `FileSystem` effects. ANSI escapes use new `\e` lexer support. New `print_no_newline` builtin added for inline prompts.
 - Item: Deliver RQ-LANG-CLI-007 and RQ-LANG-CLI-008 for native interactive selector UX in Clarity.
 - Dependency: terminal raw input + cursor/clear output primitives.
 

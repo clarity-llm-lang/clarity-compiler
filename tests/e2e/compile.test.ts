@@ -11,6 +11,14 @@ function makeRuntime(config?: RuntimeConfig) {
   return createRuntime(config);
 }
 
+// Module-level helper: write source to a temp file and compile with full std/ resolution.
+function writeAndCompileStd(source: string): ReturnType<typeof compileFile> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clarity-std-test-"));
+  const filePath = path.join(tmpDir, "test.clarity");
+  fs.writeFileSync(filePath, source, "utf-8");
+  return compileFile(filePath);
+}
+
 async function instantiate(wasm: Uint8Array, config?: RuntimeConfig) {
   const runtime = makeRuntime(config);
   const { instance } = await WebAssembly.instantiate(wasm, runtime.imports);
@@ -8203,5 +8211,230 @@ describe("std/context — LANG-RUNTIME-CONTEXT-001", () => {
     const { instance, runtime } = await instantiate(result.wasm!);
     const fn = instance.exports.run as () => number;
     expect(runtime.readString(fn())).toBe("{}");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// String escape sequences: \r, \e, \0
+// ---------------------------------------------------------------------------
+describe("String escape sequences (\\r, \\e, \\0)", () => {
+  it("\\r produces carriage return (0x0D)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      function run() -> String { "\r" }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("\r");
+  });
+
+  it("\\e produces ESC character (0x1B)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      function run() -> String { "\\e[0m" }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("\x1b[0m");
+  });
+
+  it("\\0 produces NUL character (0x00)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      function run() -> String { "\0" }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("\0");
+  });
+
+  it("\\e escape builds ANSI highlight/reset around text", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      function hl(s: String) -> String { "\\e[7m" ++ s ++ "\\e[0m" }
+      function run() -> String { hl("hi") }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!);
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("\x1b[7mhi\x1b[0m");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// print_no_newline builtin
+// ---------------------------------------------------------------------------
+describe("print_no_newline builtin", () => {
+  it("type-checks with Log effect and returns Unit", () => {
+    const result = writeAndCompileStd(`
+      module Test
+      effect[Log] function run() -> Unit {
+        print_no_newline("hello")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("compiles and runs without error alongside print_string", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      effect[Log] function run() -> Unit {
+        print_no_newline("x");
+        print_string("y")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!);
+    expect(() => (instance.exports.run as () => void)()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// std/tui module
+// ---------------------------------------------------------------------------
+describe("std/tui module", () => {
+  it("select_one type-checks with TTY, Log, FileSystem effects", () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_one } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Option<Int64> {
+        select_one(["Alice", "Bob", "Carol"], "Choose:")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("select_many type-checks with TTY, Log, FileSystem effects", () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_many } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> List<Int64> {
+        select_many(["Read", "Write", "Exec"], "Permissions:")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("confirm type-checks with TTY, Log, FileSystem effects", () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { confirm } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Bool {
+        confirm("Proceed?")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("prompt_line type-checks with Log, FileSystem effects", () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { prompt_line } from "std/tui"
+      effect[Log, FileSystem] function run() -> String {
+        prompt_line("Your name")
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("select_one non-TTY: out-of-range input returns None (-1)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_one } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Int64 {
+        let choice = select_one(["A", "B", "C"], "Pick:");
+        match choice { Some(n) -> n, None -> -1 }
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "9\n" });
+    const fn = instance.exports.run as () => bigint;
+    expect(fn()).toBe(-1n);
+  });
+
+  it("select_one non-TTY: valid input '2' returns index 1", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_one } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Int64 {
+        let choice = select_one(["A", "B", "C"], "Pick:");
+        match choice { Some(n) -> n, None -> -1 }
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "2\n" });
+    const fn = instance.exports.run as () => bigint;
+    expect(fn()).toBe(1n);
+  });
+
+  it("select_one returns None immediately for empty list", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_one } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Int64 {
+        let items: List<String> = [];
+        let choice = select_one(items, "Pick:");
+        match choice { Some(n) -> n, None -> -1 }
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "" });
+    const fn = instance.exports.run as () => bigint;
+    expect(fn()).toBe(-1n);
+  });
+
+  it("select_many non-TTY: '1 3' selects 2 items", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { select_many } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Int64 {
+        let sel = select_many(["Read", "Write", "Exec"], "Perms:");
+        list_length(sel)
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "1 3\n" });
+    const fn = instance.exports.run as () => bigint;
+    expect(fn()).toBe(2n);
+  });
+
+  it("confirm non-TTY: 'y' returns True (1)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { confirm } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Bool { confirm("Ok?") }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "y\n" });
+    const fn = instance.exports.run as () => number;
+    expect(fn()).toBe(1);
+  });
+
+  it("confirm non-TTY: 'no' returns False (0)", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { confirm } from "std/tui"
+      effect[TTY, Log, FileSystem] function run() -> Bool { confirm("Ok?") }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance } = await instantiate(result.wasm!, { stdin: "no\n" });
+    const fn = instance.exports.run as () => number;
+    expect(fn()).toBe(0);
+  });
+
+  it("prompt_line returns the entered text", async () => {
+    const result = writeAndCompileStd(`
+      module Test
+      import { prompt_line } from "std/tui"
+      effect[Log, FileSystem] function run() -> String { prompt_line("Name") }
+    `);
+    expect(result.errors).toHaveLength(0);
+    const { instance, runtime } = await instantiate(result.wasm!, { stdin: "Alice\n" });
+    const fn = instance.exports.run as () => number;
+    expect(runtime.readString(fn())).toBe("Alice");
   });
 });

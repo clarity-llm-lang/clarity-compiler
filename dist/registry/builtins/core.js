@@ -4,6 +4,7 @@ import { INT64, FLOAT64, STRING, BOOL, UNIT, BYTES, TIMESTAMP, LIST_STRING, MAP_
 export const CORE_BUILTINS = [
     // --- I/O & Logging (require Log effect) ---
     { name: "print_string", params: [STRING], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print a string to stdout followed by a newline.", category: "log" },
+    { name: "print_no_newline", params: [STRING], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Write a string to stdout without appending a newline. Useful for inline prompts and TUI rendering (e.g. print_no_newline(\"Name: \") then read_line()).", category: "log" },
     { name: "print_int", params: [INT64], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print an integer to stdout followed by a newline.", category: "log" },
     { name: "print_float", params: [FLOAT64], paramNames: ["value"], returnType: UNIT, effects: ["Log"], doc: "Print a float to stdout followed by a newline.", category: "log" },
     { name: "log_info", params: [STRING], paramNames: ["message"], returnType: UNIT, effects: ["Log"], doc: "Log an informational message to stderr.", category: "log" },

@@ -61,7 +61,7 @@ True  False  and  or
 |------|--------|---------|
 | Integer | `[0-9]+` | `0`, `42`, `1000000` |
 | Float | `[0-9]+.[0-9]+` | `3.14`, `0.5`, `100.0` |
-| String | `"..."` with `\n`, `\t`, `\\`, `\"`, `\$` escapes; `${expr}` interpolation | `"hello"`, `"Hi ${name}!"`, `"n=\${int_to_string(n)}"` |
+| String | `"..."` with `\n`, `\t`, `\r`, `\e` (ESC/0x1B), `\0` (NUL), `\\`, `\"`, `\$` escapes; `${expr}` interpolation | `"hello"`, `"Hi ${name}!"`, `"\e[0m"` (ANSI reset) |
 | Multi-line string | `"""..."""` — leading newline stripped | `"""line1\nline2"""` |
 | Boolean | `True` or `False` | `True`, `False` |
 | List | `[expr, ...]` | `[1, 2, 3]`, `[]` |
@@ -662,6 +662,13 @@ The compiler ships with a standard library accessible via `"std/..."` imports:
 - `unwrap_output(status_json: String) -> String` — Extract the `output` field value
 - `unwrap_or`, `is_ok`, `error_of` — Result helpers
 
+**std/tui** — Interactive terminal UI (requires `TTY`, `Log`, `FileSystem` effects)
+- `select_one(items: List<String>, label: String) -> Option<Int64>` — Arrow-key single-item picker; returns 0-based index or `None` on cancel
+- `select_many(items: List<String>, label: String) -> List<Int64>` — Space-toggle multi-item picker; returns list of selected 0-based indices
+- `confirm(question: String) -> Bool` — y/n prompt; Enter/y = yes, n/Escape/Ctrl+C = no
+- `prompt_line(label: String) -> String` — Inline text prompt; prints `label: ` without a newline then reads a line
+- TTY mode: full arrow-key/raw-input UX with ANSI highlight. Non-TTY mode: numbered list + readline fallback (same API).
+
 **std/hitl** — Human-in-the-loop session I/O (requires `HumanInLoop` effect)
 - `ask(key: String, question: String) -> String` — Blocking question/answer handshake (existing behavior)
 - `session_open(run_id: String) -> Result<String, String>` — Start or attach to an interactive HITL session channel
@@ -717,7 +724,8 @@ error: Clarity does not have 'if' expressions
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `print_string(s)` | `String -> Unit` | Print a string to stdout |
+| `print_string(s)` | `String -> Unit` | Print a string to stdout (with newline) |
+| `print_no_newline(s)` | `String -> Unit` | Write a string to stdout without a trailing newline |
 | `print_int(n)` | `Int64 -> Unit` | Print an integer to stdout |
 | `print_float(n)` | `Float64 -> Unit` | Print a float to stdout |
 | `log_info(s)` | `String -> Unit` | Log at info level |
